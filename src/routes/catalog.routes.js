@@ -1,0 +1,47 @@
+import { Router } from 'express';
+import { catalogHandlersFor } from '../controllers/catalog.controller.js';
+import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
+import {
+  validateBody,
+  hotelSchema,
+  tourSchema,
+  activitySchema,
+  transferSchema,
+  experienceSchema,
+  toSnakeCaseColumns,
+} from '../validation/schemas.js';
+
+const router = Router();
+
+function toColumns(req, res, next) {
+  req.body = toSnakeCaseColumns(req.body);
+  next();
+}
+
+const ENTITIES = [
+  { path: 'hotels', schema: hotelSchema },
+  { path: 'tours', schema: tourSchema },
+  { path: 'activities', schema: activitySchema },
+  { path: 'transfers', schema: transferSchema },
+  { path: 'experiences', schema: experienceSchema },
+];
+
+// Public-to-agents listing/detail (doc §12.3) — any authenticated user, agent or staff.
+for (const { path } of ENTITIES) {
+  const handlers = catalogHandlersFor(path);
+  router.get(`/${path}`, requireAuth, handlers.list);
+  router.get(`/${path}/:id`, requireAuth, handlers.get);
+}
+
+// Admin CRUD, mounted under /admin/<entity> from routes/index.js.
+export const adminCatalogRouter = Router();
+adminCatalogRouter.use(requireAuth, requireRole(...STAFF_ROLES));
+
+for (const { path, schema } of ENTITIES) {
+  const handlers = catalogHandlersFor(path);
+  adminCatalogRouter.post(`/${path}`, validateBody(schema), toColumns, handlers.create);
+  adminCatalogRouter.patch(`/${path}/:id`, validateBody(schema.partial()), toColumns, handlers.update);
+  adminCatalogRouter.delete(`/${path}/:id`, handlers.remove);
+}
+
+export default router;
