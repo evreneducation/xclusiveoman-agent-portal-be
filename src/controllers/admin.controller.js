@@ -10,6 +10,7 @@ import {
 } from '../models/users.model.js';
 import { hashPassword } from '../services/auth.service.js';
 import { sendEmail } from '../services/email.service.js';
+import { pickNextRoundRobinRm } from '../services/rmAssignment.service.js';
 import { getIo } from '../sockets/index.js';
 
 function toAdminAgency(agency) {
@@ -55,9 +56,19 @@ export async function patchAgency(req, res, next) {
       }
     }
 
-    const agency = await updateAgency(id, req.body);
-
     const statusJustChangedToApproved = req.body.status === 'approved' && existing.status !== 'approved';
+
+    // REL-1: RM assignment is automatic round-robin on approval — admin
+    // doesn't pick one. An explicit rmUserId in the same request (e.g. a
+    // deliberate manual override) still wins.
+    const patch = { ...req.body };
+    if (statusJustChangedToApproved && !patch.rmUserId) {
+      const rmUserId = await pickNextRoundRobinRm();
+      if (rmUserId) patch.rmUserId = rmUserId;
+    }
+
+    const agency = await updateAgency(id, patch);
+
     if (statusJustChangedToApproved) {
       const { rows } = await pool.query(
         `SELECT * FROM users WHERE agency_id = $1 AND role = 'agency_owner' LIMIT 1`,
