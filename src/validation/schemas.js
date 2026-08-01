@@ -74,6 +74,23 @@ export const patchTeamMemberSchema = z.object({
   status: z.enum(['active', 'disabled']).optional(),
 });
 
+// --- Relationship Managers (doc §4 role table, REL-1/REL-2) ---
+
+export const createRelationshipManagerSchema = z.object({
+  fullName: z.string().min(2).max(200),
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+  phone: z.string().max(30).optional(),
+  whatsappNumber: z.string().max(30).optional(),
+});
+
+export const patchRelationshipManagerSchema = z.object({
+  fullName: z.string().min(2).max(200).optional(),
+  phone: z.string().max(30).optional(),
+  whatsappNumber: z.string().max(30).optional(),
+  status: z.enum(['active', 'disabled']).optional(),
+});
+
 // --- Catalog (doc §11.2 / §12.3) ---
 
 export const hotelSchema = z.object({
