@@ -22,6 +22,11 @@ function createCrudModel(table, columns) {
         values.push(`%${filters.search}%`);
         i += 1;
       }
+      if (filters.isMiceEnabled !== undefined && columns.includes('is_mice_enabled')) {
+        clauses.push(`is_mice_enabled = $${i}`);
+        values.push(filters.isMiceEnabled);
+        i += 1;
+      }
 
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const { rows } = await pool.query(

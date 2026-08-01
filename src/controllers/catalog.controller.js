@@ -22,8 +22,9 @@ export function catalogHandlersFor(entity) {
   return {
     async list(req, res, next) {
       try {
-        const { city, search } = req.query;
-        const rows = await model.list({ city, search });
+        const { city, search, mice } = req.query;
+        const isMiceEnabled = mice === undefined ? undefined : mice === 'true';
+        const rows = await model.list({ city, search, isMiceEnabled });
         res.json({ [entity]: rows });
       } catch (err) {
         next(err);
