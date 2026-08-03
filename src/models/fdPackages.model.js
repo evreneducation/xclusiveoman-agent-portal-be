@@ -4,7 +4,7 @@ const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
   'suitable_age_min', 'is_featured', 'is_bestseller', 'status',
   'deposit_amount', 'balance_due_days_before', 'rate_gold', 'rate_silver', 'rate_bronze',
-  'images',
+  'images', 'hotel_id',
 ];
 
 export async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {
@@ -46,7 +46,13 @@ export async function listAllFdPackagesForAdmin() {
 }
 
 export async function findFdPackageById(id) {
-  const { rows } = await pool.query('SELECT * FROM fd_packages WHERE id = $1', [id]);
+  const { rows } = await pool.query(
+    `SELECT fd_packages.*, hotels.name AS hotel_name
+     FROM fd_packages
+     LEFT JOIN hotels ON hotels.id = fd_packages.hotel_id
+     WHERE fd_packages.id = $1`,
+    [id]
+  );
   return rows[0] || null;
 }
 
@@ -152,11 +158,11 @@ export async function findAddonsByIds(fdPackageId, addonIds) {
   return rows;
 }
 
-export async function addAddon(fdPackageId, { activityId, tourId, pricePerPax }) {
+export async function addAddon(fdPackageId, { activityId, tourId, location, pricePerPax }) {
   const { rows } = await pool.query(
-    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, price_per_pax)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [fdPackageId, activityId || null, tourId || null, pricePerPax]
+    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, location, price_per_pax)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [fdPackageId, activityId || null, tourId || null, location || null, pricePerPax]
   );
   return rows[0];
 }

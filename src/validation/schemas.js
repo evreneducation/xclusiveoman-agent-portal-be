@@ -156,6 +156,7 @@ const CATALOG_KEY_MAP = {
   // FD packages (fdPackageSchema) — these were missing, which silently dropped
   // them from every create/update since FD_COLUMNS looks up the snake_case key.
   heroImageUrl: 'hero_image_url',
+  hotelId: 'hotel_id',
   shortDescription: 'short_description',
   isFeatured: 'is_featured',
   depositAmount: 'deposit_amount',
@@ -181,6 +182,7 @@ export const fdPackageSchema = z.object({
   duration: z.string().max(50).optional(),
   heroImageUrl: z.string().optional(),
   images: z.array(z.string()).optional(),
+  hotelId: z.string().uuid().nullable().optional(),
   shortDescription: z.string().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isFeatured: z.boolean().optional(),
@@ -207,6 +209,7 @@ export const fdAddonSchema = z
   .object({
     activityId: z.string().uuid().optional(),
     tourId: z.string().uuid().optional(),
+    location: z.string().min(1).max(100).optional(),
     pricePerPax: z.number().nonnegative(),
   })
   .refine((v) => Boolean(v.activityId) !== Boolean(v.tourId), {

@@ -23,6 +23,8 @@ function toPublicPackage(fdPackage) {
     duration: fdPackage.duration,
     heroImageUrl: fdPackage.hero_image_url,
     images: fdPackage.images || [],
+    hotelId: fdPackage.hotel_id,
+    hotelName: fdPackage.hotel_name ?? null,
     shortDescription: fdPackage.short_description,
     suitableAgeMin: fdPackage.suitable_age_min,
     rating: fdPackage.rating,
@@ -74,6 +76,7 @@ export async function get(req, res, next) {
           activityId: a.activity_id,
           tourId: a.tour_id,
           name: a.activity_name || a.tour_name,
+          location: a.location,
           pricePerPax: Number(a.price_per_pax),
         })),
       },
@@ -193,7 +196,18 @@ export async function deleteDepartureDate(req, res, next) {
 export async function postAddon(req, res, next) {
   try {
     const addon = await addAddon(req.params.id, req.body);
-    res.status(201).json({ addon });
+    // Mirrors the get() addons mapping below — postAddon previously returned
+    // the raw snake_case DB row, so a freshly-added addon showed a blank
+    // price/location in the UI until the page was reloaded via get().
+    res.status(201).json({
+      addon: {
+        id: addon.id,
+        activityId: addon.activity_id,
+        tourId: addon.tour_id,
+        location: addon.location,
+        pricePerPax: Number(addon.price_per_pax),
+      },
+    });
   } catch (err) {
     next(err);
   }
