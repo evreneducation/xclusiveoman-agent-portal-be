@@ -10,7 +10,7 @@ export const registerSchema = z.object({
   country: z.string().min(2).max(100),
   ownerFullName: z.string().min(2).max(200),
   email: z.string().email(),
-  phone: z.string().max(30).optional(),
+  phone: z.string().min(1, 'Phone is required').max(30),
   password: z.string().min(8).max(128),
 });
 
@@ -50,30 +50,6 @@ export const patchAdminAgencySchema = z.object({
   rmUserId: z.string().uuid().nullable().optional(),
 });
 
-export const createTeamMemberSchema = z.object({
-  fullName: z.string().min(2).max(200),
-  email: z.string().email(),
-  password: z.string().min(8).max(128),
-  phone: z.string().max(30).optional(),
-  whatsappNumber: z.string().max(30).optional(),
-  role: z.enum([
-    'ops_admin',
-    'super_admin',
-    'sales_marketing',
-    'support',
-    'finance',
-  ]),
-  permissions: z.record(z.boolean()).optional(),
-});
-
-export const patchTeamMemberSchema = z.object({
-  role: z
-    .enum(['ops_admin', 'super_admin', 'sales_marketing', 'support', 'finance'])
-    .optional(),
-  permissions: z.record(z.boolean()).optional(),
-  status: z.enum(['active', 'disabled']).optional(),
-});
-
 // --- Relationship Managers (doc §4 role table, REL-1/REL-2) ---
 
 export const createRelationshipManagerSchema = z.object({
@@ -85,6 +61,27 @@ export const createRelationshipManagerSchema = z.object({
 });
 
 export const patchRelationshipManagerSchema = z.object({
+  fullName: z.string().min(2).max(200).optional(),
+  phone: z.string().max(30).optional(),
+  whatsappNumber: z.string().max(30).optional(),
+  status: z.enum(['active', 'disabled']).optional(),
+});
+
+// --- Sales Managers ---
+// Admin-creatable staff is limited to the relationship-manager and
+// sales-manager pools (this schema + the RM one above) — the previous
+// generic /admin/team CRUD (any staff role, including super_admin) was
+// removed in favor of these two dedicated, narrowly-scoped flows.
+
+export const createSalesManagerSchema = z.object({
+  fullName: z.string().min(2).max(200),
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+  phone: z.string().max(30).optional(),
+  whatsappNumber: z.string().max(30).optional(),
+});
+
+export const patchSalesManagerSchema = z.object({
   fullName: z.string().min(2).max(200).optional(),
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),

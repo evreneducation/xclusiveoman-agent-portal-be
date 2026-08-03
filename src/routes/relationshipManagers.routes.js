@@ -9,7 +9,7 @@ import {
 
 const router = Router();
 
-// Creating/managing the RM pool is HR-adjacent, same super_admin gate as /admin/team.
+// Creating/managing the RM pool is HR-adjacent, same super_admin gate as /admin/sales-managers.
 router.use(requireAuth, requireRole('super_admin'));
 
 router.get('/', relationshipManagersController.list);

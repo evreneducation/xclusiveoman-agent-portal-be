@@ -49,4 +49,5 @@ export const STAFF_ROLES = [
   'support',
   'finance',
   'relationship_manager',
+  'sales_manager',
 ];
