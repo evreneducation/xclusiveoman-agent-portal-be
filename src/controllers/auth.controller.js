@@ -23,10 +23,16 @@ const REFRESH_COOKIE_NAME = 'xo_refresh';
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function refreshCookieOptions() {
+  const isProd = env.nodeEnv === 'production';
   return {
     httpOnly: true,
-    secure: env.nodeEnv === 'production',
-    sameSite: 'lax',
+    secure: isProd,
+    // 'lax' only rides along on same-site requests (fine for local dev, where
+    // the Vite proxy keeps everything same-origin). The deployed frontend
+    // calls the API cross-origin (VITE_API_PROXY_TARGET), and browsers never
+    // attach a 'lax' cookie to a cross-site fetch/XHR — only 'none' does,
+    // which itself requires 'secure'.
+    sameSite: isProd ? 'none' : 'lax',
     maxAge: REFRESH_COOKIE_MAX_AGE_MS,
     path: '/api/auth',
   };
@@ -127,7 +133,9 @@ export async function refresh(req, res, next) {
 
 // POST /api/auth/logout
 export async function logout(req, res) {
-  res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+  // clearCookie must be called with the same attributes the cookie was set
+  // with (sameSite/secure included) or some browsers won't match it to clear.
+  res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
   res.status(204).send();
 }
 
