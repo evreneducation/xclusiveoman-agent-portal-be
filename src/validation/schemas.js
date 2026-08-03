@@ -153,6 +153,16 @@ const CATALOG_KEY_MAP = {
   vehicleClass: 'vehicle_class',
   suitableGroupSizeMin: 'suitable_group_size_min',
   suitableGroupSizeMax: 'suitable_group_size_max',
+  // FD packages (fdPackageSchema) — these were missing, which silently dropped
+  // them from every create/update since FD_COLUMNS looks up the snake_case key.
+  heroImageUrl: 'hero_image_url',
+  shortDescription: 'short_description',
+  isFeatured: 'is_featured',
+  depositAmount: 'deposit_amount',
+  balanceDueDaysBefore: 'balance_due_days_before',
+  rateGold: 'rate_gold',
+  rateSilver: 'rate_silver',
+  rateBronze: 'rate_bronze',
 };
 
 export function toSnakeCaseColumns(body) {
@@ -170,6 +180,7 @@ export const fdPackageSchema = z.object({
   theme: z.string().max(100).optional(),
   duration: z.string().max(50).optional(),
   heroImageUrl: z.string().optional(),
+  images: z.array(z.string()).optional(),
   shortDescription: z.string().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isFeatured: z.boolean().optional(),
