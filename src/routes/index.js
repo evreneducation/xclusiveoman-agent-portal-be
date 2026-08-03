@@ -8,6 +8,7 @@ import fdPackagesAdminRoutes from './fdPackagesAdmin.routes.js';
 import paymentsRoutes, { adminPaymentsRouter } from './payments.routes.js';
 import bookingsRoutes from './bookings.routes.js';
 import relationshipManagersRoutes from './relationshipManagers.routes.js';
+import salesManagersRoutes from './salesManagers.routes.js';
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.use('/admin', adminCatalogRouter);
 router.use('/admin', adminPaymentsRouter);
 router.use('/admin/fd-packages', fdPackagesAdminRoutes);
 router.use('/admin/relationship-managers', relationshipManagersRoutes);
+router.use('/admin/sales-managers', salesManagersRoutes);
 router.use('/', catalogRoutes);
 router.use('/departures', departuresRoutes);
 router.use('/payments', paymentsRoutes);

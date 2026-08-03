@@ -15,15 +15,24 @@ export async function findAgencyById(id) {
   return rows[0] || null;
 }
 
+// Joins in the assigned RM's name/email (rather than making the caller do a
+// second lookup) since the admin Agent Approvals list needs to show who each
+// agency is allotted to.
 export async function listAgencies({ status } = {}) {
+  const params = [];
+  let where = '';
   if (status) {
-    const { rows } = await pool.query(
-      'SELECT * FROM agencies WHERE status = $1 ORDER BY created_at DESC',
-      [status]
-    );
-    return rows;
+    params.push(status);
+    where = 'WHERE a.status = $1';
   }
-  const { rows } = await pool.query('SELECT * FROM agencies ORDER BY created_at DESC');
+  const { rows } = await pool.query(
+    `SELECT a.*, rm.full_name AS rm_full_name, rm.email AS rm_email
+     FROM agencies a
+     LEFT JOIN users rm ON rm.id = a.rm_user_id
+     ${where}
+     ORDER BY a.created_at DESC`,
+    params
+  );
   return rows;
 }
 

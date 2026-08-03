@@ -4,6 +4,7 @@ const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
   'suitable_age_min', 'is_featured', 'is_bestseller', 'status',
   'deposit_amount', 'balance_due_days_before', 'rate_gold', 'rate_silver', 'rate_bronze',
+  'images',
 ];
 
 export async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {

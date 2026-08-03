@@ -42,9 +42,9 @@ Or via the API directly (no UI needed):
 1. Register an agency through the agent portal (or `POST /api/auth/register`) — it lands with
    `status = pending`.
 2. Log in as the super admin: `POST /api/auth/login`, grab `accessToken`.
-3. Optionally create a Relationship Manager: `POST /api/admin/team` with
-   `{ "fullName", "email", "password", "role": "ops_admin" }` (or any staff role) — copy the
-   returned `user.id`.
+3. Optionally create a Relationship Manager: `POST /api/admin/relationship-managers` with
+   `{ "fullName", "email", "password" }` (or `POST /api/admin/sales-managers` for a Sales Manager)
+   — copy the returned `user.id`.
 4. Approve the agency: `PATCH /api/admin/agencies/:id` with
    `{ "status": "approved", "tier": "gold", "creditLimit": 5000, "rmUserId": "<staff user id>" }`,
    `Authorization: Bearer <super admin accessToken>`.
