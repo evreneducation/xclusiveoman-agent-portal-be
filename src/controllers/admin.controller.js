@@ -1,14 +1,6 @@
 import { pool } from '../db/pool.js';
 import { listAgencies, findAgencyById, updateAgency } from '../models/agencies.model.js';
-import {
-  createUser,
-  findUserByEmail,
-  findUserById,
-  listStaff,
-  toPublicUser,
-  updateUser,
-} from '../models/users.model.js';
-import { hashPassword } from '../services/auth.service.js';
+import { findUserById } from '../models/users.model.js';
 import { sendEmail } from '../services/email.service.js';
 import { pickNextRoundRobinRm } from '../services/rmAssignment.service.js';
 import { getIo } from '../sockets/index.js';
@@ -25,6 +17,8 @@ function toAdminAgency(agency) {
     creditLimit: agency.credit_limit,
     currencyPreference: agency.currency_preference,
     rmUserId: agency.rm_user_id,
+    rmName: agency.rm_full_name ?? null,
+    rmEmail: agency.rm_email ?? null,
     createdAt: agency.created_at,
   };
 }
@@ -90,63 +84,6 @@ export async function patchAgency(req, res, next) {
     }
 
     res.json({ agency: toAdminAgency(agency) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-// GET /api/admin/team
-export async function getTeam(req, res, next) {
-  try {
-    const staff = await listStaff();
-    res.json({ team: staff.map(toPublicUser) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-// POST /api/admin/team
-export async function createTeamMember(req, res, next) {
-  const client = await pool.connect();
-  try {
-    const { fullName, email, password, phone, whatsappNumber, role, permissions } = req.body;
-
-    const existing = await findUserByEmail(email);
-    if (existing) {
-      return res.status(409).json({ error: 'conflict', message: 'Email already registered' });
-    }
-
-    const passwordHash = await hashPassword(password);
-    const user = await createUser(client, {
-      agencyId: null,
-      role,
-      fullName,
-      email,
-      phone,
-      whatsappNumber,
-      passwordHash,
-      permissions,
-    });
-
-    res.status(201).json({ user: toPublicUser(user) });
-  } catch (err) {
-    next(err);
-  } finally {
-    client.release();
-  }
-}
-
-// PATCH /api/admin/team/:id
-export async function patchTeamMember(req, res, next) {
-  try {
-    const { id } = req.params;
-    const target = await findUserById(id);
-    if (!target || target.agency_id !== null) {
-      return res.status(404).json({ error: 'not_found' });
-    }
-
-    const user = await updateUser(id, req.body);
-    res.json({ user: toPublicUser(user) });
   } catch (err) {
     next(err);
   }
