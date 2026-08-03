@@ -41,6 +41,14 @@ export async function listStaff() {
   return rows;
 }
 
+export async function listStaffByRole(role) {
+  const { rows } = await pool.query(
+    `SELECT * FROM users WHERE agency_id IS NULL AND role = $1 ORDER BY created_at DESC`,
+    [role]
+  );
+  return rows;
+}
+
 export async function listAgencyUsers(agencyId) {
   const { rows } = await pool.query(
     `SELECT * FROM users WHERE agency_id = $1 ORDER BY created_at DESC`,

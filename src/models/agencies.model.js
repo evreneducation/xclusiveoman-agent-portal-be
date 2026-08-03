@@ -27,6 +27,17 @@ export async function listAgencies({ status } = {}) {
   return rows;
 }
 
+// Used to annotate each Relationship Manager with the agencies currently
+// assigned to them (agencies.rm_user_id), rather than a separate join table.
+export async function listAgenciesByRmIds(rmUserIds) {
+  if (rmUserIds.length === 0) return [];
+  const { rows } = await pool.query(
+    `SELECT id, name, rm_user_id FROM agencies WHERE rm_user_id = ANY($1::uuid[]) ORDER BY name`,
+    [rmUserIds]
+  );
+  return rows;
+}
+
 export async function updateAgency(id, fields) {
   const setClauses = [];
   const values = [];
