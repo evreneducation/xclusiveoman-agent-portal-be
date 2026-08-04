@@ -74,13 +74,14 @@ function createCrudModel(table, columns) {
 }
 
 export const hotelsModel = createCrudModel('hotels', [
-  'name', 'city', 'category', 'board_basis_options', 'mice_ballroom_capacity',
-  'mice_breakout_rooms', 'images', 'description', 'is_mice_enabled',
+  'name', 'city', 'state', 'address', 'email', 'category', 'board_basis_options',
+  'mice_ballroom_capacity', 'mice_breakout_rooms', 'images', 'description',
+  'price_per_night', 'is_mice_enabled',
 ]);
 
 export const toursModel = createCrudModel('tours', [
-  'name', 'city', 'description', 'duration', 'images', 'group_suitability',
-  'rating', 'review_count', 'suitable_age_min', 'is_bestseller',
+  'name', 'city', 'description', 'duration', 'images', 'category', 'price',
+  'group_suitability', 'rating', 'review_count', 'suitable_age_min', 'is_bestseller',
 ]);
 
 export const activitiesModel = createCrudModel('activities', [

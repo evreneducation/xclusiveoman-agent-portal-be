@@ -93,21 +93,31 @@ export const patchSalesManagerSchema = z.object({
 export const hotelSchema = z.object({
   name: z.string().min(2).max(200),
   city: z.string().min(2).max(100),
-  category: z.number().int().min(1).max(7).optional(),
+  state: z.string().min(2).max(100),
+  address: z.string().min(1).max(500),
+  email: z.string().email('Enter a valid email address'),
+  // Star category — dropdown limited to 3/4/5 stars, reuses the existing
+  // `category` column rather than adding a duplicate field.
+  category: z.number().int().refine((v) => [3, 4, 5].includes(v), {
+    message: 'Star category must be 3, 4, or 5',
+  }),
+  images: z.array(z.string()).min(1, 'Upload at least one image'),
+  description: z.string().min(1, 'Description is required'),
+  pricePerNight: z.number().positive('Price must be a positive number'),
   boardBasisOptions: z.array(z.string()).optional(),
   miceBallroomCapacity: z.number().int().nonnegative().optional(),
   miceBreakoutRooms: z.number().int().nonnegative().optional(),
-  images: z.array(z.string()).optional(),
-  description: z.string().optional(),
   isMiceEnabled: z.boolean().optional(),
 });
 
 export const tourSchema = z.object({
   name: z.string().min(2).max(200),
   city: z.string().min(2).max(100),
-  description: z.string().optional(),
-  duration: z.string().max(50).optional(),
-  images: z.array(z.string()).optional(),
+  description: z.string().min(1, 'Description is required'),
+  duration: z.string().min(1, 'Duration is required').max(50),
+  images: z.array(z.string()).min(1, 'Upload at least one image'),
+  category: z.string().min(1, 'Tour category is required').max(100),
+  price: z.number().positive('Price must be a positive number'),
   groupSuitability: z.string().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isBestseller: z.boolean().optional(),
@@ -150,6 +160,7 @@ const CATALOG_KEY_MAP = {
   suitableAgeMin: 'suitable_age_min',
   isBestseller: 'is_bestseller',
   pricePerPax: 'price_per_pax',
+  pricePerNight: 'price_per_night',
   vehicleClass: 'vehicle_class',
   suitableGroupSizeMin: 'suitable_group_size_min',
   suitableGroupSizeMax: 'suitable_group_size_max',
@@ -230,6 +241,39 @@ export const createBookingSchema = z.object({
       })
     )
     .optional(),
+});
+
+// --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
+
+const packageRequestTravelerSchema = z.object({
+  name: z.string().min(1),
+  passportNo: z.string().optional(),
+  dob: z.string().optional(),
+  roomShareGroup: z.string().optional(),
+});
+
+export const createPackageRequestSchema = z
+  .object({
+    destination: z.string().min(2, 'Destination is required').max(200),
+    dateFrom: z.string().min(1, 'Travel start date is required'),
+    dateTo: z.string().min(1, 'Travel end date is required'),
+    paxAdults: z.number().int().positive('At least one adult is required'),
+    paxChildren: z.number().int().nonnegative().optional().default(0),
+    hotelIds: z.array(z.string().uuid()).min(1, 'Select a hotel'),
+    tourIds: z.array(z.string().uuid()).optional().default([]),
+    transferIds: z.array(z.string().uuid()).optional().default([]),
+    activityIds: z.array(z.string().uuid()).optional().default([]),
+    travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
+  })
+  .refine((v) => new Date(v.dateFrom) <= new Date(v.dateTo), {
+    message: 'Travel end date must be on or after the start date',
+    path: ['dateTo'],
+  });
+
+// --- Admin Quote Inbox — Custom FIT (doc §12.5 lead-manager route, REL-3) ---
+
+export const assignPackageRequestLeadManagerSchema = z.object({
+  leadManagerUserId: z.string().uuid().nullable(),
 });
 
 export function validateBody(schema) {
