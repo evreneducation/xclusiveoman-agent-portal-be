@@ -93,12 +93,20 @@ export const patchSalesManagerSchema = z.object({
 export const hotelSchema = z.object({
   name: z.string().min(2).max(200),
   city: z.string().min(2).max(100),
-  category: z.number().int().min(1).max(7).optional(),
+  state: z.string().min(2).max(100),
+  address: z.string().min(1).max(500),
+  email: z.string().email('Enter a valid email address'),
+  // Star category — dropdown limited to 3/4/5 stars, reuses the existing
+  // `category` column rather than adding a duplicate field.
+  category: z.number().int().refine((v) => [3, 4, 5].includes(v), {
+    message: 'Star category must be 3, 4, or 5',
+  }),
+  images: z.array(z.string()).min(1, 'Upload at least one image'),
+  description: z.string().min(1, 'Description is required'),
+  pricePerNight: z.number().positive('Price must be a positive number'),
   boardBasisOptions: z.array(z.string()).optional(),
   miceBallroomCapacity: z.number().int().nonnegative().optional(),
   miceBreakoutRooms: z.number().int().nonnegative().optional(),
-  images: z.array(z.string()).optional(),
-  description: z.string().optional(),
   isMiceEnabled: z.boolean().optional(),
 });
 
@@ -150,6 +158,7 @@ const CATALOG_KEY_MAP = {
   suitableAgeMin: 'suitable_age_min',
   isBestseller: 'is_bestseller',
   pricePerPax: 'price_per_pax',
+  pricePerNight: 'price_per_night',
   vehicleClass: 'vehicle_class',
   suitableGroupSizeMin: 'suitable_group_size_min',
   suitableGroupSizeMax: 'suitable_group_size_max',

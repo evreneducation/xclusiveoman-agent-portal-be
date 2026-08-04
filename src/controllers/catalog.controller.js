@@ -5,6 +5,7 @@ import {
   transfersModel,
   experiencesModel,
 } from '../models/catalog.model.js';
+import { uploadBuffer } from '../services/cloudinary.service.js';
 
 const MODELS = {
   hotels: hotelsModel,
@@ -69,4 +70,26 @@ export function catalogHandlersFor(entity) {
       }
     },
   };
+}
+
+// POST /api/admin/hotels/images — multipart, one or more files at req.files
+// (field 'images'). Uploaded up front (before the hotel record exists/is
+// saved) so the Hotel form can submit a single, already-valid payload —
+// mirrors the FD package image-upload pattern (doc §14.3) but isn't scoped
+// to a record id since the hotel may not exist yet on the "Add Hotel" form.
+export async function uploadHotelImages(req, res, next) {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'missing_files', message: 'Upload at least one image' });
+    }
+
+    const folderId = req.body.hotelId || 'new';
+    const uploaded = await Promise.all(
+      req.files.map((file) => uploadBuffer(file.buffer, { folderParts: ['hotels', folderId, 'images'] }))
+    );
+
+    res.status(201).json({ images: uploaded.map((u) => u.secure_url) });
+  } catch (err) {
+    next(err);
+  }
 }

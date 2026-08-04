@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { catalogHandlersFor } from '../controllers/catalog.controller.js';
+import { catalogHandlersFor, uploadHotelImages } from '../controllers/catalog.controller.js';
 import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
+import { upload } from '../middleware/upload.js';
 import {
   validateBody,
   hotelSchema,
@@ -43,5 +44,10 @@ for (const { path, schema } of ENTITIES) {
   adminCatalogRouter.patch(`/${path}/:id`, validateBody(schema.partial()), toColumns, handlers.update);
   adminCatalogRouter.delete(`/${path}/:id`, handlers.remove);
 }
+
+// Hotel image upload — see uploadHotelImages doc comment. POST on a distinct
+// path (/admin/hotels/images vs /admin/hotels), so it can't collide with the
+// generic create route registered above.
+adminCatalogRouter.post('/hotels/images', upload.array('images', 10), uploadHotelImages);
 
 export default router;

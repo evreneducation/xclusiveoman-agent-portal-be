@@ -74,8 +74,9 @@ function createCrudModel(table, columns) {
 }
 
 export const hotelsModel = createCrudModel('hotels', [
-  'name', 'city', 'category', 'board_basis_options', 'mice_ballroom_capacity',
-  'mice_breakout_rooms', 'images', 'description', 'is_mice_enabled',
+  'name', 'city', 'state', 'address', 'email', 'category', 'board_basis_options',
+  'mice_ballroom_capacity', 'mice_breakout_rooms', 'images', 'description',
+  'price_per_night', 'is_mice_enabled',
 ]);
 
 export const toursModel = createCrudModel('tours', [
