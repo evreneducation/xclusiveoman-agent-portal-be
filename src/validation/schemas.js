@@ -243,6 +243,39 @@ export const createBookingSchema = z.object({
     .optional(),
 });
 
+// --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
+
+const packageRequestTravelerSchema = z.object({
+  name: z.string().min(1),
+  passportNo: z.string().optional(),
+  dob: z.string().optional(),
+  roomShareGroup: z.string().optional(),
+});
+
+export const createPackageRequestSchema = z
+  .object({
+    destination: z.string().min(2, 'Destination is required').max(200),
+    dateFrom: z.string().min(1, 'Travel start date is required'),
+    dateTo: z.string().min(1, 'Travel end date is required'),
+    paxAdults: z.number().int().positive('At least one adult is required'),
+    paxChildren: z.number().int().nonnegative().optional().default(0),
+    hotelIds: z.array(z.string().uuid()).min(1, 'Select a hotel'),
+    tourIds: z.array(z.string().uuid()).optional().default([]),
+    transferIds: z.array(z.string().uuid()).optional().default([]),
+    activityIds: z.array(z.string().uuid()).optional().default([]),
+    travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
+  })
+  .refine((v) => new Date(v.dateFrom) <= new Date(v.dateTo), {
+    message: 'Travel end date must be on or after the start date',
+    path: ['dateTo'],
+  });
+
+// --- Admin Quote Inbox — Custom FIT (doc §12.5 lead-manager route, REL-3) ---
+
+export const assignPackageRequestLeadManagerSchema = z.object({
+  leadManagerUserId: z.string().uuid().nullable(),
+});
+
 export function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
