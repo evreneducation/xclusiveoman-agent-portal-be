@@ -80,8 +80,8 @@ export const hotelsModel = createCrudModel('hotels', [
 ]);
 
 export const toursModel = createCrudModel('tours', [
-  'name', 'city', 'description', 'duration', 'images', 'group_suitability',
-  'rating', 'review_count', 'suitable_age_min', 'is_bestseller',
+  'name', 'city', 'description', 'duration', 'images', 'category', 'price',
+  'group_suitability', 'rating', 'review_count', 'suitable_age_min', 'is_bestseller',
 ]);
 
 export const activitiesModel = createCrudModel('activities', [

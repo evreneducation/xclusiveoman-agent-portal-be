@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { catalogHandlersFor, uploadHotelImages } from '../controllers/catalog.controller.js';
+import { catalogHandlersFor, uploadImagesHandlerFor } from '../controllers/catalog.controller.js';
 import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import {
@@ -45,9 +45,10 @@ for (const { path, schema } of ENTITIES) {
   adminCatalogRouter.delete(`/${path}/:id`, handlers.remove);
 }
 
-// Hotel image upload — see uploadHotelImages doc comment. POST on a distinct
-// path (/admin/hotels/images vs /admin/hotels), so it can't collide with the
-// generic create route registered above.
-adminCatalogRouter.post('/hotels/images', upload.array('images', 10), uploadHotelImages);
+// Image upload — see uploadImagesHandlerFor doc comment. POST on a distinct
+// path (e.g. /admin/hotels/images vs /admin/hotels), so it can't collide
+// with the generic create route registered above.
+adminCatalogRouter.post('/hotels/images', upload.array('images', 10), uploadImagesHandlerFor('hotels'));
+adminCatalogRouter.post('/tours/images', upload.array('images', 10), uploadImagesHandlerFor('tours'));
 
 export default router;
