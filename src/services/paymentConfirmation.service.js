@@ -37,7 +37,7 @@ export async function confirmPayment(payment) {
     await sendEmail({
       to: creator.email,
       subject: 'Payment received — Xclusive Oman',
-      text: `We've received your payment of OMR ${payment.amount} for booking ${booking.id}. Booking status: ${status}.`,
+      text: `We've received your payment of ₹${payment.amount} for booking ${booking.id}. Booking status: ${status}.`,
     });
   }
 
@@ -49,6 +49,6 @@ export async function confirmPayment(payment) {
   io?.to(`agency:${booking.agency_id}`).emit('notification:new', {
     type: 'payment_confirmed',
     title: 'Payment confirmed',
-    body: `OMR ${payment.amount} received — booking ${status === 'fully_paid' ? 'fully paid' : 'confirmed'}.`,
+    body: `₹${payment.amount} received — booking ${status === 'fully_paid' ? 'fully paid' : 'confirmed'}.`,
   });
 }

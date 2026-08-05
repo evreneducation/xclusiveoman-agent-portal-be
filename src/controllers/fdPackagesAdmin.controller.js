@@ -15,6 +15,17 @@ import {
 import { toSnakeCaseColumns } from '../validation/schemas.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
+// Postgres NUMERIC columns come back from `pg` as strings (to avoid silent
+// float precision loss), not JS numbers. Left unconverted, those strings flow
+// straight into the admin form on GET and then get POSTed/PATCHed back
+// unchanged, tripping the `z.number()` checks in fdPackageSchema with
+// "Expected number, received string". Convert here so every response the
+// admin UI reads back already has real numbers (null stays null instead of
+// becoming 0, since these columns have no DB default).
+function toNumOrNull(v) {
+  return v === null || v === undefined ? null : Number(v);
+}
+
 function toPublicPackage(fdPackage) {
   return {
     id: fdPackage.id,
@@ -27,17 +38,24 @@ function toPublicPackage(fdPackage) {
     hotelName: fdPackage.hotel_name ?? null,
     shortDescription: fdPackage.short_description,
     suitableAgeMin: fdPackage.suitable_age_min,
-    rating: fdPackage.rating,
+    rating: toNumOrNull(fdPackage.rating),
     reviewCount: fdPackage.review_count,
     isFeatured: fdPackage.is_featured,
     isBestseller: fdPackage.is_bestseller,
     status: fdPackage.status,
-    depositAmount: fdPackage.deposit_amount,
+    depositAmount: toNumOrNull(fdPackage.deposit_amount),
     balanceDueDaysBefore: fdPackage.balance_due_days_before,
-    rateGold: fdPackage.rate_gold,
-    rateSilver: fdPackage.rate_silver,
-    rateBronze: fdPackage.rate_bronze,
+    rateGold: toNumOrNull(fdPackage.rate_gold),
+    rateSilver: toNumOrNull(fdPackage.rate_silver),
+    rateBronze: toNumOrNull(fdPackage.rate_bronze),
     createdAt: fdPackage.created_at,
+    // Only present on the admin list() row (listAllFdPackagesForAdmin's seat
+    // rollup) — undefined here on the single-package get(), which loads the
+    // full departureDates array separately instead.
+    seatsTotal: toNumOrNull(fdPackage.seats_total),
+    seatsBooked: toNumOrNull(fdPackage.seats_booked),
+    firstDepartureDate: fdPackage.first_date ?? null,
+    lastDepartureDate: fdPackage.last_date ?? null,
   };
 }
 
@@ -70,6 +88,7 @@ export async function get(req, res, next) {
           date: d.date,
           seatsTotal: d.seats_total,
           seatsBooked: d.seats_booked,
+          location: d.location,
         })),
         addons: addons.map((a) => ({
           id: a.id,

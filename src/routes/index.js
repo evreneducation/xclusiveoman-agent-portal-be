@@ -11,6 +11,7 @@ import paymentsRoutes, { adminPaymentsRouter } from './payments.routes.js';
 import bookingsRoutes from './bookings.routes.js';
 import relationshipManagersRoutes from './relationshipManagers.routes.js';
 import salesManagersRoutes from './salesManagers.routes.js';
+import locationsRoutes from './locations.routes.js';
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use('/package-requests', packageRequestsRoutes);
 router.use('/admin/package-requests', packageRequestsAdminRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/bookings', bookingsRoutes);
+router.use('/departure-locations', locationsRoutes);
 
 export default router;
