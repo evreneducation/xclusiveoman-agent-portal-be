@@ -214,6 +214,7 @@ export const fdItineraryDaySchema = z.object({
 export const fdDepartureDateSchema = z.object({
   date: z.string(), // ISO date
   seatsTotal: z.number().int().nonnegative(),
+  location: z.string().min(1, 'Location is required').max(100), // e.g. "Mumbai" — picked from GET /departure-locations
 });
 
 export const fdAddonSchema = z
@@ -276,13 +277,43 @@ export const assignPackageRequestLeadManagerSchema = z.object({
   leadManagerUserId: z.string().uuid().nullable(),
 });
 
+// "depositAmount" -> "Deposit amount"
+function humanizeField(field) {
+  const spaced = field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+// Zod's default messages ("Expected number, received string", "Required")
+// are accurate but read like internal type-checker output. Reword the common
+// ones into plain language a non-dev admin user can act on — no mention of
+// JS types like "string"/"undefined".
+function humanizeIssueMessage(msg) {
+  const typeMismatch = msg.match(/^Expected (\w+), received (\w+)$/);
+  if (typeMismatch) {
+    const [, expected, received] = typeMismatch;
+    if (received === 'undefined') return 'is required';
+    const article = /^[aeiou]/i.test(expected) ? 'an' : 'a';
+    return `must be ${article} valid ${expected}`;
+  }
+  if (msg === 'Required') return 'is required';
+  if (/^Invalid /.test(msg)) return msg.replace(/^Invalid (\w+)$/, 'is not a valid $1');
+  return msg;
+}
+
 export function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
+      const details = result.error.flatten();
+      const fieldMessages = Object.entries(details.fieldErrors).map(
+        ([field, messages]) => `${humanizeField(field)} ${humanizeIssueMessage(messages[0])}`
+      );
+      const message = [...details.formErrors, ...fieldMessages].join('; ') || 'Invalid request';
+
       return res.status(400).json({
         error: 'validation_error',
-        details: result.error.flatten(),
+        message,
+        details,
       });
     }
     req.body = result.data;

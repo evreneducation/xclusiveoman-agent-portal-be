@@ -141,7 +141,7 @@ export async function uploadNeftSlip(req, res, next) {
     getIo()?.to('role:finance').emit('notification:new', {
       type: 'neft_slip_submitted',
       title: 'NEFT slip submitted',
-      body: `Booking ${bookingId} — OMR ${req.body.amount}`,
+      body: `Booking ${bookingId} — ₹${req.body.amount}`,
     });
 
     res.status(201).json({ payment: toPublicPayment(payment) });
