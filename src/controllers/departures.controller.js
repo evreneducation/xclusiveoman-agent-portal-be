@@ -11,6 +11,7 @@ import {
   incrementSeatsBooked,
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
+import { hotelsModel } from '../models/catalog.model.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
 
@@ -28,6 +29,11 @@ function toPublicPackage(fdPackage, tier) {
     theme: fdPackage.theme,
     duration: fdPackage.duration,
     heroImageUrl: fdPackage.hero_image_url,
+    images: fdPackage.images || [],
+    // fd_packages has no dedicated destination column — the linked hotel's
+    // city is the closest real-data stand-in (see listFdPackages' join).
+    destination: fdPackage.hotel_city || null,
+    hotelName: fdPackage.hotel_name || null,
     shortDescription: fdPackage.short_description,
     suitableAgeMin: fdPackage.suitable_age_min,
     rating: fdPackage.rating,
@@ -62,6 +68,7 @@ export async function listDepartures(req, res, next) {
             id: d.id,
             date: d.date,
             seatsLeft: d.seats_total - d.seats_booked,
+            location: d.location,
           })),
         };
       })
@@ -84,10 +91,11 @@ export async function getDeparture(req, res, next) {
     const agency = req.user.agency_id ? await findAgencyById(req.user.agency_id) : null;
     const tier = agency?.tier || 'bronze';
 
-    const [itinerary, dates, addons] = await Promise.all([
+    const [itinerary, dates, addons, hotel] = await Promise.all([
       listItineraryDays(fdPackage.id),
       listDepartureDates(fdPackage.id),
       listAddons(fdPackage.id),
+      fdPackage.hotel_id ? hotelsModel.findById(fdPackage.hotel_id) : null,
     ]);
 
     res.json({
@@ -98,12 +106,27 @@ export async function getDeparture(req, res, next) {
           id: d.id,
           date: d.date,
           seatsLeft: d.seats_total - d.seats_booked,
+          location: d.location,
         })),
         addons: addons.map((a) => ({
           id: a.id,
           name: a.activity_name || a.tour_name,
           pricePerPax: Number(a.price_per_pax),
         })),
+        // Richer hotel detail for the "Hotel Information" section — the
+        // listing/toPublicPackage only carries hotelName for the card.
+        hotel: hotel
+          ? {
+              id: hotel.id,
+              name: hotel.name,
+              city: hotel.city,
+              state: hotel.state,
+              category: hotel.category,
+              boardBasisOptions: hotel.board_basis_options || [],
+              description: hotel.description,
+              images: hotel.images || [],
+            }
+          : null,
       },
     });
   } catch (err) {

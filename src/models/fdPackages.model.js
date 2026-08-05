@@ -13,35 +13,59 @@ export async function listFdPackages({ status, destination, theme, featured, bes
   let i = 1;
 
   if (status) {
-    clauses.push(`status = $${i}`);
+    clauses.push(`fd_packages.status = $${i}`);
     values.push(status);
     i += 1;
   } else {
-    clauses.push(`status = 'published'`); // default agent-facing view
+    clauses.push(`fd_packages.status = 'published'`); // default agent-facing view
   }
   if (theme) {
-    clauses.push(`theme = $${i}`);
+    clauses.push(`fd_packages.theme = $${i}`);
     values.push(theme);
     i += 1;
   }
-  if (featured === 'true') clauses.push('is_featured = true');
-  if (bestseller === 'true') clauses.push('is_bestseller = true');
+  if (featured === 'true') clauses.push('fd_packages.is_featured = true');
+  if (bestseller === 'true') clauses.push('fd_packages.is_bestseller = true');
   if (destination) {
-    clauses.push(`title ILIKE $${i}`);
+    // fd_packages has no dedicated "destination" column — the closest real
+    // signal is the linked hotel's city, so match that alongside the title.
+    clauses.push(`(fd_packages.title ILIKE $${i} OR hotels.city ILIKE $${i})`);
     values.push(`%${destination}%`);
     i += 1;
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const { rows } = await pool.query(
-    `SELECT * FROM fd_packages ${where} ORDER BY created_at DESC`,
+    `SELECT fd_packages.*, hotels.city AS hotel_city, hotels.name AS hotel_name
+     FROM fd_packages
+     LEFT JOIN hotels ON hotels.id = fd_packages.hotel_id
+     ${where}
+     ORDER BY fd_packages.created_at DESC`,
     values
   );
   return rows;
 }
 
+// Admin catalog card (ProductCatalog → FD Packages) shows a seats-left
+// progress bar and a departure date range per package, so roll up each
+// package's fd_departure_dates here rather than making the admin UI fetch
+// every package's dates one by one.
 export async function listAllFdPackagesForAdmin() {
-  const { rows } = await pool.query(`SELECT * FROM fd_packages ORDER BY created_at DESC`);
+  const { rows } = await pool.query(`
+    SELECT fd_packages.*,
+      COALESCE(seat_agg.seats_total, 0) AS seats_total,
+      COALESCE(seat_agg.seats_booked, 0) AS seats_booked,
+      seat_agg.first_date,
+      seat_agg.last_date
+    FROM fd_packages
+    LEFT JOIN LATERAL (
+      SELECT SUM(seats_total) AS seats_total, SUM(seats_booked) AS seats_booked,
+        MIN(date) AS first_date, MAX(date) AS last_date
+      FROM fd_departure_dates
+      WHERE fd_departure_dates.fd_package_id = fd_packages.id
+    ) seat_agg ON true
+    ORDER BY fd_packages.created_at DESC
+  `);
   return rows;
 }
 
@@ -114,10 +138,10 @@ export async function findDepartureDateById(id) {
   return rows[0] || null;
 }
 
-export async function addDepartureDate(fdPackageId, { date, seatsTotal }) {
+export async function addDepartureDate(fdPackageId, { date, seatsTotal, location }) {
   const { rows } = await pool.query(
-    'INSERT INTO fd_departure_dates (fd_package_id, date, seats_total) VALUES ($1, $2, $3) RETURNING *',
-    [fdPackageId, date, seatsTotal]
+    'INSERT INTO fd_departure_dates (fd_package_id, date, seats_total, location) VALUES ($1, $2, $3, $4) RETURNING *',
+    [fdPackageId, date, seatsTotal, location]
   );
   return rows[0];
 }
