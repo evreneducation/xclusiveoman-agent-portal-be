@@ -14,6 +14,7 @@ import bookingsRoutes from './bookings.routes.js';
 import relationshipManagersRoutes from './relationshipManagers.routes.js';
 import salesManagersRoutes from './salesManagers.routes.js';
 import locationsRoutes from './locations.routes.js';
+import notificationsRoutes from './notifications.routes.js';
 
 const router = Router();
 
@@ -36,5 +37,6 @@ router.use('/admin/mice-rfqs', miceRfqsAdminRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/bookings', bookingsRoutes);
 router.use('/departure-locations', locationsRoutes);
+router.use('/notifications', notificationsRoutes);
 
 export default router;
