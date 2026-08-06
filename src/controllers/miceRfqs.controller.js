@@ -23,6 +23,31 @@ import {
   respondToMiceRfq,
 } from '../models/miceRfqs.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
+import { createNotification } from '../services/notification.service.js';
+
+// Task 4 — MICE Notification Events (agent's own submit/accept/decline/
+// revision-request actions; Lead Manager Assigned/Proposal Published are the
+// admin-triggered half, added in miceRfqsAdmin.controller.js). Mirrors
+// packageRequests.controller.js's RESPONSE_NOTIFICATIONS exactly, keyed by
+// respond()'s nextStatus so the one endpoint's three outcomes each notify
+// with copy specific to what the agent just did.
+const RESPONSE_NOTIFICATIONS = {
+  accepted: {
+    type: 'mice_proposal_accepted',
+    title: 'Proposal accepted',
+    message: (destination) => `You've accepted the MICE proposal for ${destination}.`,
+  },
+  revision_requested: {
+    type: 'mice_revision_requested',
+    title: 'Revision request sent',
+    message: (destination) => `Your revision request for the ${destination} proposal has been sent to our team.`,
+  },
+  declined: {
+    type: 'mice_proposal_declined',
+    title: 'Proposal declined',
+    message: (destination) => `You've declined the MICE proposal for ${destination}.`,
+  },
+};
 
 // Agent-facing status labels (item 2). The DB enum itself isn't renamed —
 // this is presentation only, so the Admin MICE Request Management screen
@@ -246,6 +271,17 @@ export async function create(req, res, next) {
       destination: rfq.destination,
     });
 
+    // Task 4, event 1 — MICE Request Submitted.
+    await createNotification({
+      recipientUserId: req.user.id,
+      recipientRole: req.user.role,
+      type: 'mice_request_submitted',
+      title: 'MICE request submitted',
+      message: `Your MICE request for ${rfq.destination} has been submitted successfully.`,
+      referenceType: 'mice_rfq',
+      referenceId: rfq.id,
+    });
+
     const row = await findMiceRfqWithLeadManager(rfq.id);
     res.status(201).json({ miceRfq: await toPublicMiceRfq(row) });
   } catch (err) {
@@ -383,6 +419,17 @@ export async function submit(req, res, next) {
       destination: submitted?.destination || current.destination,
     });
 
+    // Task 4, event 1 — MICE Request Submitted (submit-from-draft path).
+    await createNotification({
+      recipientUserId: req.user.id,
+      recipientRole: req.user.role,
+      type: 'mice_request_submitted',
+      title: 'MICE request submitted',
+      message: `Your MICE request for ${submitted?.destination || current.destination} has been submitted successfully.`,
+      referenceType: 'mice_rfq',
+      referenceId: id,
+    });
+
     const row = await findMiceRfqWithLeadManager(id);
     res.json({ miceRfq: await toPublicMiceRfq(row) });
   } catch (err) {
@@ -457,6 +504,18 @@ export async function respond(req, res, next) {
     getIo()?.to('role:ops_admin').emit('quote:agent_responded', {
       miceRfqId: id,
       status: nextStatus,
+    });
+
+    // Task 4, events 4/5/6 — Revision Requested / Proposal Accepted / Proposal Declined.
+    const notif = RESPONSE_NOTIFICATIONS[nextStatus];
+    await createNotification({
+      recipientUserId: req.user.id,
+      recipientRole: req.user.role,
+      type: notif.type,
+      title: notif.title,
+      message: notif.message(current.destination),
+      referenceType: 'mice_rfq',
+      referenceId: id,
     });
 
     const row = await findMiceRfqWithLeadManager(id);

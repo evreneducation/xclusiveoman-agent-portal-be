@@ -11,6 +11,7 @@ import { listHotelsForRfq, listToursForRfq, listTransfersForRfq, listActivitiesF
 import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
+import { createNotification } from '../services/notification.service.js';
 
 function toListItem(row) {
   return {
@@ -258,6 +259,19 @@ export async function assignLeadManager(req, res, next) {
         oldValue: { leadManagerUserId: current.lead_manager_user_id },
         newValue: { leadManagerUserId },
       });
+
+      // Task 4, event 2 — Lead Manager Assigned. `candidate` above is scoped
+      // to the earlier validation block, so it's re-fetched here rather than
+      // widening that block's scope (mirrors packageRequestsAdmin.controller.js).
+      const leadManager = await findUserById(leadManagerUserId);
+      await createNotification({
+        recipientUserId: current.created_by_user_id,
+        type: 'mice_lead_manager_assigned',
+        title: 'Lead Manager assigned',
+        message: `${leadManager?.full_name || 'A Lead Manager'} has been assigned as your Lead Manager for the MICE request to ${current.destination}.`,
+        referenceType: 'mice_rfq',
+        referenceId: id,
+      });
     }
 
     const updatedRow = await findMiceRfqForAdmin(id);
@@ -386,6 +400,16 @@ export async function publish(req, res, next) {
       field: 'status',
       oldValue: { status: current.status },
       newValue: { status: 'published' },
+    });
+
+    // Task 4, event 3 — Proposal Published.
+    await createNotification({
+      recipientUserId: current.created_by_user_id,
+      type: 'mice_proposal_published',
+      title: 'Your MICE proposal is ready',
+      message: `Your MICE proposal for ${current.destination} has been published and is ready for review.`,
+      referenceType: 'mice_rfq',
+      referenceId: id,
     });
 
     // Re-fetch with the agency/lead-manager/published-by joins (see the
