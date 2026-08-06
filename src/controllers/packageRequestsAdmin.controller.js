@@ -17,6 +17,7 @@ import {
 import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
+import { createNotification } from '../services/notification.service.js';
 
 function toListItem(row) {
   return {
@@ -308,6 +309,19 @@ export async function assignLeadManager(req, res, next) {
         oldValue: { leadManagerUserId: current.lead_manager_user_id },
         newValue: { leadManagerUserId },
       });
+
+      // Task 3, event 2 — Lead Manager Assigned. `candidate` above is scoped
+      // to the earlier validation block, so it's re-fetched here rather than
+      // widening that block's scope.
+      const leadManager = await findUserById(leadManagerUserId);
+      await createNotification({
+        recipientUserId: current.created_by_user_id,
+        type: 'fit_lead_manager_assigned',
+        title: 'Lead Manager assigned',
+        message: `${leadManager?.full_name || 'A Lead Manager'} has been assigned as your Lead Manager for the FIT request to ${current.destination}.`,
+        referenceType: 'package_request',
+        referenceId: id,
+      });
     }
 
     const updatedRow = await findPackageRequestForAdmin(id);
@@ -434,6 +448,16 @@ export async function publish(req, res, next) {
       field: 'status',
       oldValue: { status: current.status },
       newValue: { status: 'published' },
+    });
+
+    // Task 3, event 3 — Quote Published.
+    await createNotification({
+      recipientUserId: current.created_by_user_id,
+      type: 'fit_quote_published',
+      title: 'Your Custom FIT quote is ready',
+      message: `Your Custom FIT quote for ${current.destination} has been published and is ready for review.`,
+      referenceType: 'package_request',
+      referenceId: id,
     });
 
     res.json({ packageRequest: await toDetail(updated) });

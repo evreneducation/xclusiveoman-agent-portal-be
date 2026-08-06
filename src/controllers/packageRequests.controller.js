@@ -26,6 +26,30 @@ import {
   respondToPackageRequest,
 } from '../models/packageRequests.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
+import { createNotification } from '../services/notification.service.js';
+
+// Task 3 — FIT Notification Events (agent's own submit/accept/decline/
+// revision-request actions; Lead Manager Assigned/Quote Published are the
+// admin-triggered half, added in packageRequestsAdmin.controller.js). Keyed
+// by respond()'s nextStatus so the one endpoint's three outcomes each notify
+// with copy specific to what the agent just did.
+const RESPONSE_NOTIFICATIONS = {
+  accepted: {
+    type: 'fit_quote_accepted',
+    title: 'Quote accepted',
+    message: (destination) => `You've accepted the Custom FIT quote for ${destination}.`,
+  },
+  revision_requested: {
+    type: 'fit_revision_requested',
+    title: 'Revision request sent',
+    message: (destination) => `Your revision request for the ${destination} quote has been sent to our team.`,
+  },
+  declined: {
+    type: 'fit_quote_declined',
+    title: 'Quote declined',
+    message: (destination) => `You've declined the Custom FIT quote for ${destination}.`,
+  },
+};
 
 // Agent-facing status labels (item 2) — the DB enum itself (doc §11.4:
 // draft/submitted/assigned/costed/published/accepted/revision_requested/
@@ -242,6 +266,17 @@ export async function create(req, res, next) {
       destination: packageRequest.destination,
     });
 
+    // Task 3, event 1 — FIT Request Submitted.
+    await createNotification({
+      recipientUserId: req.user.id,
+      recipientRole: req.user.role,
+      type: 'fit_request_submitted',
+      title: 'FIT request submitted',
+      message: `Your Custom FIT request for ${packageRequest.destination} has been submitted successfully.`,
+      referenceType: 'package_request',
+      referenceId: packageRequest.id,
+    });
+
     const row = await findPackageRequestWithLeadManager(packageRequest.id);
     res.status(201).json({ packageRequest: await toPublicPackageRequest(row) });
   } catch (err) {
@@ -371,6 +406,17 @@ export async function submit(req, res, next) {
       destination: submitted?.destination || current.destination,
     });
 
+    // Task 3, event 1 — FIT Request Submitted (submit-from-draft path).
+    await createNotification({
+      recipientUserId: req.user.id,
+      recipientRole: req.user.role,
+      type: 'fit_request_submitted',
+      title: 'FIT request submitted',
+      message: `Your Custom FIT request for ${submitted?.destination || current.destination} has been submitted successfully.`,
+      referenceType: 'package_request',
+      referenceId: id,
+    });
+
     const row = await findPackageRequestWithLeadManager(id);
     res.json({ packageRequest: await toPublicPackageRequest(row) });
   } catch (err) {
@@ -445,6 +491,18 @@ export async function respond(req, res, next) {
     getIo()?.to('role:ops_admin').emit('quote:agent_responded', {
       packageRequestId: id,
       status: nextStatus,
+    });
+
+    // Task 3, events 4/5/6 — Revision Requested / Quote Accepted / Quote Declined.
+    const notif = RESPONSE_NOTIFICATIONS[nextStatus];
+    await createNotification({
+      recipientUserId: req.user.id,
+      recipientRole: req.user.role,
+      type: notif.type,
+      title: notif.title,
+      message: notif.message(current.destination),
+      referenceType: 'package_request',
+      referenceId: id,
     });
 
     const row = await findPackageRequestWithLeadManager(id);
