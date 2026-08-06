@@ -121,6 +121,7 @@ export const tourSchema = z.object({
   groupSuitability: z.string().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isBestseller: z.boolean().optional(),
+  isMiceEnabled: z.boolean().optional(),
 });
 
 export const activitySchema = z.object({
@@ -132,6 +133,7 @@ export const activitySchema = z.object({
   pricePerPax: z.number().nonnegative().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isBestseller: z.boolean().optional(),
+  isMiceEnabled: z.boolean().optional(),
 });
 
 export const transferSchema = z.object({
@@ -140,6 +142,10 @@ export const transferSchema = z.object({
   vehicleClass: z.string().max(100).optional(),
   city: z.string().max(100).optional(),
   description: z.string().optional(),
+  // Feeds the Quote Details "Landing Cost Breakdown" auto-calculation —
+  // optional (unlike hotel/tour price) since existing transfers predate it.
+  price: z.number().nonnegative().optional(),
+  isMiceEnabled: z.boolean().optional(),
 });
 
 export const experienceSchema = z.object({
@@ -246,12 +252,21 @@ export const createBookingSchema = z.object({
 
 // --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
 
-const packageRequestTravelerSchema = z.object({
-  name: z.string().min(1),
-  passportNo: z.string().optional(),
-  dob: z.string().optional(),
-  roomShareGroup: z.string().optional(),
-});
+// Passport is required for adult travelers only — isChild (backed by
+// package_request_travelers.is_child) is what the PackageBuilder's
+// Traveller Details step uses to decide whether to even show the field.
+const packageRequestTravelerSchema = z
+  .object({
+    name: z.string().min(1),
+    passportNo: z.string().optional(),
+    dob: z.string().optional(),
+    roomShareGroup: z.string().optional(),
+    isChild: z.boolean().optional().default(false),
+  })
+  .refine((v) => v.isChild || !!v.passportNo?.trim(), {
+    message: 'Passport number is required for adult travelers',
+    path: ['passportNo'],
+  });
 
 export const createPackageRequestSchema = z
   .object({
@@ -271,10 +286,143 @@ export const createPackageRequestSchema = z
     path: ['dateTo'],
   });
 
+// Agent Quote lifecycle — Draft Quotes (item 1). Deliberately lenient: a
+// half-built package (no destination yet, no hotel picked, a traveler row
+// with just a name typed) must save without tripping createPackageRequestSchema's
+// strict rules above — those still gate the final POST .../submit.
+const draftPackageRequestTravelerSchema = z.object({
+  name: z.string().max(200).optional().default(''),
+  passportNo: z.string().optional(),
+  dob: z.string().optional(),
+  roomShareGroup: z.string().optional(),
+  isChild: z.boolean().optional().default(false),
+});
+
+export const draftPackageRequestSchema = z.object({
+  destination: z.string().max(200).optional().default(''),
+  dateFrom: z.string().optional().nullable(),
+  dateTo: z.string().optional().nullable(),
+  paxAdults: z.number().int().positive().optional().default(1),
+  paxChildren: z.number().int().nonnegative().optional().default(0),
+  hotelIds: z.array(z.string().uuid()).optional().default([]),
+  tourIds: z.array(z.string().uuid()).optional().default([]),
+  transferIds: z.array(z.string().uuid()).optional().default([]),
+  activityIds: z.array(z.string().uuid()).optional().default([]),
+  travelers: z.array(draftPackageRequestTravelerSchema).optional().default([]),
+});
+
+// Agent Quote lifecycle — item 5 (Accept / Request Revision / Decline a
+// Published quote). Revision comments are how the agent tells the admin
+// what to change, so they're required for that one action.
+export const respondPackageRequestSchema = z
+  .object({
+    action: z.enum(['accept', 'revision', 'decline']),
+    comments: z.string().max(2000).optional(),
+  })
+  .refine((v) => v.action !== 'revision' || !!v.comments?.trim(), {
+    message: 'Add a comment describing what needs to change',
+    path: ['comments'],
+  });
+
 // --- Admin Quote Inbox — Custom FIT (doc §12.5 lead-manager route, REL-3) ---
 
 export const assignPackageRequestLeadManagerSchema = z.object({
   leadManagerUserId: z.string().uuid().nullable(),
+});
+
+// Quote Details — Editable Costing + Markup Panel. The FE always sends the
+// full costing state on every save ("Save Draft"/"Publish Quote"), so these
+// aren't `.optional()` — `null` on a *Cost field means "cleared, use the
+// Product Catalog auto total" (doc §2 "override any automatically calculated
+// amount"), distinct from a real 0.
+export const packageRequestCostingSchema = z.object({
+  hotelCost: z.number().nonnegative().nullable(),
+  tourCost: z.number().nonnegative().nullable(),
+  transferCost: z.number().nonnegative().nullable(),
+  extraCost: z.number().nonnegative().nullable(),
+  markupType: z.enum(['percentage', 'fixed']),
+  markupValue: z.number().nonnegative(),
+  internalNotes: z.string().max(5000).optional().default(''),
+});
+
+// --- MICE Booking Engine (doc §6.3 / §9.4, MICE-1..MICE-7) ---
+// Submit-in-one-call, same shape as the original (pre-draft)
+// createPackageRequestSchema — still used directly by POST /mice/rfqs and by
+// POST /mice/rfqs/:id/submit (an existing draft's final validation).
+
+export const createMiceRfqSchema = z
+  .object({
+    destination: z.string().min(2, 'Destination is required').max(200),
+    groupSize: z.number().int().positive('Group size is required'),
+    eventDateFrom: z.string().min(1, 'Event start date is required'),
+    eventDateTo: z.string().min(1, 'Event end date is required'),
+    hallCapacityNeeded: z.number().int().positive().optional(),
+    seatingStyle: z.string().max(100).optional(),
+    avNeeds: z.string().max(1000).optional(),
+    otherRequirements: z.string().max(2000).optional(),
+    // MICE-2/MICE-7: "up to 3 hotels", server-enforced.
+    hotelIds: z.array(z.string().uuid()).min(1, 'Select at least one hotel').max(3, 'Select up to 3 hotels'),
+    tourIds: z.array(z.string().uuid()).optional().default([]),
+    transferIds: z.array(z.string().uuid()).optional().default([]),
+    activityIds: z.array(z.string().uuid()).optional().default([]),
+  })
+  .refine((v) => new Date(v.eventDateFrom) <= new Date(v.eventDateTo), {
+    message: 'Event end date must be on or after the start date',
+    path: ['eventDateTo'],
+  });
+
+// Agent MICE Request workflow — MICE Drafts (item 1). Deliberately lenient:
+// a half-built RFQ (no destination yet, no hotel picked) must save without
+// tripping createMiceRfqSchema's strict rules above — those still gate the
+// final POST .../submit. The 3-hotel cap still applies even while drafting.
+export const draftMiceRfqSchema = z.object({
+  destination: z.string().max(200).optional().default(''),
+  groupSize: z.number().int().positive().optional().nullable(),
+  eventDateFrom: z.string().optional().nullable(),
+  eventDateTo: z.string().optional().nullable(),
+  hallCapacityNeeded: z.number().int().positive().optional().nullable(),
+  seatingStyle: z.string().max(100).optional(),
+  avNeeds: z.string().max(1000).optional(),
+  otherRequirements: z.string().max(2000).optional(),
+  hotelIds: z.array(z.string().uuid()).max(3, 'Select up to 3 hotels').optional().default([]),
+  tourIds: z.array(z.string().uuid()).optional().default([]),
+  transferIds: z.array(z.string().uuid()).optional().default([]),
+  activityIds: z.array(z.string().uuid()).optional().default([]),
+});
+
+// Agent MICE Request workflow — item 5 (Accept / Request Revision / Decline
+// a Published proposal). Revision comments are how the agent tells the
+// admin what to change, so they're required for that one action.
+export const respondMiceRfqSchema = z
+  .object({
+    action: z.enum(['accept', 'revision', 'decline']),
+    comments: z.string().max(2000).optional(),
+  })
+  .refine((v) => v.action !== 'revision' || !!v.comments?.trim(), {
+    message: 'Add a comment describing what needs to change',
+    path: ['comments'],
+  });
+
+// --- Admin MICE Request Management (this task's lead-manager route, REL-3) ---
+
+export const assignMiceRfqLeadManagerSchema = z.object({
+  leadManagerUserId: z.string().uuid().nullable(),
+});
+
+// MICE Request Detail — Costing & Markup Panel. Same shape/semantics as
+// packageRequestCostingSchema above ("Save Draft" always sends the full
+// costing state; `null` on a *Cost field means "cleared, use the Product
+// Catalog auto total") — venueCost/miscellaneousCost have no catalog source
+// so their auto is always 0, but they're still overridable the same way.
+export const miceRfqCostingSchema = z.object({
+  hotelCost: z.number().nonnegative().nullable(),
+  toursActivitiesCost: z.number().nonnegative().nullable(),
+  transferCost: z.number().nonnegative().nullable(),
+  venueCost: z.number().nonnegative().nullable(),
+  miscellaneousCost: z.number().nonnegative().nullable(),
+  markupType: z.enum(['percentage', 'fixed']),
+  markupValue: z.number().nonnegative(),
+  internalNotes: z.string().max(5000).optional().default(''),
 });
 
 // "depositAmount" -> "Deposit amount"
