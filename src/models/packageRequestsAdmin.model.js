@@ -10,6 +10,7 @@ const JOINS = `
   JOIN agencies a ON a.id = pr.agency_id
   JOIN users u ON u.id = pr.created_by_user_id
   LEFT JOIN users lm ON lm.id = pr.lead_manager_user_id
+  LEFT JOIN users pub ON pub.id = pr.published_by_user_id
 `;
 
 const SELECT_COLUMNS = `
@@ -18,7 +19,8 @@ const SELECT_COLUMNS = `
   u.full_name AS agent_full_name,
   u.email AS agent_email,
   lm.full_name AS lead_manager_full_name,
-  lm.email AS lead_manager_email
+  lm.email AS lead_manager_email,
+  pub.full_name AS published_by_full_name
 `;
 
 // Item 1: the inbox only ever shows requests the agent has actually
@@ -98,6 +100,35 @@ export async function updatePackageRequestLeadManager(id, leadManagerUserId, sta
      WHERE id = $3
      RETURNING *`,
     [leadManagerUserId, status, id]
+  );
+  return rows[0] || null;
+}
+
+// Quote Details — Editable Costing + Markup Panel ("Save Draft"). Always
+// writes net_cost_breakdown/markup_rule/sell_price/internal_notes together
+// since the FE always saves the full costing state in one call.
+export async function updatePackageRequestCosting(id, { netCostBreakdown, markupRule, sellPrice, internalNotes, status }) {
+  const { rows } = await pool.query(
+    `UPDATE package_requests
+     SET net_cost_breakdown = $1, markup_rule = $2, sell_price = $3, internal_notes = $4,
+         status = $5, updated_at = now()
+     WHERE id = $6
+     RETURNING *`,
+    [JSON.stringify(netCostBreakdown), JSON.stringify(markupRule), sellPrice, internalNotes, status, id]
+  );
+  return rows[0] || null;
+}
+
+// Quote Details — "Publish Quote". Costing/markup are saved separately
+// (updatePackageRequestCosting, above) before this is ever called — this
+// only flips status and stamps who/when.
+export async function publishPackageRequest(id, publishedByUserId) {
+  const { rows } = await pool.query(
+    `UPDATE package_requests
+     SET status = 'published', published_at = now(), published_by_user_id = $1, updated_at = now()
+     WHERE id = $2
+     RETURNING *`,
+    [publishedByUserId, id]
   );
   return rows[0] || null;
 }
