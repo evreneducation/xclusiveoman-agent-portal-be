@@ -190,6 +190,7 @@ async function toDetail(row) {
       passportNo: t.passport_no,
       dob: t.dob,
       roomShareGroup: t.room_share_group,
+      isChild: t.is_child,
     })),
     // Landing Cost Breakdown + Markup Panel + Quote Summary (items 1/3/4).
     costing: {

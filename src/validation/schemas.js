@@ -249,12 +249,21 @@ export const createBookingSchema = z.object({
 
 // --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
 
-const packageRequestTravelerSchema = z.object({
-  name: z.string().min(1),
-  passportNo: z.string().optional(),
-  dob: z.string().optional(),
-  roomShareGroup: z.string().optional(),
-});
+// Passport is required for adult travelers only — isChild (backed by
+// package_request_travelers.is_child) is what the PackageBuilder's
+// Traveller Details step uses to decide whether to even show the field.
+const packageRequestTravelerSchema = z
+  .object({
+    name: z.string().min(1),
+    passportNo: z.string().optional(),
+    dob: z.string().optional(),
+    roomShareGroup: z.string().optional(),
+    isChild: z.boolean().optional().default(false),
+  })
+  .refine((v) => v.isChild || !!v.passportNo?.trim(), {
+    message: 'Passport number is required for adult travelers',
+    path: ['passportNo'],
+  });
 
 export const createPackageRequestSchema = z
   .object({
@@ -283,6 +292,7 @@ const draftPackageRequestTravelerSchema = z.object({
   passportNo: z.string().optional(),
   dob: z.string().optional(),
   roomShareGroup: z.string().optional(),
+  isChild: z.boolean().optional().default(false),
 });
 
 export const draftPackageRequestSchema = z.object({

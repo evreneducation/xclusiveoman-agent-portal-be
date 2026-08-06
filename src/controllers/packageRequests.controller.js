@@ -171,6 +171,7 @@ async function toPublicPackageRequest(row) {
       passportNo: t.passport_no,
       dob: t.dob,
       roomShareGroup: t.room_share_group,
+      isChild: t.is_child,
     })),
     // REL-4: lead manager's contact card once assigned.
     leadManager: row.lead_manager_user_id

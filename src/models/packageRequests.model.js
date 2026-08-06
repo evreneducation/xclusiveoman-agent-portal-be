@@ -56,9 +56,16 @@ export async function addActivitySelections(client, packageRequestId, activityId
 export async function addTravelers(client, packageRequestId, travelers) {
   for (const traveler of travelers) {
     await client.query(
-      `INSERT INTO package_request_travelers (package_request_id, name, passport_no, dob, room_share_group)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [packageRequestId, traveler.name, traveler.passportNo || null, traveler.dob || null, traveler.roomShareGroup || null]
+      `INSERT INTO package_request_travelers (package_request_id, name, passport_no, dob, room_share_group, is_child)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        packageRequestId,
+        traveler.name,
+        traveler.passportNo || null,
+        traveler.dob || null,
+        traveler.roomShareGroup || null,
+        !!traveler.isChild,
+      ]
     );
   }
 }
