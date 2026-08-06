@@ -39,7 +39,12 @@ function toListItem(row) {
 
 // Human labels for the "Activity History" timeline (item 7), keyed by the
 // `field` an audit_logs row was written against — see saveCosting/publish/
-// assignLeadManager below, the only three places that write one for this entity.
+// assignLeadManager below. 'draft_saved'/'submitted'/'agent_response' are
+// written by the Agent Quote lifecycle's own controller (packageRequests.
+// controller.js) against this same audit_logs table — handled explicitly
+// below rather than here since they need more than a flat label (dedupe
+// against the synthesized "Submitted"; agent_response's label depends on
+// its new_value.status).
 const ACTIVITY_LABELS = {
   lead_manager_user_id: 'Lead Manager Assigned',
   net_cost_breakdown: 'Landing Cost Updated',
@@ -47,19 +52,43 @@ const ACTIVITY_LABELS = {
   status: 'Quote Published',
 };
 
-// "Submitted" isn't an audit_logs row — it's synthesized from the request's
-// own created_at/agent, which already exist, rather than writing a redundant
-// log entry the moment the (untouched) agent-side create controller runs.
+function labelForAgentResponse(log) {
+  const s = log.new_value?.status;
+  if (s === 'accepted') return 'Accepted';
+  if (s === 'revision_requested') return 'Revision Requested';
+  if (s === 'declined') return 'Declined';
+  return 'Agent Responded';
+}
+
+// "Submitted" falls back to the request's own created_at/agent when the
+// request never went through the draft flow (the original one-shot
+// POST /package-requests path never writes a 'submitted' audit_logs row) —
+// otherwise the real 'submitted' row (written on draft -> submit) is used so
+// a request that spent time as a draft doesn't misreport its draft-creation
+// time as its submission time.
 async function buildActivityHistory(row) {
   const logs = await listAuditLogsForEntity('package_request', row.id);
-  const timeline = [
-    { label: 'Submitted', at: row.created_at, by: row.agent_full_name || null },
-    ...logs.map((log) => ({
-      label: ACTIVITY_LABELS[log.field] || log.field,
+  const draftSavedLog = logs.find((l) => l.field === 'draft_saved');
+  const submittedLog = logs.find((l) => l.field === 'submitted');
+
+  const timeline = [];
+  if (draftSavedLog) {
+    timeline.push({ label: 'Draft Saved', at: draftSavedLog.created_at, by: draftSavedLog.actor_full_name || null });
+  }
+  timeline.push({
+    label: 'Submitted',
+    at: submittedLog ? submittedLog.created_at : row.created_at,
+    by: submittedLog ? submittedLog.actor_full_name || null : row.agent_full_name || null,
+  });
+  for (const log of logs) {
+    if (log.field === 'draft_saved' || log.field === 'submitted') continue; // already placed above
+    timeline.push({
+      label: log.field === 'agent_response' ? labelForAgentResponse(log) : ACTIVITY_LABELS[log.field] || log.field,
       at: log.created_at,
       by: log.actor_full_name || null,
-    })),
-  ];
+    });
+  }
+
   return timeline.sort((a, b) => new Date(a.at) - new Date(b.at));
 }
 
@@ -261,6 +290,13 @@ export async function assignLeadManager(req, res, next) {
         packageRequestId: id,
         destination: current.destination,
       });
+      // Agent Quote lifecycle (item 7) — same event/room the agent's "My FIT
+      // Requests" list already listens on, so status updates live instantly
+      // instead of on next page load.
+      getIo()?.to(`agency:${current.agency_id}`).emit('quote:status_changed', {
+        packageRequestId: id,
+        status: nextStatus,
+      });
       // Activity History (item 7) — only logged on an actual assignment,
       // matching the doc's example timeline entry ("Lead Manager Assigned").
       await insertAuditLog({
@@ -381,6 +417,14 @@ export async function publish(req, res, next) {
     }
 
     const updated = await publishPackageRequest(id, req.user.id);
+
+    // Agent Quote lifecycle (item 7): Publish Quote, and — when this fires a
+    // second time after a Revision Requested cycle — the admin's response to
+    // that revision, both covered by the same event.
+    getIo()?.to(`agency:${current.agency_id}`).emit('quote:status_changed', {
+      packageRequestId: id,
+      status: 'published',
+    });
 
     await insertAuditLog({
       actorUserId: req.user.id,

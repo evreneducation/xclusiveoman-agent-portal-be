@@ -274,6 +274,43 @@ export const createPackageRequestSchema = z
     path: ['dateTo'],
   });
 
+// Agent Quote lifecycle — Draft Quotes (item 1). Deliberately lenient: a
+// half-built package (no destination yet, no hotel picked, a traveler row
+// with just a name typed) must save without tripping createPackageRequestSchema's
+// strict rules above — those still gate the final POST .../submit.
+const draftPackageRequestTravelerSchema = z.object({
+  name: z.string().max(200).optional().default(''),
+  passportNo: z.string().optional(),
+  dob: z.string().optional(),
+  roomShareGroup: z.string().optional(),
+});
+
+export const draftPackageRequestSchema = z.object({
+  destination: z.string().max(200).optional().default(''),
+  dateFrom: z.string().optional().nullable(),
+  dateTo: z.string().optional().nullable(),
+  paxAdults: z.number().int().positive().optional().default(1),
+  paxChildren: z.number().int().nonnegative().optional().default(0),
+  hotelIds: z.array(z.string().uuid()).optional().default([]),
+  tourIds: z.array(z.string().uuid()).optional().default([]),
+  transferIds: z.array(z.string().uuid()).optional().default([]),
+  activityIds: z.array(z.string().uuid()).optional().default([]),
+  travelers: z.array(draftPackageRequestTravelerSchema).optional().default([]),
+});
+
+// Agent Quote lifecycle — item 5 (Accept / Request Revision / Decline a
+// Published quote). Revision comments are how the agent tells the admin
+// what to change, so they're required for that one action.
+export const respondPackageRequestSchema = z
+  .object({
+    action: z.enum(['accept', 'revision', 'decline']),
+    comments: z.string().max(2000).optional(),
+  })
+  .refine((v) => v.action !== 'revision' || !!v.comments?.trim(), {
+    message: 'Add a comment describing what needs to change',
+    path: ['comments'],
+  });
+
 // --- Admin Quote Inbox — Custom FIT (doc §12.5 lead-manager route, REL-3) ---
 
 export const assignPackageRequestLeadManagerSchema = z.object({
