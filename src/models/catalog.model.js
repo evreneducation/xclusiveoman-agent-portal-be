@@ -90,7 +90,7 @@ export const activitiesModel = createCrudModel('activities', [
 ]);
 
 export const transfersModel = createCrudModel('transfers', [
-  'name', 'type', 'vehicle_class', 'city', 'description',
+  'name', 'type', 'vehicle_class', 'city', 'description', 'price',
 ]);
 
 export const experiencesModel = createCrudModel('experiences', [

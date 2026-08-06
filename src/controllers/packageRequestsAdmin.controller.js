@@ -2,6 +2,8 @@ import {
   listPackageRequestsForAdmin,
   findPackageRequestForAdmin,
   updatePackageRequestLeadManager,
+  updatePackageRequestCosting,
+  publishPackageRequest,
 } from '../models/packageRequestsAdmin.model.js';
 // Read helpers reused as-is from the agent-side FIT Package Builder model —
 // imported only, never modified, so that module stays untouched.
@@ -13,6 +15,7 @@ import {
   listTravelersForRequest,
 } from '../models/packageRequests.model.js';
 import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
+import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
 
 function toListItem(row) {
@@ -34,18 +37,84 @@ function toListItem(row) {
   };
 }
 
-// Blind pricing (doc §15 rule 65 / FIT-6, item 7 of this task): identical
-// guarantee to the agent-facing serializer — net_cost_breakdown, markup_rule,
-// sell_price and every catalog item's price field are left out here too. The
-// Quote Inbox precedes costing, which is a separate, later task.
+// Human labels for the "Activity History" timeline (item 7), keyed by the
+// `field` an audit_logs row was written against — see saveCosting/publish/
+// assignLeadManager below, the only three places that write one for this entity.
+const ACTIVITY_LABELS = {
+  lead_manager_user_id: 'Lead Manager Assigned',
+  net_cost_breakdown: 'Landing Cost Updated',
+  markup_rule: 'Markup Updated',
+  status: 'Quote Published',
+};
+
+// "Submitted" isn't an audit_logs row — it's synthesized from the request's
+// own created_at/agent, which already exist, rather than writing a redundant
+// log entry the moment the (untouched) agent-side create controller runs.
+async function buildActivityHistory(row) {
+  const logs = await listAuditLogsForEntity('package_request', row.id);
+  const timeline = [
+    { label: 'Submitted', at: row.created_at, by: row.agent_full_name || null },
+    ...logs.map((log) => ({
+      label: ACTIVITY_LABELS[log.field] || log.field,
+      at: log.created_at,
+      by: log.actor_full_name || null,
+    })),
+  ];
+  return timeline.sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
+function toNumberOrZero(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function sumPrices(items, key) {
+  return items.reduce((total, item) => total + toNumberOrZero(item[key]), 0);
+}
+
+// Landing Cost Breakdown auto total (item 1): sum of each selected catalog
+// item's Product Catalog price. The FIT Package Builder (untouched by this
+// task) doesn't capture a nights/qty multiplier per selection, so hotels/
+// tours/transfers count one unit per selected item; activities.price_per_pax
+// is the one field that's explicitly "per pax", so it's the one component
+// multiplied by total pax.
+function computeAutoCosting({ hotels, tours, transfers, activities, totalPax }) {
+  return {
+    hotelCostAuto: sumPrices(hotels, 'price_per_night'),
+    tourCostAuto: sumPrices(tours, 'price'),
+    transferCostAuto: sumPrices(transfers, 'price'),
+    extraCostAuto: sumPrices(activities, 'price_per_pax') * Math.max(totalPax, 1),
+  };
+}
+
+function round2(n) {
+  return Math.round(toNumberOrZero(n) * 100) / 100;
+}
+
+function normalizeComponent(c) {
+  return {
+    auto: c?.auto != null ? Number(c.auto) : 0,
+    override: c?.override != null ? Number(c.override) : null,
+    total: c?.total != null ? Number(c.total) : 0,
+  };
+}
+
+// Costing is admin-only (this whole controller), so — unlike the
+// agent-facing serializer in packageRequests.controller.js, left untouched —
+// catalog item prices are included in the hotels/tours/transfers/activities
+// below, to back the Landing Cost Breakdown's per-item display.
 async function toDetail(row) {
-  const [hotels, tours, transfers, activities, travelers] = await Promise.all([
+  const [hotels, tours, transfers, activities, travelers, activityHistory] = await Promise.all([
     listHotelsForRequest(row.id),
     listToursForRequest(row.id),
     listTransfersForRequest(row.id),
     listActivitiesForRequest(row.id),
     listTravelersForRequest(row.id),
+    buildActivityHistory(row),
   ]);
+
+  const breakdown = row.net_cost_breakdown || {};
+  const markup = row.markup_rule || {};
 
   return {
     ...toListItem(row),
@@ -56,6 +125,7 @@ async function toDetail(row) {
       category: h.category,
       description: h.description,
       images: h.images || [],
+      pricePerNight: h.price_per_night != null ? Number(h.price_per_night) : null,
     })),
     tours: tours.map((t) => ({
       id: t.id,
@@ -65,6 +135,7 @@ async function toDetail(row) {
       duration: t.duration,
       description: t.description,
       images: t.images || [],
+      price: t.price != null ? Number(t.price) : null,
     })),
     transfers: transfers.map((t) => ({
       id: t.id,
@@ -73,6 +144,7 @@ async function toDetail(row) {
       vehicleClass: t.vehicle_class,
       city: t.city,
       description: t.description,
+      price: t.price != null ? Number(t.price) : null,
     })),
     activities: activities.map((a) => ({
       id: a.id,
@@ -81,6 +153,7 @@ async function toDetail(row) {
       duration: a.duration,
       description: a.description,
       images: a.images || [],
+      pricePerPax: a.price_per_pax != null ? Number(a.price_per_pax) : null,
     })),
     travelers: travelers.map((t) => ({
       id: t.id,
@@ -89,6 +162,25 @@ async function toDetail(row) {
       dob: t.dob,
       roomShareGroup: t.room_share_group,
     })),
+    // Landing Cost Breakdown + Markup Panel + Quote Summary (items 1/3/4).
+    costing: {
+      hotels: normalizeComponent(breakdown.hotels),
+      tours: normalizeComponent(breakdown.tours),
+      transfers: normalizeComponent(breakdown.transfers),
+      extras: normalizeComponent(breakdown.extras),
+    },
+    landingCost: breakdown.landingCost != null ? Number(breakdown.landingCost) : null,
+    markupType: markup.type || null,
+    markupValue: markup.value != null ? Number(markup.value) : null,
+    sellPrice: row.sell_price != null ? Number(row.sell_price) : null,
+    // Internal Notes (item 5) — admin-only by construction: this whole
+    // controller/serializer is never reachable from the agent-facing routes.
+    internalNotes: row.internal_notes || '',
+    publishedAt: row.published_at,
+    publishedBy: row.published_by_user_id
+      ? { id: row.published_by_user_id, fullName: row.published_by_full_name }
+      : null,
+    activityHistory,
   };
 }
 
@@ -169,10 +261,137 @@ export async function assignLeadManager(req, res, next) {
         packageRequestId: id,
         destination: current.destination,
       });
+      // Activity History (item 7) — only logged on an actual assignment,
+      // matching the doc's example timeline entry ("Lead Manager Assigned").
+      await insertAuditLog({
+        actorUserId: req.user.id,
+        entity: 'package_request',
+        entityId: id,
+        field: 'lead_manager_user_id',
+        oldValue: { leadManagerUserId: current.lead_manager_user_id },
+        newValue: { leadManagerUserId },
+      });
     }
 
     const updatedRow = await findPackageRequestForAdmin(id);
     res.json({ packageRequest: await toDetail(updatedRow) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PATCH /api/admin/package-requests/:id/costing — items 1/2/3/5 ("Save
+// Draft"). Always saves whatever the form currently holds — Publish (below)
+// is a separate, validated step, so a failed publish attempt never discards
+// costing/markup/notes edits.
+export async function saveCosting(req, res, next) {
+  try {
+    const { id } = req.params;
+    const current = await findPackageRequestForAdmin(id);
+    if (!current) return res.status(404).json({ error: 'not_found' });
+
+    const [hotels, tours, transfers, activities] = await Promise.all([
+      listHotelsForRequest(id),
+      listToursForRequest(id),
+      listTransfersForRequest(id),
+      listActivitiesForRequest(id),
+    ]);
+    const totalPax = (current.pax_adults || 0) + (current.pax_children || 0);
+    const auto = computeAutoCosting({ hotels, tours, transfers, activities, totalPax });
+
+    const { hotelCost, tourCost, transferCost, extraCost, markupType, markupValue, internalNotes } = req.body;
+
+    const hotelTotal = hotelCost ?? auto.hotelCostAuto;
+    const tourTotal = tourCost ?? auto.tourCostAuto;
+    const transferTotal = transferCost ?? auto.transferCostAuto;
+    const extraTotal = extraCost ?? auto.extraCostAuto;
+    const landingCost = round2(hotelTotal + tourTotal + transferTotal + extraTotal);
+
+    const sellPrice = round2(
+      markupType === 'percentage' ? landingCost + (landingCost * markupValue) / 100 : landingCost + markupValue
+    );
+
+    const netCostBreakdown = {
+      hotels: { auto: round2(auto.hotelCostAuto), override: hotelCost, total: round2(hotelTotal) },
+      tours: { auto: round2(auto.tourCostAuto), override: tourCost, total: round2(tourTotal) },
+      transfers: { auto: round2(auto.transferCostAuto), override: transferCost, total: round2(transferTotal) },
+      extras: { auto: round2(auto.extraCostAuto), override: extraCost, total: round2(extraTotal) },
+      landingCost,
+    };
+    const markupRule = { type: markupType, value: markupValue };
+
+    // Never regress a quote that's already moved past costing (published,
+    // accepted, etc.) back down to 'costed' just because the admin resaved.
+    const nextStatus = ['submitted', 'assigned', 'costed'].includes(current.status) ? 'costed' : current.status;
+
+    const updated = await updatePackageRequestCosting(id, {
+      netCostBreakdown, markupRule, sellPrice, internalNotes, status: nextStatus,
+    });
+
+    // Activity History (item 7) — only when the figure actually changed, so
+    // resaving identical numbers doesn't spam the timeline.
+    const prevBreakdown = current.net_cost_breakdown || {};
+    if (prevBreakdown.landingCost !== netCostBreakdown.landingCost) {
+      await insertAuditLog({
+        actorUserId: req.user.id,
+        entity: 'package_request',
+        entityId: id,
+        field: 'net_cost_breakdown',
+        oldValue: prevBreakdown,
+        newValue: netCostBreakdown,
+      });
+    }
+    const prevMarkup = current.markup_rule || {};
+    if (prevMarkup.type !== markupRule.type || toNumberOrZero(prevMarkup.value) !== toNumberOrZero(markupRule.value)) {
+      await insertAuditLog({
+        actorUserId: req.user.id,
+        entity: 'package_request',
+        entityId: id,
+        field: 'markup_rule',
+        oldValue: prevMarkup,
+        newValue: markupRule,
+      });
+    }
+
+    res.json({ packageRequest: await toDetail(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/admin/package-requests/:id/publish — items 6/9. Validates
+// against whatever's already been saved via saveCosting above (no body) —
+// the FE calls PATCH .../costing immediately before this so the admin's
+// latest edits are persisted either way, pass or fail.
+export async function publish(req, res, next) {
+  try {
+    const { id } = req.params;
+    const current = await findPackageRequestForAdmin(id);
+    if (!current) return res.status(404).json({ error: 'not_found' });
+
+    const errors = [];
+    if (!current.lead_manager_user_id) errors.push('Assign a Lead Manager before publishing.');
+    const landingCost = Number(current.net_cost_breakdown?.landingCost);
+    if (!(landingCost > 0)) errors.push('Save a landing cost before publishing.');
+    const sellPrice = Number(current.sell_price);
+    if (!(sellPrice > 0)) errors.push('Final selling price is invalid — check the markup.');
+
+    if (errors.length) {
+      return res.status(400).json({ error: 'validation_error', message: errors.join(' ') });
+    }
+
+    const updated = await publishPackageRequest(id, req.user.id);
+
+    await insertAuditLog({
+      actorUserId: req.user.id,
+      entity: 'package_request',
+      entityId: id,
+      field: 'status',
+      oldValue: { status: current.status },
+      newValue: { status: 'published' },
+    });
+
+    res.json({ packageRequest: await toDetail(updated) });
   } catch (err) {
     next(err);
   }

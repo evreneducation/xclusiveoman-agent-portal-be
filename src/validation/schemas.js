@@ -140,6 +140,9 @@ export const transferSchema = z.object({
   vehicleClass: z.string().max(100).optional(),
   city: z.string().max(100).optional(),
   description: z.string().optional(),
+  // Feeds the Quote Details "Landing Cost Breakdown" auto-calculation —
+  // optional (unlike hotel/tour price) since existing transfers predate it.
+  price: z.number().nonnegative().optional(),
 });
 
 export const experienceSchema = z.object({
@@ -275,6 +278,21 @@ export const createPackageRequestSchema = z
 
 export const assignPackageRequestLeadManagerSchema = z.object({
   leadManagerUserId: z.string().uuid().nullable(),
+});
+
+// Quote Details — Editable Costing + Markup Panel. The FE always sends the
+// full costing state on every save ("Save Draft"/"Publish Quote"), so these
+// aren't `.optional()` — `null` on a *Cost field means "cleared, use the
+// Product Catalog auto total" (doc §2 "override any automatically calculated
+// amount"), distinct from a real 0.
+export const packageRequestCostingSchema = z.object({
+  hotelCost: z.number().nonnegative().nullable(),
+  tourCost: z.number().nonnegative().nullable(),
+  transferCost: z.number().nonnegative().nullable(),
+  extraCost: z.number().nonnegative().nullable(),
+  markupType: z.enum(['percentage', 'fixed']),
+  markupValue: z.number().nonnegative(),
+  internalNotes: z.string().max(5000).optional().default(''),
 });
 
 // "depositAmount" -> "Deposit amount"
