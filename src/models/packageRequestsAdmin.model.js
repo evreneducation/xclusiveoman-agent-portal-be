@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { replaceItinerary } from './packageRequests.model.js';
 
 // Admin-side queries only (listing with joins/pagination/search, lead-manager
 // assignment). Detail sub-lists (hotels/tours/transfers/activities/travelers)
@@ -116,6 +117,26 @@ export async function updatePackageRequestCosting(id, { netCostBreakdown, markup
      RETURNING *`,
     [JSON.stringify(netCostBreakdown), JSON.stringify(markupRule), sellPrice, internalNotes, status, id]
   );
+  return rows[0] || null;
+}
+
+// Quote Details — Day-wise Itinerary Planner (FIT-5). Admin edits reuse the
+// same replaceItinerary the agent builder writes through — "the finalized
+// version should be shown back to the agent exactly as approved" just falls
+// out of both sides reading/writing the same rows, no separate admin copy.
+export async function updatePackageRequestItinerary(id, days) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await replaceItinerary(client, id, days);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  const { rows } = await pool.query(`SELECT id FROM package_requests WHERE id = $1`, [id]);
   return rows[0] || null;
 }
 

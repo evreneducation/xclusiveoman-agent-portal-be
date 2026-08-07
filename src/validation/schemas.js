@@ -145,6 +145,9 @@ export const transferSchema = z.object({
   // Feeds the Quote Details "Landing Cost Breakdown" auto-calculation —
   // optional (unlike hotel/tour price) since existing transfers predate it.
   price: z.number().nonnegative().optional(),
+  // Optional like activities' images (0029_transfer_images.sql) — unlike
+  // hotel/tour images, not required, since existing transfers predate it.
+  images: z.array(z.string()).optional(),
   isMiceEnabled: z.boolean().optional(),
 });
 
@@ -268,6 +271,30 @@ const packageRequestTravelerSchema = z
     path: ['passportNo'],
   });
 
+// Day-wise Itinerary Planner (FIT-5). `items` references are trusted at the
+// shape level only (uuid + a known type) — the controller resolves each
+// against the request's own selected hotels/tours/transfers/activities, so a
+// stray id for something never selected just fails to resolve a name rather
+// than needing its own rejection path here.
+export const itineraryDaySchema = z.object({
+  dayNumber: z.number().int().positive(),
+  notes: z.string().max(2000).optional().default(''),
+  items: z
+    .array(
+      z.object({
+        type: z.enum(['hotel', 'tour', 'transfer', 'activity']),
+        id: z.string().uuid(),
+        // Per-item annotation (e.g. "9am pickup"), separate from the day's
+        // own `notes` above.
+        note: z.string().max(500).optional().default(''),
+      })
+    )
+    .optional()
+    .default([]),
+});
+
+export const itinerarySchema = z.array(itineraryDaySchema).optional().default([]);
+
 export const createPackageRequestSchema = z
   .object({
     destination: z.string().min(2, 'Destination is required').max(200),
@@ -280,10 +307,20 @@ export const createPackageRequestSchema = z
     transferIds: z.array(z.string().uuid()).optional().default([]),
     activityIds: z.array(z.string().uuid()).optional().default([]),
     travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
+    itinerary: itinerarySchema,
   })
-  .refine((v) => new Date(v.dateFrom) <= new Date(v.dateTo), {
-    message: 'Travel end date must be on or after the start date',
+  // Plain string comparisons — dateFrom/dateTo are always "YYYY-MM-DD" (no
+  // time/timezone component) coming from the FE's <input type="date">, so
+  // lexicographic order already matches chronological order without the
+  // Date-parsing timezone pitfalls that come with mixing UTC- and
+  // local-parsed dates.
+  .refine((v) => v.dateFrom <= v.dateTo, {
+    message: 'End date cannot be earlier than the start date.',
     path: ['dateTo'],
+  })
+  .refine((v) => v.dateFrom >= new Date().toISOString().slice(0, 10), {
+    message: 'Start date cannot be in the past.',
+    path: ['dateFrom'],
   });
 
 // Agent Quote lifecycle — Draft Quotes (item 1). Deliberately lenient: a
@@ -309,6 +346,7 @@ export const draftPackageRequestSchema = z.object({
   transferIds: z.array(z.string().uuid()).optional().default([]),
   activityIds: z.array(z.string().uuid()).optional().default([]),
   travelers: z.array(draftPackageRequestTravelerSchema).optional().default([]),
+  itinerary: itinerarySchema,
 });
 
 // Agent Quote lifecycle — item 5 (Accept / Request Revision / Decline a
