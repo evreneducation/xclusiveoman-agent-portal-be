@@ -12,6 +12,9 @@ import {
   listTransfersForRequest,
   listActivitiesForRequest,
   listTravelersForRequest,
+  listItineraryForRequest,
+  replaceItinerary,
+  composeItinerary,
   listPackageRequestsForAgency,
   findPackageRequestWithLeadManager,
   createDraftPackageRequest,
@@ -134,13 +137,14 @@ async function buildAgentActivityHistory(row) {
 // this response. sellPrice is the one figure FIT-10 says the agent *should*
 // see, and only once the quote has actually been published (item 4).
 async function toPublicPackageRequest(row) {
-  const [hotels, tours, transfers, activities, travelers, activityHistory] = await Promise.all([
+  const [hotels, tours, transfers, activities, travelers, activityHistory, itinerary] = await Promise.all([
     listHotelsForRequest(row.id),
     listToursForRequest(row.id),
     listTransfersForRequest(row.id),
     listActivitiesForRequest(row.id),
     listTravelersForRequest(row.id),
     buildAgentActivityHistory(row),
+    listItineraryForRequest(row.id),
   ]);
 
   const isPublishedOrLater = ['published', 'accepted', 'revision_requested', 'declined', 'converted'].includes(row.status);
@@ -197,6 +201,10 @@ async function toPublicPackageRequest(row) {
       roomShareGroup: t.room_share_group,
       isChild: t.is_child,
     })),
+    // Day-wise Itinerary Planner (FIT-5) — enriched against the same
+    // hotels/tours/transfers/activities pools above, so an item resolves to
+    // its name/city even though only its type+id persist.
+    itinerary: composeItinerary(itinerary.days, itinerary.items, { hotel: hotels, tour: tours, transfer: transfers, activity: activities }),
     // REL-4: lead manager's contact card once assigned.
     leadManager: row.lead_manager_user_id
       ? {
@@ -236,7 +244,7 @@ export async function create(req, res, next) {
   try {
     const {
       destination, dateFrom, dateTo, paxAdults, paxChildren,
-      hotelIds, tourIds, transferIds, activityIds, travelers,
+      hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
     } = req.body;
 
     await client.query('BEGIN');
@@ -256,6 +264,7 @@ export async function create(req, res, next) {
     await addTransferSelections(client, packageRequest.id, transferIds);
     await addActivitySelections(client, packageRequest.id, activityIds);
     await addTravelers(client, packageRequest.id, travelers);
+    await replaceItinerary(client, packageRequest.id, itinerary);
 
     await client.query('COMMIT');
 
@@ -293,7 +302,7 @@ export async function create(req, res, next) {
 export async function createDraft(req, res, next) {
   const client = await pool.connect();
   try {
-    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers } = req.body;
+    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary } = req.body;
 
     await client.query('BEGIN');
     const draft = await createDraftPackageRequest(client, {
@@ -311,6 +320,7 @@ export async function createDraft(req, res, next) {
     // name defaults to '' (draftPackageRequestSchema), which satisfies the
     // NOT NULL column without inventing a placeholder value.
     await replaceTravelers(client, draft.id, travelers);
+    await replaceItinerary(client, draft.id, itinerary);
     await client.query('COMMIT');
 
     await insertAuditLog({
@@ -344,7 +354,7 @@ export async function updateDraft(req, res, next) {
       return res.status(400).json({ error: 'not_a_draft', message: 'This request has already been submitted and can no longer be edited here.' });
     }
 
-    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers } = req.body;
+    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary } = req.body;
 
     await client.query('BEGIN');
     const updated = await updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren });
@@ -353,6 +363,7 @@ export async function updateDraft(req, res, next) {
     await replaceTransferSelections(client, id, transferIds);
     await replaceActivitySelections(client, id, activityIds);
     await replaceTravelers(client, id, travelers); // unfiltered — see createDraft's comment above
+    await replaceItinerary(client, id, itinerary);
     await client.query('COMMIT');
 
     const row = updated ? await findPackageRequestWithLeadManager(updated.id) : current;
@@ -379,7 +390,7 @@ export async function submit(req, res, next) {
       return res.status(400).json({ error: 'not_a_draft', message: 'This request has already been submitted.' });
     }
 
-    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers } = req.body;
+    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary } = req.body;
 
     await client.query('BEGIN');
     await updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren });
@@ -388,6 +399,7 @@ export async function submit(req, res, next) {
     await replaceTransferSelections(client, id, transferIds);
     await replaceActivitySelections(client, id, activityIds);
     await replaceTravelers(client, id, travelers);
+    await replaceItinerary(client, id, itinerary);
     const submitted = await submitDraftPackageRequest(client, id);
     await client.query('COMMIT');
 

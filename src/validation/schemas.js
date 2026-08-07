@@ -271,6 +271,27 @@ const packageRequestTravelerSchema = z
     path: ['passportNo'],
   });
 
+// Day-wise Itinerary Planner (FIT-5). `items` references are trusted at the
+// shape level only (uuid + a known type) — the controller resolves each
+// against the request's own selected hotels/tours/transfers/activities, so a
+// stray id for something never selected just fails to resolve a name rather
+// than needing its own rejection path here.
+export const itineraryDaySchema = z.object({
+  dayNumber: z.number().int().positive(),
+  notes: z.string().max(2000).optional().default(''),
+  items: z
+    .array(
+      z.object({
+        type: z.enum(['hotel', 'tour', 'transfer', 'activity']),
+        id: z.string().uuid(),
+      })
+    )
+    .optional()
+    .default([]),
+});
+
+export const itinerarySchema = z.array(itineraryDaySchema).optional().default([]);
+
 export const createPackageRequestSchema = z
   .object({
     destination: z.string().min(2, 'Destination is required').max(200),
@@ -283,6 +304,7 @@ export const createPackageRequestSchema = z
     transferIds: z.array(z.string().uuid()).optional().default([]),
     activityIds: z.array(z.string().uuid()).optional().default([]),
     travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
+    itinerary: itinerarySchema,
   })
   .refine((v) => new Date(v.dateFrom) <= new Date(v.dateTo), {
     message: 'Travel end date must be on or after the start date',
@@ -312,6 +334,7 @@ export const draftPackageRequestSchema = z.object({
   transferIds: z.array(z.string().uuid()).optional().default([]),
   activityIds: z.array(z.string().uuid()).optional().default([]),
   travelers: z.array(draftPackageRequestTravelerSchema).optional().default([]),
+  itinerary: itinerarySchema,
 });
 
 // Agent Quote lifecycle — item 5 (Accept / Request Revision / Decline a

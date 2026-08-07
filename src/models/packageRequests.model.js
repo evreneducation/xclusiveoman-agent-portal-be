@@ -238,3 +238,78 @@ export async function listTravelersForRequest(packageRequestId) {
   );
   return rows;
 }
+
+// --- Day-wise Itinerary Planner (FIT-5) ---
+// Days are virtual (Day 1..N derived from date_from/date_to by the caller) —
+// only a day's notes and its assigned items persist, and only for days that
+// actually have something on them. Read together (days + items) since every
+// consumer (agent serializer, admin serializer, the itinerary editor's own
+// GET-through-detail) needs both to reconstruct the day cards.
+export async function listItineraryForRequest(packageRequestId) {
+  const [{ rows: days }, { rows: items }] = await Promise.all([
+    pool.query(
+      `SELECT * FROM package_request_itinerary_days WHERE package_request_id = $1 ORDER BY day_number`,
+      [packageRequestId]
+    ),
+    pool.query(
+      `SELECT * FROM package_request_itinerary_items WHERE package_request_id = $1 ORDER BY day_number, position`,
+      [packageRequestId]
+    ),
+  ]);
+  return { days, items };
+}
+
+// Same "always send full state, clear and reinsert" shape as
+// replaceHotelSelections etc. above — the builder/editor always PUTs its
+// complete current arrangement, so there's nothing to diff. Takes an
+// explicit `client` like the other replace* functions so it can join the
+// same transaction as the rest of a create/draft-save/submit.
+//
+// `days` shape: [{ dayNumber, notes, items: [{ type, id }] }] — position
+// within a day is each item's index in its `items` array.
+export async function replaceItinerary(client, packageRequestId, days) {
+  await client.query(`DELETE FROM package_request_itinerary_days WHERE package_request_id = $1`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_itinerary_items WHERE package_request_id = $1`, [packageRequestId]);
+
+  for (const day of days || []) {
+    await client.query(
+      `INSERT INTO package_request_itinerary_days (package_request_id, day_number, notes) VALUES ($1, $2, $3)`,
+      [packageRequestId, day.dayNumber, day.notes || null]
+    );
+    for (const [position, item] of (day.items || []).entries()) {
+      await client.query(
+        `INSERT INTO package_request_itinerary_items (package_request_id, day_number, item_type, item_id, position)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [packageRequestId, day.dayNumber, item.type, item.id, position]
+      );
+    }
+  }
+}
+
+// Composes the persisted days/items rows into the [{dayNumber, notes, items:
+// [{type, id, name, ...}]}] shape both serializers return, enriching each
+// item against the pools of already-fetched, already-mapped catalog rows
+// (hotels/tours/transfers/activities) rather than re-querying — those pools
+// differ slightly between the agent and admin serializers (admin's include
+// prices), so the enriched item picks up whatever fields that pool already has.
+export function composeItinerary(days, items, pools) {
+  const byDay = new Map();
+  for (const d of days) {
+    byDay.set(d.day_number, { dayNumber: d.day_number, notes: d.notes || '', items: [] });
+  }
+  for (const it of items) {
+    if (!byDay.has(it.day_number)) {
+      byDay.set(it.day_number, { dayNumber: it.day_number, notes: '', items: [] });
+    }
+    const pool = pools[it.item_type] || [];
+    const ref = pool.find((p) => p.id === it.item_id);
+    byDay.get(it.day_number).items.push({
+      type: it.item_type,
+      id: it.item_id,
+      name: ref?.name || null,
+      city: ref?.city ?? null,
+      images: ref?.images ?? undefined,
+    });
+  }
+  return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
+}

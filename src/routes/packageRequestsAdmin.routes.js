@@ -1,7 +1,13 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import * as controller from '../controllers/packageRequestsAdmin.controller.js';
 import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
-import { validateBody, assignPackageRequestLeadManagerSchema, packageRequestCostingSchema } from '../validation/schemas.js';
+import {
+  validateBody,
+  assignPackageRequestLeadManagerSchema,
+  packageRequestCostingSchema,
+  itinerarySchema,
+} from '../validation/schemas.js';
 
 const router = Router();
 
@@ -15,6 +21,9 @@ router.get('/:id', controller.get);
 router.patch('/:id/lead-manager', validateBody(assignPackageRequestLeadManagerSchema), controller.assignLeadManager);
 // Costing & Quote Publishing (Quote Details, continuing from Selected Extras).
 router.patch('/:id/costing', validateBody(packageRequestCostingSchema), controller.saveCosting);
+// Day-wise Itinerary Planner (FIT-5) — admin edit, same shape the agent
+// builder sends ({ days: [...] }), mirroring the FD package itinerary PUT.
+router.patch('/:id/itinerary', validateBody(z.object({ days: itinerarySchema })), controller.saveItinerary);
 router.post('/:id/publish', controller.publish);
 
 export default router;
