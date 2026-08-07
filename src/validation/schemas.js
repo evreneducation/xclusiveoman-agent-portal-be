@@ -145,6 +145,9 @@ export const transferSchema = z.object({
   // Feeds the Quote Details "Landing Cost Breakdown" auto-calculation —
   // optional (unlike hotel/tour price) since existing transfers predate it.
   price: z.number().nonnegative().optional(),
+  // Optional like activities' images (0029_transfer_images.sql) — unlike
+  // hotel/tour images, not required, since existing transfers predate it.
+  images: z.array(z.string()).optional(),
   isMiceEnabled: z.boolean().optional(),
 });
 
