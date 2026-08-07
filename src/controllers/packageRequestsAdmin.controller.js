@@ -3,6 +3,7 @@ import {
   findPackageRequestForAdmin,
   updatePackageRequestLeadManager,
   updatePackageRequestCosting,
+  updatePackageRequestItinerary,
   publishPackageRequest,
 } from '../models/packageRequestsAdmin.model.js';
 // Read helpers reused as-is from the agent-side FIT Package Builder model —
@@ -13,6 +14,8 @@ import {
   listTransfersForRequest,
   listActivitiesForRequest,
   listTravelersForRequest,
+  listItineraryForRequest,
+  composeItinerary,
 } from '../models/packageRequests.model.js';
 import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
@@ -51,6 +54,7 @@ const ACTIVITY_LABELS = {
   net_cost_breakdown: 'Landing Cost Updated',
   markup_rule: 'Markup Updated',
   status: 'Quote Published',
+  itinerary: 'Itinerary Updated',
 };
 
 function labelForAgentResponse(log) {
@@ -134,13 +138,14 @@ function normalizeComponent(c) {
 // catalog item prices are included in the hotels/tours/transfers/activities
 // below, to back the Landing Cost Breakdown's per-item display.
 async function toDetail(row) {
-  const [hotels, tours, transfers, activities, travelers, activityHistory] = await Promise.all([
+  const [hotels, tours, transfers, activities, travelers, activityHistory, itinerary] = await Promise.all([
     listHotelsForRequest(row.id),
     listToursForRequest(row.id),
     listTransfersForRequest(row.id),
     listActivitiesForRequest(row.id),
     listTravelersForRequest(row.id),
     buildActivityHistory(row),
+    listItineraryForRequest(row.id),
   ]);
 
   const breakdown = row.net_cost_breakdown || {};
@@ -193,6 +198,9 @@ async function toDetail(row) {
       roomShareGroup: t.room_share_group,
       isChild: t.is_child,
     })),
+    // Day-wise Itinerary Planner (FIT-5) — same composeItinerary the agent
+    // serializer uses, against this controller's own (pricier) pools.
+    itinerary: composeItinerary(itinerary.days, itinerary.items, { hotel: hotels, tour: tours, transfer: transfers, activity: activities }),
     // Landing Cost Breakdown + Markup Panel + Quote Summary (items 1/3/4).
     costing: {
       hotels: normalizeComponent(breakdown.hotels),
@@ -404,6 +412,34 @@ export async function saveCosting(req, res, next) {
       });
     }
 
+    res.json({ packageRequest: await toDetail(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PATCH /api/admin/package-requests/:id/itinerary — Day-wise Itinerary
+// Planner (FIT-5): lets the admin rearrange/edit the agent's day-by-day plan
+// before or after publishing. Always saves whatever the editor currently
+// holds (same "always send full state" contract as saveCosting above) —
+// there's no separate validate-then-publish step for the itinerary itself.
+export async function saveItinerary(req, res, next) {
+  try {
+    const { id } = req.params;
+    const current = await findPackageRequestForAdmin(id);
+    if (!current) return res.status(404).json({ error: 'not_found' });
+
+    await updatePackageRequestItinerary(id, req.body.days);
+
+    await insertAuditLog({
+      actorUserId: req.user.id,
+      entity: 'package_request',
+      entityId: id,
+      field: 'itinerary',
+      newValue: { dayCount: req.body.days.length },
+    });
+
+    const updated = await findPackageRequestForAdmin(id);
     res.json({ packageRequest: await toDetail(updated) });
   } catch (err) {
     next(err);

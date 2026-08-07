@@ -47,8 +47,12 @@ for (const { path, schema } of ENTITIES) {
 
 // Image upload — see uploadImagesHandlerFor doc comment. POST on a distinct
 // path (e.g. /admin/hotels/images vs /admin/hotels), so it can't collide
-// with the generic create route registered above.
+// with the generic create route registered above. Activities already had an
+// `images` column (0005_catalog.sql); transfers got one in
+// 0029_transfer_images.sql specifically so it could get this same route.
 adminCatalogRouter.post('/hotels/images', upload.array('images', 10), uploadImagesHandlerFor('hotels'));
 adminCatalogRouter.post('/tours/images', upload.array('images', 10), uploadImagesHandlerFor('tours'));
+adminCatalogRouter.post('/activities/images', upload.array('images', 10), uploadImagesHandlerFor('activities'));
+adminCatalogRouter.post('/transfers/images', upload.array('images', 10), uploadImagesHandlerFor('transfers'));
 
 export default router;
