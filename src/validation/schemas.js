@@ -284,6 +284,9 @@ export const itineraryDaySchema = z.object({
       z.object({
         type: z.enum(['hotel', 'tour', 'transfer', 'activity']),
         id: z.string().uuid(),
+        // Per-item annotation (e.g. "9am pickup"), separate from the day's
+        // own `notes` above.
+        note: z.string().max(500).optional().default(''),
       })
     )
     .optional()
@@ -306,9 +309,18 @@ export const createPackageRequestSchema = z
     travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
     itinerary: itinerarySchema,
   })
-  .refine((v) => new Date(v.dateFrom) <= new Date(v.dateTo), {
-    message: 'Travel end date must be on or after the start date',
+  // Plain string comparisons — dateFrom/dateTo are always "YYYY-MM-DD" (no
+  // time/timezone component) coming from the FE's <input type="date">, so
+  // lexicographic order already matches chronological order without the
+  // Date-parsing timezone pitfalls that come with mixing UTC- and
+  // local-parsed dates.
+  .refine((v) => v.dateFrom <= v.dateTo, {
+    message: 'End date cannot be earlier than the start date.',
     path: ['dateTo'],
+  })
+  .refine((v) => v.dateFrom >= new Date().toISOString().slice(0, 10), {
+    message: 'Start date cannot be in the past.',
+    path: ['dateFrom'],
   });
 
 // Agent Quote lifecycle — Draft Quotes (item 1). Deliberately lenient: a

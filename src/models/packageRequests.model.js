@@ -265,8 +265,9 @@ export async function listItineraryForRequest(packageRequestId) {
 // explicit `client` like the other replace* functions so it can join the
 // same transaction as the rest of a create/draft-save/submit.
 //
-// `days` shape: [{ dayNumber, notes, items: [{ type, id }] }] — position
-// within a day is each item's index in its `items` array.
+// `days` shape: [{ dayNumber, notes, items: [{ type, id, note? }] }] —
+// position within a day is each item's index in its `items` array. `note`
+// is a short per-item annotation, distinct from the day's own `notes`.
 export async function replaceItinerary(client, packageRequestId, days) {
   await client.query(`DELETE FROM package_request_itinerary_days WHERE package_request_id = $1`, [packageRequestId]);
   await client.query(`DELETE FROM package_request_itinerary_items WHERE package_request_id = $1`, [packageRequestId]);
@@ -278,9 +279,9 @@ export async function replaceItinerary(client, packageRequestId, days) {
     );
     for (const [position, item] of (day.items || []).entries()) {
       await client.query(
-        `INSERT INTO package_request_itinerary_items (package_request_id, day_number, item_type, item_id, position)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [packageRequestId, day.dayNumber, item.type, item.id, position]
+        `INSERT INTO package_request_itinerary_items (package_request_id, day_number, item_type, item_id, position, note)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [packageRequestId, day.dayNumber, item.type, item.id, position, item.note || null]
       );
     }
   }
@@ -309,6 +310,7 @@ export function composeItinerary(days, items, pools) {
       name: ref?.name || null,
       city: ref?.city ?? null,
       images: ref?.images ?? undefined,
+      note: it.note || '',
     });
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
