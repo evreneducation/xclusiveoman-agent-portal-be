@@ -23,11 +23,19 @@ function toAdminAgency(agency) {
   };
 }
 
-// GET /api/admin/agencies?status=
+// GET /api/admin/agencies?status=&inactiveSinceDays= — the latter backs
+// Marketing Center's "Inactive 30+ days" audience segment (see
+// listAgencies' comment for what "inactive" means here). Parsed manually
+// rather than through the validateBody/zod schemas (those are only used on
+// writes in this codebase) — a non-numeric or non-positive value is simply
+// ignored, same as an unrecognised `status` value already falls through to
+// "no filter" today.
 export async function getAgencies(req, res, next) {
   try {
     const { status } = req.query;
-    const agencies = await listAgencies({ status });
+    const inactiveSinceDaysNum = Number(req.query.inactiveSinceDays);
+    const inactiveSinceDays = Number.isInteger(inactiveSinceDaysNum) && inactiveSinceDaysNum > 0 ? inactiveSinceDaysNum : undefined;
+    const agencies = await listAgencies({ status, inactiveSinceDays });
     res.json({ agencies: agencies.map(toAdminAgency) });
   } catch (err) {
     next(err);
