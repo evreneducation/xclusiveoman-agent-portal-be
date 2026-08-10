@@ -15,6 +15,7 @@ import relationshipManagersRoutes from './relationshipManagers.routes.js';
 import salesManagersRoutes from './salesManagers.routes.js';
 import locationsRoutes from './locations.routes.js';
 import notificationsRoutes from './notifications.routes.js';
+import marketingRoutes from './marketing.routes.js';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.use('/admin', adminPaymentsRouter);
 router.use('/admin/fd-packages', fdPackagesAdminRoutes);
 router.use('/admin/relationship-managers', relationshipManagersRoutes);
 router.use('/admin/sales-managers', salesManagersRoutes);
+router.use('/admin/marketing', marketingRoutes);
 router.use('/', catalogRoutes);
 router.use('/departures', departuresRoutes);
 router.use('/package-requests', packageRequestsRoutes);
