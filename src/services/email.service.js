@@ -18,11 +18,23 @@ function getTransporter() {
   return transporter;
 }
 
+// Same three-var check getTransporter() already does, exposed separately so
+// callers (Marketing Center's Send Test/Send Campaign — marketing.controller.js)
+// can fail fast with one clear "not configured" error up front instead of
+// discovering it once per recipient inside the send loop.
+export function isSmtpConfigured() {
+  return !!(env.smtp.host && env.smtp.user && env.smtp.pass);
+}
+
 /**
  * Sends an email via Google SMTP when configured; otherwise logs it to the
  * console so flows like password reset stay testable without real credentials.
+ *
+ * `replyTo` is optional (Marketing Center's per-agency Relationship Manager
+ * reply-to, marketing.controller.js) — omitted entirely when not given, same
+ * as every other caller of this function today.
  */
-export async function sendEmail({ to, subject, html, text }) {
+export async function sendEmail({ to, subject, html, text, replyTo }) {
   const t = getTransporter();
 
   if (!t) {
@@ -34,6 +46,6 @@ export async function sendEmail({ to, subject, html, text }) {
     return { delivered: false, logged: true };
   }
 
-  await t.sendMail({ from: env.smtp.from, to, subject, html, text });
+  await t.sendMail({ from: env.smtp.from, to, subject, html, text, ...(replyTo ? { replyTo } : {}) });
   return { delivered: true, logged: false };
 }

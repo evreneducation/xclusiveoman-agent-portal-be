@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidTimeZone, zonedDateTimeToUtc } from '../utils/timezone.js';
 
 // Mirrors the doc's packages/shared validation-schema concept, kept local to this
 // single-backend repo since there is no shared workspace package here.
@@ -462,6 +463,116 @@ export const miceRfqCostingSchema = z.object({
   markupValue: z.number().nonnegative(),
   internalNotes: z.string().max(5000).optional().default(''),
 });
+
+// --- Marketing Center (Task 5 — Send Test / Send Campaign) ---
+
+const MARKETING_CHANNELS = ['email', 'whatsapp'];
+const MARKETING_PROVIDERS = ['mailchimp', 'zoho', 'built_in', 'whatsapp_business_api'];
+const MARKETING_AUDIENCE_TYPES = ['all', 'tier', 'country', 'inactive_30d'];
+// Only 'built_in' has a real send path today (no Mailchimp/Zoho/WhatsApp
+// Business API integration exists — see marketing.controller.js); the
+// schema still accepts every enum value so an unconfigured provider gets a
+// clear, specific "not configured" error from the controller rather than a
+// generic validation failure that reads like a frontend bug.
+const CHANNEL_PROVIDERS = {
+  email: ['mailchimp', 'zoho', 'built_in'],
+  whatsapp: ['whatsapp_business_api'],
+};
+
+// Shared by both schemas below: provider must actually belong to the
+// selected channel (mirrors the frontend's Task 2 Channel section, which
+// never lets these mismatch through its own UI — this is the server-side
+// backstop), and Email needs a non-blank Subject the same way Task 4's
+// Message card requires one before Send Campaign is enabled client-side.
+function withMarketingCrossFieldRules(schema) {
+  return schema
+    .refine((v) => CHANNEL_PROVIDERS[v.channel]?.includes(v.provider), {
+      message: 'This provider is not available for the selected channel',
+      path: ['provider'],
+    })
+    .refine((v) => v.channel !== 'email' || !!v.subject?.trim(), {
+      message: 'Subject is required for email campaigns',
+      path: ['subject'],
+    });
+}
+
+export const sendMarketingTestSchema = withMarketingCrossFieldRules(
+  z.object({
+    channel: z.enum(MARKETING_CHANNELS),
+    provider: z.enum(MARKETING_PROVIDERS),
+    subject: z.string().max(150).optional(),
+    body: z.string().min(1, 'Message body is required').max(20000),
+    recipientEmail: z.string().email(),
+  })
+);
+
+export const createMarketingCampaignSchema = withMarketingCrossFieldRules(
+  z
+    .object({
+      name: z.string().min(2, 'Campaign name is required').max(200),
+      channel: z.enum(MARKETING_CHANNELS),
+      provider: z.enum(MARKETING_PROVIDERS),
+      audienceType: z.enum(MARKETING_AUDIENCE_TYPES),
+      audienceValue: z.string().max(100).optional(),
+      subject: z.string().max(150).optional(),
+      body: z.string().min(1, 'Message body is required').max(20000),
+      replyToAccountManager: z.boolean().optional().default(false),
+    })
+    .refine((v) => v.audienceType !== 'tier' || ['gold', 'silver', 'bronze'].includes(v.audienceValue), {
+      message: 'Select a valid tier',
+      path: ['audienceValue'],
+    })
+    .refine((v) => v.audienceType !== 'country' || !!v.audienceValue?.trim(), {
+      message: 'Select a country',
+      path: ['audienceValue'],
+    })
+);
+
+// --- Marketing Center (Task 6 — Schedule Campaign) ---
+
+// Same shape/cross-field rules as createMarketingCampaignSchema above, plus
+// the three schedule fields and the actual "must be in the future" check —
+// the real enforcement of that rule (the frontend's own check is UX only,
+// never trusted here). scheduledDate/scheduledTime are plain digit strings
+// (not z.string().datetime() etc.) since they're wall-clock components in
+// an admin-chosen zone, not a single ISO instant — utils/timezone.js is the
+// one place that combines the three into a real UTC instant.
+export const scheduleMarketingCampaignSchema = withMarketingCrossFieldRules(
+  z
+    .object({
+      name: z.string().min(2, 'Campaign name is required').max(200),
+      channel: z.enum(MARKETING_CHANNELS),
+      provider: z.enum(MARKETING_PROVIDERS),
+      audienceType: z.enum(MARKETING_AUDIENCE_TYPES),
+      audienceValue: z.string().max(100).optional(),
+      subject: z.string().max(150).optional(),
+      body: z.string().min(1, 'Message body is required').max(20000),
+      replyToAccountManager: z.boolean().optional().default(false),
+      scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a valid date'),
+      scheduledTime: z.string().regex(/^\d{2}:\d{2}$/, 'Enter a valid time'),
+      scheduledTimezone: z.string().min(1, 'Select a timezone'),
+    })
+    .refine((v) => v.audienceType !== 'tier' || ['gold', 'silver', 'bronze'].includes(v.audienceValue), {
+      message: 'Select a valid tier',
+      path: ['audienceValue'],
+    })
+    .refine((v) => v.audienceType !== 'country' || !!v.audienceValue?.trim(), {
+      message: 'Select a country',
+      path: ['audienceValue'],
+    })
+    .refine((v) => isValidTimeZone(v.scheduledTimezone), {
+      message: 'Unrecognised timezone',
+      path: ['scheduledTimezone'],
+    })
+    .refine(
+      (v) => {
+        if (!isValidTimeZone(v.scheduledTimezone)) return true; // already reported by the refine above
+        const at = zonedDateTimeToUtc(v.scheduledDate, v.scheduledTime, v.scheduledTimezone);
+        return !!at && at.getTime() > Date.now();
+      },
+      { message: 'Scheduled time must be in the future', path: ['scheduledDate'] }
+    )
+);
 
 // "depositAmount" -> "Deposit amount"
 function humanizeField(field) {

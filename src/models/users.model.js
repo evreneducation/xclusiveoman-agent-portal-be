@@ -57,6 +57,24 @@ export async function listAgencyUsers(agencyId) {
   return rows;
 }
 
+// Marketing Center campaign sending (marketing.controller.js) — the
+// recipient address for an agency is its owner's email, same source
+// admin.controller.js::patchAgency already uses to email an agency once
+// approved (`role = 'agency_owner'`), just batched across many agencies at
+// once instead of looked up one at a time. Only active accounts, and only
+// agencies with such a user come back — an agency with no owner user simply
+// has no row here, which the caller treats as "can't be emailed" rather
+// than an error.
+export async function listAgencyOwnerEmails(agencyIds) {
+  if (agencyIds.length === 0) return [];
+  const { rows } = await pool.query(
+    `SELECT agency_id, email FROM users
+     WHERE agency_id = ANY($1::uuid[]) AND role = 'agency_owner' AND status = 'active'`,
+    [agencyIds]
+  );
+  return rows;
+}
+
 export async function updateUser(id, fields) {
   const setClauses = [];
   const values = [];
