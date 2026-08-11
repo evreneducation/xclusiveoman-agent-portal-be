@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import * as controller from '../controllers/miceRfqsAdmin.controller.js';
 import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
-import { validateBody, assignMiceRfqLeadManagerSchema, miceRfqCostingSchema } from '../validation/schemas.js';
+import { validateBody, assignMiceRfqLeadManagerSchema, miceRfqCostingSchema, itinerarySchema } from '../validation/schemas.js';
 
 const router = Router();
 
@@ -15,6 +16,9 @@ router.get('/:id', controller.get);
 router.patch('/:id/lead-manager', validateBody(assignMiceRfqLeadManagerSchema), controller.assignLeadManager);
 // Costing & Markup Panel (continuing from Request Detail).
 router.patch('/:id/costing', validateBody(miceRfqCostingSchema), controller.saveCosting);
+// Day-wise Itinerary Planner — admin edit, same shape the agent builder
+// sends ({ days: [...] }), mirroring package-requests' itinerary PATCH.
+router.patch('/:id/itinerary', validateBody(z.object({ days: itinerarySchema })), controller.saveItinerary);
 router.post('/:id/publish', controller.publish);
 
 export default router;

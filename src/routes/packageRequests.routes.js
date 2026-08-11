@@ -21,6 +21,8 @@ router.post('/', validateBody(createPackageRequestSchema), packageRequestsContro
 router.post('/draft', validateBody(draftPackageRequestSchema), packageRequestsController.createDraft);
 
 router.get('/:id', packageRequestsController.get);
+// Server-side "Detailed Itinerary" PDF export (see itineraryPdf.service.js).
+router.get('/:id/itinerary.pdf', packageRequestsController.downloadItineraryPdf);
 router.patch('/:id', validateBody(draftPackageRequestSchema), packageRequestsController.updateDraft);
 router.delete('/:id', packageRequestsController.remove);
 router.post('/:id/submit', validateBody(createPackageRequestSchema), packageRequestsController.submit);

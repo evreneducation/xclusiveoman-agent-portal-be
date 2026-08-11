@@ -3,11 +3,19 @@ import {
   findMiceRfqForAdmin,
   updateMiceRfqLeadManager,
   updateMiceRfqCosting,
+  updateMiceRfqItinerary,
   publishMiceRfq,
 } from '../models/miceRfqsAdmin.model.js';
 // Read helpers reused as-is from the agent-side MICE curation model —
 // imported only, never modified, so that module stays untouched.
-import { listHotelsForRfq, listToursForRfq, listTransfersForRfq, listActivitiesForRfq } from '../models/miceRfqs.model.js';
+import {
+  listHotelsForRfq,
+  listToursForRfq,
+  listTransfersForRfq,
+  listActivitiesForRfq,
+  listItineraryForRfq,
+  composeItinerary,
+} from '../models/miceRfqs.model.js';
 import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
@@ -40,6 +48,7 @@ const ACTIVITY_LABELS = {
   cost_breakdown: 'Cost Updated',
   markup_rule: 'Markup Updated',
   status: 'Proposal Published',
+  itinerary: 'Itinerary Updated',
 };
 
 async function buildActivityHistory(row) {
@@ -94,12 +103,13 @@ function normalizeComponent(c) {
 // prices are included in hotels/tours/transfers/activities below, to back
 // the Landing Cost Breakdown's per-item display.
 async function toDetail(row) {
-  const [hotels, tours, transfers, activities, activityHistory] = await Promise.all([
+  const [hotels, tours, transfers, activities, activityHistory, itinerary] = await Promise.all([
     listHotelsForRfq(row.id),
     listToursForRfq(row.id),
     listTransfersForRfq(row.id),
     listActivitiesForRfq(row.id),
     buildActivityHistory(row),
+    listItineraryForRfq(row.id),
   ]);
 
   const breakdown = row.cost_breakdown || {};
@@ -148,6 +158,10 @@ async function toDetail(row) {
       images: a.images || [],
       pricePerPax: a.price_per_pax != null ? Number(a.price_per_pax) : null,
     })),
+    // Day-wise Itinerary Planner — same composeItinerary the agent builder
+    // and its own local equivalent use; admin's ItineraryEditor arranges
+    // this same selection into days, it never adds/removes what's selected.
+    itinerary: composeItinerary(itinerary.days, itinerary.items, { hotel: hotels, tour: tours, transfer: transfers, activity: activities }),
     // Landing Cost Breakdown + Markup Panel + Quote Summary (items 2/4/5).
     costing: {
       hotels: normalizeComponent(breakdown.hotels),
@@ -359,6 +373,35 @@ export async function saveCosting(req, res, next) {
     // which toDetail()/toListItem() need joined onto (agencyName etc.).
     const updatedRow = await findMiceRfqForAdmin(id);
     res.json({ miceRfq: await toDetail(updatedRow) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PATCH /api/admin/mice-rfqs/:id/itinerary — Day-wise Itinerary Planner: lets
+// the admin rearrange/edit the agent's day-by-day plan before or after
+// publishing. Always saves whatever the editor currently holds (same "always
+// send full state" contract as saveCosting above) — there's no separate
+// validate-then-publish step for the itinerary itself. Mirrors
+// packageRequestsAdmin.controller.js's saveItinerary.
+export async function saveItinerary(req, res, next) {
+  try {
+    const { id } = req.params;
+    const current = await findMiceRfqForAdmin(id);
+    if (!current) return res.status(404).json({ error: 'not_found' });
+
+    await updateMiceRfqItinerary(id, req.body.days);
+
+    await insertAuditLog({
+      actorUserId: req.user.id,
+      entity: 'mice_rfq',
+      entityId: id,
+      field: 'itinerary',
+      newValue: { dayCount: req.body.days.length },
+    });
+
+    const updated = await findMiceRfqForAdmin(id);
+    res.json({ miceRfq: await toDetail(updated) });
   } catch (err) {
     next(err);
   }

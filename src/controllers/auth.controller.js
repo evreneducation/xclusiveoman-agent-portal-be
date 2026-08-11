@@ -5,6 +5,7 @@ import {
   createUser,
   findUserByEmail,
   findUserById,
+  listStaffByRole,
   toPublicUser,
   updateUser,
 } from '../models/users.model.js';
@@ -18,6 +19,7 @@ import {
   hashRawToken,
 } from '../services/auth.service.js';
 import { sendEmail } from '../services/email.service.js';
+import { createNotification } from '../services/notification.service.js';
 
 const REFRESH_COOKIE_NAME = 'xo_refresh';
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -43,6 +45,50 @@ function issueTokens(res, user) {
   const refreshToken = signRefreshToken(user);
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions());
   return accessToken;
+}
+
+// Admin-facing "New Agent Added" notification — fires once a new agency +
+// owner has actually been created (see register() below; called after
+// COMMIT, never before). Reuses the exact same generic notification
+// infrastructure every other module in this app already goes through
+// (services/notification.service.js's createNotification — the `notifications`
+// table, its `notification:new` socket emit, and the shared NotificationBell
+// UI, admin/components/AdminLayout.jsx) — none of that is new here, only this
+// call site is. createNotification is single-recipient by design (see its
+// own doc comment), so "the admin(s)" means looping it once per admin staff
+// member — ops_admin and super_admin specifically (the two roles this app
+// otherwise treats as "the Admin", e.g. AdminLayout's "ADMIN" badge and the
+// existing queue:new_item live-badge socket event's `role:ops_admin` room —
+// not the wider STAFF_ROLES list, which also includes specialist roles like
+// finance/support that don't review new agency signups).
+//
+// Best-effort and never awaited by the response: a notification hiccup must
+// never fail (or even delay) the registration itself, which has already
+// fully succeeded by the time this runs.
+async function notifyAdminsOfNewAgent({ agency, user }) {
+  try {
+    const [opsAdmins, superAdmins] = await Promise.all([
+      listStaffByRole('ops_admin'),
+      listStaffByRole('super_admin'),
+    ]);
+    const admins = [...opsAdmins, ...superAdmins].filter((u) => u.status === 'active');
+
+    await Promise.all(
+      admins.map((admin) =>
+        createNotification({
+          recipientUserId: admin.id,
+          recipientRole: admin.role,
+          type: 'agent_added',
+          title: 'New Agent Added',
+          message: `Agent ${user.full_name} has been added successfully.`,
+          referenceType: 'agency',
+          referenceId: agency.id,
+        })
+      )
+    );
+  } catch (err) {
+    console.error('Failed to notify admins of new agent registration', agency.id, err);
+  }
 }
 
 // POST /api/auth/register — AUTH-1: public agency + owner signup, status=pending.
@@ -75,6 +121,11 @@ export async function register(req, res, next) {
       passwordHash,
     });
     await client.query('COMMIT');
+
+    // Only ever reached after the agency + owner are durably committed —
+    // never fires on a failed/rolled-back registration (see the catch block
+    // below, which never calls this).
+    await notifyAdminsOfNewAgent({ agency, user });
 
     res.status(201).json({
       agency: { id: agency.id, name: agency.name, status: agency.status },

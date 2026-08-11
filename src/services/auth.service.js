@@ -41,6 +41,35 @@ export function verifyRefreshToken(token) {
   return jwt.verify(token, env.jwtRefreshSecret);
 }
 
+// Itinerary PDF rendering — a normal access token can't be used here: it's
+// long-lived (15m) and grants full API access, which is far more than a
+// headless-browser render of one specific itinerary needs. This is a
+// separate, narrow-purpose token: very short-lived (2m — a Puppeteer render
+// takes seconds, not minutes), carries the one packageRequestId it's allowed
+// to read, and is marked with `purpose` so requireAuth (middleware/auth.js)
+// explicitly refuses it as a normal Bearer token — a leaked pdf token can
+// only ever be replayed against the one read-only itinerary-data endpoint
+// that accepts it (requirePdfToken), for the one request it names, within
+// its 2-minute window.
+const ITINERARY_PDF_TOKEN_PURPOSE = 'itinerary_pdf';
+const ITINERARY_PDF_TOKEN_EXPIRES_IN = '2m';
+
+export function signItineraryPdfToken({ userId, packageRequestId }) {
+  return jwt.sign(
+    { sub: userId, packageRequestId, purpose: ITINERARY_PDF_TOKEN_PURPOSE },
+    env.jwtAccessSecret,
+    { expiresIn: ITINERARY_PDF_TOKEN_EXPIRES_IN }
+  );
+}
+
+export function verifyItineraryPdfToken(token) {
+  const claims = jwt.verify(token, env.jwtAccessSecret);
+  if (claims.purpose !== ITINERARY_PDF_TOKEN_PURPOSE) {
+    throw new Error('Not an itinerary PDF token');
+  }
+  return claims;
+}
+
 export function generateRawToken() {
   return crypto.randomBytes(32).toString('hex');
 }
