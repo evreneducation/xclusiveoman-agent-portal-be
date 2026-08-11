@@ -3,8 +3,9 @@ import {
   findFdPackageById,
   createFdPackage,
   updateFdPackage,
-  listItineraryDays,
-  replaceItineraryDays,
+  listItineraryForPackage,
+  replaceItinerary,
+  composeItinerary,
   listDepartureDates,
   addDepartureDate,
   removeDepartureDate,
@@ -12,8 +13,24 @@ import {
   addAddon,
   removeAddon,
 } from '../models/fdPackages.model.js';
+import { hotelsModel, toursModel, transfersModel, activitiesModel } from '../models/catalog.model.js';
 import { toSnakeCaseColumns } from '../validation/schemas.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
+
+// The full catalog, keyed by item type — an FD package's itinerary has no
+// separate "agent selection" step first (unlike a Custom FIT request), so
+// any hotel/tour/transfer/activity in the catalog can be placed on any day;
+// composeItinerary resolves each placed item's name/city/images against
+// these pools.
+async function loadCatalogPools() {
+  const [hotels, tours, transfers, activities] = await Promise.all([
+    hotelsModel.list(),
+    toursModel.list(),
+    transfersModel.list(),
+    activitiesModel.list(),
+  ]);
+  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities };
+}
 
 // Postgres NUMERIC columns come back from `pg` as strings (to avoid silent
 // float precision loss), not JS numbers. Left unconverted, those strings flow
@@ -73,16 +90,17 @@ export async function get(req, res, next) {
     const fdPackage = await findFdPackageById(req.params.id);
     if (!fdPackage) return res.status(404).json({ error: 'not_found' });
 
-    const [itinerary, dates, addons] = await Promise.all([
-      listItineraryDays(fdPackage.id),
+    const [itinerary, dates, addons, pools] = await Promise.all([
+      listItineraryForPackage(fdPackage.id),
       listDepartureDates(fdPackage.id),
       listAddons(fdPackage.id),
+      loadCatalogPools(),
     ]);
 
     res.json({
       fdPackage: {
         ...toPublicPackage(fdPackage),
-        itinerary: itinerary.map((d) => ({ id: d.id, dayNumber: d.day_number, description: d.description })),
+        itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
         departureDates: dates.map((d) => ({
           id: d.id,
           date: d.date,
@@ -187,8 +205,11 @@ export async function deleteImage(req, res, next) {
 
 export async function putItinerary(req, res, next) {
   try {
-    const days = await replaceItineraryDays(req.params.id, req.body.days);
-    res.json({ itinerary: days.map((d) => ({ id: d.id, dayNumber: d.day_number, description: d.description })) });
+    const [{ days, items }, pools] = await Promise.all([
+      replaceItinerary(req.params.id, req.body.days),
+      loadCatalogPools(),
+    ]);
+    res.json({ itinerary: composeItinerary(days, items, pools) });
   } catch (err) {
     next(err);
   }

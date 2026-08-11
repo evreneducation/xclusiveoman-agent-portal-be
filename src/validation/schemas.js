@@ -216,11 +216,6 @@ export const fdPackageSchema = z.object({
   rateBronze: z.number().nonnegative().optional(),
 });
 
-export const fdItineraryDaySchema = z.object({
-  dayNumber: z.number().int().positive(),
-  description: z.string().min(1),
-});
-
 export const fdDepartureDateSchema = z.object({
   date: z.string(), // ISO date
   seatsTotal: z.number().int().nonnegative(),

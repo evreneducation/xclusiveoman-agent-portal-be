@@ -7,6 +7,7 @@ import {
   fdPackageSchema,
   fdDepartureDateSchema,
   fdAddonSchema,
+  itinerarySchema,
 } from '../validation/schemas.js';
 import { z } from 'zod';
 
@@ -22,11 +23,11 @@ router.post('/:id/hero-image', upload.single('image'), fdAdmin.uploadHeroImage);
 router.post('/:id/images', upload.array('images', 10), fdAdmin.uploadImages);
 router.delete('/:id/images/:url', fdAdmin.deleteImage);
 
-router.put(
-  '/:id/itinerary',
-  validateBody(z.object({ days: z.array(z.object({ dayNumber: z.number().int().positive(), description: z.string() })) })),
-  fdAdmin.putItinerary
-);
+// Same day/notes/items shape as the Custom FIT itinerary (see
+// itinerarySchema in schemas.js) — an FD package's itinerary builder now
+// mirrors the agent Custom FIT Builder's per-day hotel/tour/transfer/extra
+// pickers instead of a single free-text line per day.
+router.put('/:id/itinerary', validateBody(z.object({ days: itinerarySchema })), fdAdmin.putItinerary);
 
 router.post('/:id/departure-dates', validateBody(fdDepartureDateSchema), fdAdmin.postDepartureDate);
 router.delete('/:id/departure-dates/:dateId', fdAdmin.deleteDepartureDate);

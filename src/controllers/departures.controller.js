@@ -3,7 +3,8 @@ import { env } from '../config/env.js';
 import {
   listFdPackages,
   findFdPackageById,
-  listItineraryDays,
+  listItineraryForPackage,
+  composeItinerary,
   listDepartureDates,
   findDepartureDateById,
   listAddons,
@@ -11,7 +12,7 @@ import {
   incrementSeatsBooked,
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
-import { hotelsModel } from '../models/catalog.model.js';
+import { hotelsModel, toursModel, transfersModel, activitiesModel } from '../models/catalog.model.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
 
@@ -91,17 +92,26 @@ export async function getDeparture(req, res, next) {
     const agency = req.user.agency_id ? await findAgencyById(req.user.agency_id) : null;
     const tier = agency?.tier || 'bronze';
 
-    const [itinerary, dates, addons, hotel] = await Promise.all([
-      listItineraryDays(fdPackage.id),
+    const [itinerary, dates, addons, hotel, hotelsForItinerary, tours, transfers, activities] = await Promise.all([
+      listItineraryForPackage(fdPackage.id),
       listDepartureDates(fdPackage.id),
       listAddons(fdPackage.id),
       fdPackage.hotel_id ? hotelsModel.findById(fdPackage.hotel_id) : null,
+      hotelsModel.list(),
+      toursModel.list(),
+      transfersModel.list(),
+      activitiesModel.list(),
     ]);
+    // Same pools shape as fdPackagesAdmin.controller.js's loadCatalogPools —
+    // the agent-facing read of a published package's itinerary resolves
+    // against the full catalog too, since an FD package's itinerary has no
+    // separate "agent selection" step to resolve against instead.
+    const pools = { hotel: hotelsForItinerary, tour: tours, transfer: transfers, activity: activities };
 
     res.json({
       departure: {
         ...toPublicPackage(fdPackage, tier),
-        itinerary: itinerary.map((d) => ({ dayNumber: d.day_number, description: d.description })),
+        itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
         departureDates: dates.map((d) => ({
           id: d.id,
           date: d.date,
