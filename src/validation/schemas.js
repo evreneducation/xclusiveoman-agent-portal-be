@@ -399,6 +399,11 @@ export const createMiceRfqSchema = z
     tourIds: z.array(z.string().uuid()).optional().default([]),
     transferIds: z.array(z.string().uuid()).optional().default([]),
     activityIds: z.array(z.string().uuid()).optional().default([]),
+    // Day-wise Itinerary Planner — same shape/rules as package_requests'
+    // itinerary (itineraryDaySchema above); `items` here just arrange
+    // whichever of hotelIds/tourIds/transferIds/activityIds above were
+    // already selected, resolved by the controller the same way.
+    itinerary: itinerarySchema,
   })
   .refine((v) => new Date(v.eventDateFrom) <= new Date(v.eventDateTo), {
     message: 'Event end date must be on or after the start date',
@@ -422,6 +427,7 @@ export const draftMiceRfqSchema = z.object({
   tourIds: z.array(z.string().uuid()).optional().default([]),
   transferIds: z.array(z.string().uuid()).optional().default([]),
   activityIds: z.array(z.string().uuid()).optional().default([]),
+  itinerary: itinerarySchema,
 });
 
 // Agent MICE Request workflow — item 5 (Accept / Request Revision / Decline

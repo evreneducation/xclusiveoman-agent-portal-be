@@ -200,6 +200,79 @@ export async function respondToMiceRfq(id, nextStatus) {
   return rows[0] || null;
 }
 
+// --- Day-wise Itinerary Planner (mirrors package_request_itinerary_days/
+// items and packageRequests.model.js's listItineraryForRequest/
+// replaceItinerary/composeItinerary — see 0036_mice_rfq_itinerary.sql). Days
+// are virtual (Day 1..N derived from event_date_from/event_date_to by the
+// caller) — only a day's notes and its assigned items persist, and only for
+// days that actually have something on them. Items reference the mice_rfq's
+// own already-selected hotels/tours/transfers/activities (mice_rfq_hotels
+// etc. above) — this table only arranges that selection into days, it never
+// adds/removes what's selected.
+export async function listItineraryForRfq(miceRfqId) {
+  const [{ rows: days }, { rows: items }] = await Promise.all([
+    pool.query(`SELECT * FROM mice_rfq_itinerary_days WHERE mice_rfq_id = $1 ORDER BY day_number`, [miceRfqId]),
+    pool.query(
+      `SELECT * FROM mice_rfq_itinerary_items WHERE mice_rfq_id = $1 ORDER BY day_number, position`,
+      [miceRfqId]
+    ),
+  ]);
+  return { days, items };
+}
+
+// Same "always send full state, clear and reinsert" shape as
+// packageRequests.model.js's replaceItinerary. `days` shape: [{ dayNumber,
+// notes, items: [{ type, id, note? }] }] — position within a day is each
+// item's index in its `items` array. Takes an explicit `client` like the
+// other replace*/add*Selections functions above so it can join the same
+// transaction as the rest of a create/draft-save/submit.
+export async function replaceItinerary(client, miceRfqId, days) {
+  await client.query(`DELETE FROM mice_rfq_itinerary_days WHERE mice_rfq_id = $1`, [miceRfqId]);
+  await client.query(`DELETE FROM mice_rfq_itinerary_items WHERE mice_rfq_id = $1`, [miceRfqId]);
+
+  for (const day of days || []) {
+    await client.query(
+      `INSERT INTO mice_rfq_itinerary_days (mice_rfq_id, day_number, notes) VALUES ($1, $2, $3)`,
+      [miceRfqId, day.dayNumber, day.notes || null]
+    );
+    for (const [position, item] of (day.items || []).entries()) {
+      await client.query(
+        `INSERT INTO mice_rfq_itinerary_items (mice_rfq_id, day_number, item_type, item_id, position, note)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [miceRfqId, day.dayNumber, item.type, item.id, position, item.note || null]
+      );
+    }
+  }
+}
+
+// Composes the persisted days/items rows into the [{dayNumber, notes, items:
+// [{type, id, name, ...}]}] shape both the agent and admin serializers
+// return, enriching each item against the pools of already-fetched,
+// already-selected catalog rows (hotels/tours/transfers/activities) rather
+// than re-querying — same logic as packageRequests.model.js's composeItinerary.
+export function composeItinerary(days, items, pools) {
+  const byDay = new Map();
+  for (const d of days) {
+    byDay.set(d.day_number, { dayNumber: d.day_number, notes: d.notes || '', items: [] });
+  }
+  for (const it of items) {
+    if (!byDay.has(it.day_number)) {
+      byDay.set(it.day_number, { dayNumber: it.day_number, notes: '', items: [] });
+    }
+    const pool = pools[it.item_type] || [];
+    const ref = pool.find((p) => p.id === it.item_id);
+    byDay.get(it.day_number).items.push({
+      type: it.item_type,
+      id: it.item_id,
+      name: ref?.name || null,
+      city: ref?.city ?? null,
+      images: ref?.images ?? undefined,
+      note: it.note || '',
+    });
+  }
+  return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
+}
+
 export async function listHotelsForRfq(miceRfqId) {
   const { rows } = await pool.query(
     `SELECT h.* FROM mice_rfq_hotels mh JOIN hotels h ON h.id = mh.hotel_id WHERE mh.mice_rfq_id = $1`,
