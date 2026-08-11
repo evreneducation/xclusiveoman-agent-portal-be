@@ -21,6 +21,9 @@ import {
   submitDraftMiceRfq,
   deleteDraftMiceRfq,
   respondToMiceRfq,
+  listItineraryForRfq,
+  replaceItinerary,
+  composeItinerary,
 } from '../models/miceRfqs.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { createNotification } from '../services/notification.service.js';
@@ -142,12 +145,13 @@ async function buildAgentActivityHistory(row) {
 // the one figure item 4 says the agent *should* see, and only once the
 // proposal has actually been published.
 async function toPublicMiceRfq(row) {
-  const [hotels, tours, transfers, activities, activityHistory] = await Promise.all([
+  const [hotels, tours, transfers, activities, activityHistory, itinerary] = await Promise.all([
     listHotelsForRfq(row.id),
     listToursForRfq(row.id),
     listTransfersForRfq(row.id),
     listActivitiesForRfq(row.id),
     buildAgentActivityHistory(row),
+    listItineraryForRfq(row.id),
   ]);
 
   const isPublishedOrLater = ['published', 'accepted', 'revision_requested', 'declined', 'converted'].includes(row.status);
@@ -199,6 +203,10 @@ async function toPublicMiceRfq(row) {
       description: a.description,
       images: a.images || [],
     })),
+    // Day-wise Itinerary Planner — same composeItinerary the agent builder's
+    // own local equivalent mirrors while editing, and the shape QuoteDetail's
+    // ItineraryTimeline already knows how to render.
+    itinerary: composeItinerary(itinerary.days, itinerary.items, { hotel: hotels, tour: tours, transfer: transfers, activity: activities }),
     // REL-4: lead manager's contact card once assigned.
     leadManager: row.lead_manager_user_id
       ? {
@@ -239,7 +247,7 @@ export async function create(req, res, next) {
     const {
       destination, groupSize, eventDateFrom, eventDateTo,
       hallCapacityNeeded, seatingStyle, avNeeds, otherRequirements,
-      hotelIds, tourIds, transferIds, activityIds,
+      hotelIds, tourIds, transferIds, activityIds, itinerary,
     } = req.body;
 
     await client.query('BEGIN');
@@ -261,6 +269,7 @@ export async function create(req, res, next) {
     await addTourSelections(client, rfq.id, tourIds);
     await addTransferSelections(client, rfq.id, transferIds);
     await addActivitySelections(client, rfq.id, activityIds);
+    await replaceItinerary(client, rfq.id, itinerary);
 
     await client.query('COMMIT');
 
@@ -301,7 +310,7 @@ export async function createDraft(req, res, next) {
     const {
       destination, groupSize, eventDateFrom, eventDateTo,
       hallCapacityNeeded, seatingStyle, avNeeds, otherRequirements,
-      hotelIds, tourIds, transferIds, activityIds,
+      hotelIds, tourIds, transferIds, activityIds, itinerary,
     } = req.body;
 
     await client.query('BEGIN');
@@ -315,6 +324,7 @@ export async function createDraft(req, res, next) {
     await replaceTourSelections(client, draft.id, tourIds);
     await replaceTransferSelections(client, draft.id, transferIds);
     await replaceActivitySelections(client, draft.id, activityIds);
+    await replaceItinerary(client, draft.id, itinerary);
     await client.query('COMMIT');
 
     await insertAuditLog({
@@ -351,7 +361,7 @@ export async function updateDraft(req, res, next) {
     const {
       destination, groupSize, eventDateFrom, eventDateTo,
       hallCapacityNeeded, seatingStyle, avNeeds, otherRequirements,
-      hotelIds, tourIds, transferIds, activityIds,
+      hotelIds, tourIds, transferIds, activityIds, itinerary,
     } = req.body;
 
     await client.query('BEGIN');
@@ -362,6 +372,7 @@ export async function updateDraft(req, res, next) {
     await replaceTourSelections(client, id, tourIds);
     await replaceTransferSelections(client, id, transferIds);
     await replaceActivitySelections(client, id, activityIds);
+    await replaceItinerary(client, id, itinerary);
     await client.query('COMMIT');
 
     const row = updated ? await findMiceRfqWithLeadManager(updated.id) : current;
@@ -390,7 +401,7 @@ export async function submit(req, res, next) {
     const {
       destination, groupSize, eventDateFrom, eventDateTo,
       hallCapacityNeeded, seatingStyle, avNeeds, otherRequirements,
-      hotelIds, tourIds, transferIds, activityIds,
+      hotelIds, tourIds, transferIds, activityIds, itinerary,
     } = req.body;
 
     await client.query('BEGIN');
@@ -401,6 +412,7 @@ export async function submit(req, res, next) {
     await replaceTourSelections(client, id, tourIds);
     await replaceTransferSelections(client, id, transferIds);
     await replaceActivitySelections(client, id, activityIds);
+    await replaceItinerary(client, id, itinerary);
     const submitted = await submitDraftMiceRfq(client, id);
     await client.query('COMMIT');
 

@@ -5,8 +5,10 @@
 --
 -- ALTER TYPE ... ADD VALUE is safe as its own migration file: Postgres only
 -- restricts using a brand-new enum value in the *same* transaction that
--- added it, and nothing here does that (the values are only ever written
--- by later, separate application queries).
+-- added it. The migration runner (src/db/migrate.js) wraps each file's SQL
+-- in one transaction, so the partial index below — which filtered on the
+-- new 'scheduled' value — has to live in its own follow-up migration file
+-- instead (0035_marketing_campaign_scheduled_index.sql) rather than this one.
 ALTER TYPE marketing_campaign_status ADD VALUE 'scheduled';
 ALTER TYPE marketing_campaign_status ADD VALUE 'cancelled';
 
@@ -15,7 +17,3 @@ ALTER TYPE marketing_campaign_status ADD VALUE 'cancelled';
 -- being written here (see src/utils/timezone.js), never the raw local
 -- wall-clock values.
 ALTER TABLE marketing_campaigns ADD COLUMN scheduled_at TIMESTAMPTZ;
-
--- Backs the scheduler job's "find due campaigns" poll (marketingScheduler.job.js)
--- — partial so the index only covers rows that could possibly still be due.
-CREATE INDEX idx_marketing_campaigns_scheduled ON marketing_campaigns(scheduled_at) WHERE status = 'scheduled';

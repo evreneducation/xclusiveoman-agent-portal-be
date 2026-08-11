@@ -6,6 +6,7 @@ import catalogRoutes, { adminCatalogRouter } from './catalog.routes.js';
 import departuresRoutes from './departures.routes.js';
 import packageRequestsRoutes from './packageRequests.routes.js';
 import packageRequestsAdminRoutes from './packageRequestsAdmin.routes.js';
+import itineraryPdfDataRoutes from './itineraryPdfData.routes.js';
 import miceRfqsRoutes from './miceRfqs.routes.js';
 import miceRfqsAdminRoutes from './miceRfqsAdmin.routes.js';
 import fdPackagesAdminRoutes from './fdPackagesAdmin.routes.js';
@@ -34,6 +35,8 @@ router.use('/', catalogRoutes);
 router.use('/departures', departuresRoutes);
 router.use('/package-requests', packageRequestsRoutes);
 router.use('/admin/package-requests', packageRequestsAdminRoutes);
+// pdfToken-authenticated (not requireAuth) — see itineraryPdfData.routes.js.
+router.use('/itinerary-pdf', itineraryPdfDataRoutes);
 router.use('/mice/rfqs', miceRfqsRoutes);
 router.use('/admin/mice-rfqs', miceRfqsAdminRoutes);
 router.use('/payments', paymentsRoutes);

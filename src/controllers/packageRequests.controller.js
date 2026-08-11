@@ -1,5 +1,6 @@
 import { pool } from '../db/pool.js';
 import { getIo } from '../sockets/index.js';
+import { generateItineraryPdf } from '../services/itineraryPdf.service.js';
 import {
   createPackageRequest,
   addHotelSelections,
@@ -30,6 +31,8 @@ import {
 } from '../models/packageRequests.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { createNotification } from '../services/notification.service.js';
+import { findUserById } from '../models/users.model.js';
+import { pickNextRoundRobinLeadManager, applyLeadManagerAssignment } from '../services/leadManagerAssignment.service.js';
 
 // Task 3 — FIT Notification Events (agent's own submit/accept/decline/
 // revision-request actions; Lead Manager Assigned/Quote Published are the
@@ -234,6 +237,33 @@ export async function list(req, res, next) {
   }
 }
 
+// Every request that lands in the admin queue gets a Lead Manager
+// automatically, round-robin across active Sales Managers only (see
+// leadManagerAssignment.service.js) — the admin never has to pick one by
+// hand, and a request is never left unassigned once it's submitted. Called
+// right after the create/submit transaction commits, on the still-'submitted'
+// row it just wrote. Best-effort: a hiccup here (e.g. no active Sales
+// Managers yet) must never fail the agent's already-successful submission —
+// the request simply stays 'submitted' and can still be assigned manually.
+async function autoAssignLeadManager(row) {
+  try {
+    const leadManagerUserId = await pickNextRoundRobinLeadManager();
+    if (!leadManagerUserId) return; // no active Sales Manager to assign to yet
+    await applyLeadManagerAssignment({
+      packageRequestId: row.id,
+      leadManagerUserId,
+      previousLeadManagerUserId: null,
+      nextStatus: 'assigned',
+      actorUserId: null, // automatic — no admin actor
+      destination: row.destination,
+      agencyId: row.agency_id,
+      createdByUserId: row.created_by_user_id,
+    });
+  } catch (err) {
+    console.error('Round-robin Lead Manager assignment failed for package request', row.id, err);
+  }
+}
+
 // POST /api/package-requests — FIT-1..FIT-7: submits the wizard in one
 // atomic step (unchanged from before this task — still the "just submit,
 // never saved a draft" path), landing it in the admin Quote Inbox as
@@ -267,6 +297,10 @@ export async function create(req, res, next) {
     await replaceItinerary(client, packageRequest.id, itinerary);
 
     await client.query('COMMIT');
+
+    // Auto-assign a Lead Manager (round-robin, Sales Managers only) before
+    // the admin queue even sees this — see autoAssignLeadManager above.
+    await autoAssignLeadManager(packageRequest);
 
     // doc §13: new FIT/MICE submission — live badge counts on the admin Quote Inbox.
     getIo()?.to('role:ops_admin').emit('queue:new_item', {
@@ -403,6 +437,10 @@ export async function submit(req, res, next) {
     const submitted = await submitDraftPackageRequest(client, id);
     await client.query('COMMIT');
 
+    // Auto-assign a Lead Manager (round-robin, Sales Managers only) — same
+    // as the direct-submit path in create() above.
+    if (submitted) await autoAssignLeadManager(submitted);
+
     await insertAuditLog({
       actorUserId: req.user.id,
       entity: 'package_request',
@@ -464,6 +502,78 @@ export async function get(req, res, next) {
     if (!row || row.agency_id !== req.user.agency_id) {
       return res.status(404).json({ error: 'not_found' });
     }
+    res.json({ packageRequest: await toPublicPackageRequest(row) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/package-requests/:id/itinerary.pdf — server-side PDF export of
+// the same "Detailed Itinerary" document the Review & Submit step's
+// ItineraryDocument.jsx renders on screen (see itineraryPdf.service.js for
+// why this replaced the old window.print() flow). Sits behind this router's
+// normal requireAuth/requireRole (packageRequests.routes.js) — same
+// ownership check as get() above — the short-lived pdfToken the Puppeteer
+// render itself authenticates with is minted here, after that check passes,
+// never accepted from the client.
+export async function downloadItineraryPdf(req, res, next) {
+  try {
+    const { id } = req.params;
+    const row = await findPackageRequestWithLeadManager(id);
+    if (!row || row.agency_id !== req.user.agency_id) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    let pdfBuffer;
+    try {
+      pdfBuffer = await generateItineraryPdf({ packageRequestId: id, userId: req.user.id });
+    } catch (err) {
+      // Distinguish "we couldn't render it" from a generic 500 — the agent
+      // sees a clear "try again" message instead of a bare server error.
+      err.status = 502;
+      err.publicMessage = 'Unable to generate the itinerary PDF right now. Please try again.';
+      throw err;
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="itinerary-${id}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    if (err.status && err.publicMessage) {
+      return res.status(err.status).json({ error: 'pdf_generation_failed', message: err.publicMessage });
+    }
+    next(err);
+  }
+}
+
+// GET /api/itinerary-pdf/:id/data — not mounted on this router (see
+// routes/itineraryPdfData.routes.js): sits behind requirePdfToken instead of
+// requireAuth, since this is the endpoint the Puppeteer-rendered print page
+// itself calls (agent/pages/ItineraryPrint.jsx), a browser context with no
+// login session/cookies. Returns the exact same shape as get() above so
+// ItineraryPrint.jsx can build the same ItineraryDocument props
+// PackageBuilder.jsx's Review step does, just reached a different way.
+//
+// req.pdfClaims (set by requirePdfToken) already scopes the token to one
+// packageRequestId + one userId — both re-checked against fresh DB state
+// here rather than trusted as-is, same posture requireAuth takes toward a
+// normal access token's claims.
+export async function getItineraryDataForPdf(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (req.pdfClaims.packageRequestId !== id) {
+      return res.status(403).json({ error: 'forbidden', message: 'This token is not valid for this itinerary' });
+    }
+
+    const [row, user] = await Promise.all([
+      findPackageRequestWithLeadManager(id),
+      findUserById(req.pdfClaims.sub),
+    ]);
+    if (!row || !user || row.agency_id !== user.agency_id) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
     res.json({ packageRequest: await toPublicPackageRequest(row) });
   } catch (err) {
     next(err);

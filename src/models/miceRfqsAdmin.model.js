@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { replaceItinerary } from './miceRfqs.model.js';
 
 // Admin-side queries only (listing with joins/pagination/search, lead-manager
 // assignment) — mirrors packageRequestsAdmin.model.js. Detail sub-lists
@@ -99,6 +100,26 @@ export async function updateMiceRfqCosting(id, { costBreakdown, landingCost, mar
     [JSON.stringify(costBreakdown), landingCost, JSON.stringify(markupRule), sellPrice, internalNotes, status, id]
   );
   return rows[0] || null;
+}
+
+// Day-wise Itinerary Planner — admin edit. Reuses the exact same
+// replaceItinerary the agent builder writes through (miceRfqs.model.js) —
+// "the finalized version should be shown back to the agent exactly as
+// arranged" just falls out of both sides reading/writing the same rows, no
+// separate admin copy. Mirrors packageRequestsAdmin.model.js's
+// updatePackageRequestItinerary.
+export async function updateMiceRfqItinerary(id, days) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await replaceItinerary(client, id, days);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 // "Publish Proposal". Costing/markup are saved separately
