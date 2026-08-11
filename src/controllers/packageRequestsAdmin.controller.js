@@ -17,10 +17,11 @@ import {
   listItineraryForRequest,
   composeItinerary,
 } from '../models/packageRequests.model.js';
-import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
+import { listStaffByRole, findUserById, toPublicUser } from '../models/users.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
 import { createNotification } from '../services/notification.service.js';
+import { applyLeadManagerAssignment } from '../services/leadManagerAssignment.service.js';
 
 function toListItem(row) {
   return {
@@ -261,9 +262,13 @@ export async function get(req, res, next) {
 // the general staff listing rather than the super-admin-only RM/Sales
 // Manager management endpoints, so any staff member with Quote Inbox access
 // can actually populate this dropdown.
+// Lead Manager candidates are Sales Managers only, per policy — same pool
+// leadManagerAssignment.service.js's round-robin draws from, so a manual
+// (re)assignment here can never diverge from what auto-assignment would
+// have picked.
 export async function listLeadManagerCandidates(req, res, next) {
   try {
-    const staff = await listStaff();
+    const staff = await listStaffByRole('sales_manager');
     res.json({ staff: staff.map(toPublicUser) });
   } catch (err) {
     next(err);
@@ -282,9 +287,12 @@ export async function assignLeadManager(req, res, next) {
     if (!current) return res.status(404).json({ error: 'not_found' });
 
     if (leadManagerUserId) {
+      // Only ever a Sales Manager, per policy — same restriction the
+      // round-robin (leadManagerAssignment.service.js) enforces automatically,
+      // now also enforced on a manual (re)assignment.
       const candidate = await findUserById(leadManagerUserId);
-      if (!candidate || candidate.agency_id !== null) {
-        return res.status(400).json({ error: 'invalid_lead_manager', message: 'Not a valid staff member' });
+      if (!candidate || candidate.role !== 'sales_manager') {
+        return res.status(400).json({ error: 'invalid_lead_manager', message: 'Lead Manager must be a Sales Manager' });
       }
     }
 
@@ -292,44 +300,23 @@ export async function assignLeadManager(req, res, next) {
     if (leadManagerUserId && current.status === 'submitted') nextStatus = 'assigned';
     if (!leadManagerUserId && current.status === 'assigned') nextStatus = 'submitted';
 
-    await updatePackageRequestLeadManager(id, leadManagerUserId || null, nextStatus);
-
     if (leadManagerUserId) {
-      // doc §13: lead:assigned -> staff (assigned user).
-      getIo()?.to(`user:${leadManagerUserId}`).emit('lead:assigned', {
+      // Same write + side effects (socket emits, Activity History, agent
+      // notification) the round-robin auto-assignment fires — see
+      // leadManagerAssignment.service.js.
+      await applyLeadManagerAssignment({
         packageRequestId: id,
-        destination: current.destination,
-      });
-      // Agent Quote lifecycle (item 7) — same event/room the agent's "My FIT
-      // Requests" list already listens on, so status updates live instantly
-      // instead of on next page load.
-      getIo()?.to(`agency:${current.agency_id}`).emit('quote:status_changed', {
-        packageRequestId: id,
-        status: nextStatus,
-      });
-      // Activity History (item 7) — only logged on an actual assignment,
-      // matching the doc's example timeline entry ("Lead Manager Assigned").
-      await insertAuditLog({
+        leadManagerUserId,
+        previousLeadManagerUserId: current.lead_manager_user_id,
+        nextStatus,
         actorUserId: req.user.id,
-        entity: 'package_request',
-        entityId: id,
-        field: 'lead_manager_user_id',
-        oldValue: { leadManagerUserId: current.lead_manager_user_id },
-        newValue: { leadManagerUserId },
+        destination: current.destination,
+        agencyId: current.agency_id,
+        createdByUserId: current.created_by_user_id,
       });
-
-      // Task 3, event 2 — Lead Manager Assigned. `candidate` above is scoped
-      // to the earlier validation block, so it's re-fetched here rather than
-      // widening that block's scope.
-      const leadManager = await findUserById(leadManagerUserId);
-      await createNotification({
-        recipientUserId: current.created_by_user_id,
-        type: 'fit_lead_manager_assigned',
-        title: 'Lead Manager assigned',
-        message: `${leadManager?.full_name || 'A Lead Manager'} has been assigned as your Lead Manager for the FIT request to ${current.destination}.`,
-        referenceType: 'package_request',
-        referenceId: id,
-      });
+    } else {
+      // Unassign — no candidate to validate, no "assigned" notification to send.
+      await updatePackageRequestLeadManager(id, null, nextStatus);
     }
 
     const updatedRow = await findPackageRequestForAdmin(id);

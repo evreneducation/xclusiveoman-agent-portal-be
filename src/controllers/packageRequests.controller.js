@@ -32,6 +32,7 @@ import {
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { createNotification } from '../services/notification.service.js';
 import { findUserById } from '../models/users.model.js';
+import { pickNextRoundRobinLeadManager, applyLeadManagerAssignment } from '../services/leadManagerAssignment.service.js';
 
 // Task 3 — FIT Notification Events (agent's own submit/accept/decline/
 // revision-request actions; Lead Manager Assigned/Quote Published are the
@@ -236,6 +237,33 @@ export async function list(req, res, next) {
   }
 }
 
+// Every request that lands in the admin queue gets a Lead Manager
+// automatically, round-robin across active Sales Managers only (see
+// leadManagerAssignment.service.js) — the admin never has to pick one by
+// hand, and a request is never left unassigned once it's submitted. Called
+// right after the create/submit transaction commits, on the still-'submitted'
+// row it just wrote. Best-effort: a hiccup here (e.g. no active Sales
+// Managers yet) must never fail the agent's already-successful submission —
+// the request simply stays 'submitted' and can still be assigned manually.
+async function autoAssignLeadManager(row) {
+  try {
+    const leadManagerUserId = await pickNextRoundRobinLeadManager();
+    if (!leadManagerUserId) return; // no active Sales Manager to assign to yet
+    await applyLeadManagerAssignment({
+      packageRequestId: row.id,
+      leadManagerUserId,
+      previousLeadManagerUserId: null,
+      nextStatus: 'assigned',
+      actorUserId: null, // automatic — no admin actor
+      destination: row.destination,
+      agencyId: row.agency_id,
+      createdByUserId: row.created_by_user_id,
+    });
+  } catch (err) {
+    console.error('Round-robin Lead Manager assignment failed for package request', row.id, err);
+  }
+}
+
 // POST /api/package-requests — FIT-1..FIT-7: submits the wizard in one
 // atomic step (unchanged from before this task — still the "just submit,
 // never saved a draft" path), landing it in the admin Quote Inbox as
@@ -269,6 +297,10 @@ export async function create(req, res, next) {
     await replaceItinerary(client, packageRequest.id, itinerary);
 
     await client.query('COMMIT');
+
+    // Auto-assign a Lead Manager (round-robin, Sales Managers only) before
+    // the admin queue even sees this — see autoAssignLeadManager above.
+    await autoAssignLeadManager(packageRequest);
 
     // doc §13: new FIT/MICE submission — live badge counts on the admin Quote Inbox.
     getIo()?.to('role:ops_admin').emit('queue:new_item', {
@@ -404,6 +436,10 @@ export async function submit(req, res, next) {
     await replaceItinerary(client, id, itinerary);
     const submitted = await submitDraftPackageRequest(client, id);
     await client.query('COMMIT');
+
+    // Auto-assign a Lead Manager (round-robin, Sales Managers only) — same
+    // as the direct-submit path in create() above.
+    if (submitted) await autoAssignLeadManager(submitted);
 
     await insertAuditLog({
       actorUserId: req.user.id,
