@@ -3,6 +3,7 @@ import {
   findFdPackageById,
   createFdPackage,
   updateFdPackage,
+  deleteFdPackage,
   listItineraryForPackage,
   replaceItinerary,
   composeItinerary,
@@ -143,6 +144,17 @@ export async function update(req, res, next) {
     const fdPackage = await updateFdPackage(req.params.id, toSnakeCaseColumns(req.body));
     if (!fdPackage) return res.status(404).json({ error: 'not_found' });
     res.json({ fdPackage: toPublicPackage(fdPackage) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function remove(req, res, next) {
+  try {
+    const existing = await findFdPackageById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not_found' });
+    await deleteFdPackage(req.params.id);
+    res.status(204).send();
   } catch (err) {
     next(err);
   }

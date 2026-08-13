@@ -93,6 +93,16 @@ export async function createFdPackage(fields) {
   return rows[0];
 }
 
+// fd_itinerary_days/items, fd_departure_dates, and fd_addons all cascade off
+// fd_package_id (ON DELETE CASCADE). bookings.fd_departure_date_id does not
+// — it has no cascade — so this throws a Postgres 23503 (foreign_key_violation),
+// surfaced by errorHandler.js as a 409, if any booking still exists against
+// one of this package's departure dates. That's intentional: a package with
+// real bookings shouldn't just vanish.
+export async function deleteFdPackage(id) {
+  await pool.query('DELETE FROM fd_packages WHERE id = $1', [id]);
+}
+
 export async function updateFdPackage(id, fields) {
   const cols = FD_COLUMNS.filter((c) => fields[c] !== undefined);
   if (cols.length === 0) return findFdPackageById(id);
