@@ -1,5 +1,7 @@
 import { pool } from '../db/pool.js';
 import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel } from './catalog.model.js';
+import { roomsForAdults } from '../utils/occupancy.js';
+import { computeMealsCost } from '../utils/meals.js';
 
 const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
@@ -138,10 +140,13 @@ export async function listItineraryForPackage(fdPackageId) {
 
 // Same "always send full state, clear and reinsert" shape as
 // packageRequests.model.js's replaceItinerary. `days` shape: [{ dayNumber,
-// notes, items: [{ type, id, note? }] }] — position within a day is each
-// item's index in its `items` array. Runs in its own transaction (unlike
-// package-requests' replaceItinerary, an FD package's itinerary save isn't
-// part of a larger multi-table request, so there's no outer `client` to join).
+// notes, items: [{ type, id, note?, adults? }] }] — position within a day is
+// each item's index in its `items` array. `adults` (hotel occupancy) is only
+// meaningful on 'hotel' items; sent as-is for anything else, which just
+// leaves the column null since nothing reads it back off a non-hotel row.
+// Runs in its own transaction (unlike package-requests' replaceItinerary, an
+// FD package's itinerary save isn't part of a larger multi-table request, so
+// there's no outer `client` to join).
 export async function replaceItinerary(fdPackageId, days) {
   const client = await pool.connect();
   try {
@@ -156,9 +161,9 @@ export async function replaceItinerary(fdPackageId, days) {
       );
       for (const [position, item] of (day.items || []).entries()) {
         await client.query(
-          `INSERT INTO fd_itinerary_items (fd_package_id, day_number, item_type, item_id, position, note)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [fdPackageId, day.dayNumber, item.type, item.id, position, item.note || null]
+          `INSERT INTO fd_itinerary_items (fd_package_id, day_number, item_type, item_id, position, note, adults)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [fdPackageId, day.dayNumber, item.type, item.id, position, item.note || null, item.adults || null]
         );
       }
     }
@@ -203,38 +208,21 @@ export function computeNetRatePerPax(items, pools) {
   return (items || []).reduce((total, it) => {
     const field = ITEM_PRICE_FIELD[it.item_type];
     const ref = field && (pools[it.item_type] || []).find((p) => p.id === it.item_id);
-    return total + (ref ? Number(ref[field]) || 0 : 0);
+    if (!ref) return total;
+    const price = Number(ref[field]) || 0;
+    const multiplier = it.item_type === 'hotel' ? roomsForAdults(it.adults) : 1;
+    return total + price * multiplier;
   }, 0);
 }
 
-// Meals are a flat add-on total (headcount × days), not one line per
-// itinerary day the way hotels/tours/transfers/activities are, so they're
-// priced separately and added on top of the itinerary total. A meal type
-// only contributes once a specific catalog entry, a headcount, and a day
-// count are all set — matches PricingForm/MealsManager's client-side mirror
-// of this same formula. The catalog only captures a "price for 1 day" per
-// meal_type (price_per_person is no longer set from the admin UI); that
-// field is treated as the per-person-per-day rate here.
-function mealTypeCost(fdPackage, pools, prefix) {
-  const mealId = fdPackage[`${prefix}_meal_id`];
-  const people = fdPackage[`${prefix}_people`];
-  const days = fdPackage[`${prefix}_days`];
-  if (!mealId || !people || !days) return 0;
-  const meal = (pools.meal || []).find((m) => m.id === mealId);
-  return meal ? Number(meal.price_per_day || 0) * Number(people) * Number(days) : 0;
-}
-
-export function computeMealsCost(fdPackage, pools) {
-  return mealTypeCost(fdPackage, pools, 'lunch') + mealTypeCost(fdPackage, pools, 'dinner');
-}
-
 // The effective net rate: fdPackage.rate_per_pax when the admin has set an
-// override, else the itinerary total plus any selected meals. Shared by
-// every reader (admin catalog, agent listing/detail, booking) so they never
-// disagree about which price applies.
+// override, else the itinerary total plus any selected meals (see
+// computeMealsCost, src/utils/meals.js — shared with the Custom FIT Package
+// Builder's costing). Shared by every reader (admin catalog, agent
+// listing/detail, booking) so they never disagree about which price applies.
 export function resolveRatePerPax(fdPackage, items, pools) {
   if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
-  return computeNetRatePerPax(items, pools) + computeMealsCost(fdPackage, pools);
+  return computeNetRatePerPax(items, pools) + computeMealsCost(fdPackage, pools.meal);
 }
 
 // Composes the persisted days/items rows into the [{dayNumber, notes, items:
@@ -262,6 +250,11 @@ export function composeItinerary(days, items, pools) {
       city: ref?.city ?? null,
       images: ref?.images ?? undefined,
       note: it.note || '',
+      // Occupancy — hotel items only (undefined for everything else, same as
+      // a never-set hotel item). `rooms` is the derived room count
+      // (computeNetRatePerPax's pricing driver) so consumers don't need to
+      // re-derive ceil(adults / 2) themselves just to display it.
+      ...(it.item_type === 'hotel' ? { adults: it.adults ?? null, rooms: roomsForAdults(it.adults) } : {}),
     });
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);

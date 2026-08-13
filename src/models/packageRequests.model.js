@@ -1,18 +1,28 @@
 import { pool } from '../db/pool.js';
+import { roomsForOccupancy } from '../utils/occupancy.js';
+
+// Optional lunch/dinner add-on — same 6-column shape as fd_packages (see
+// 0045_package_requests_meals.sql / fdPackages.model.js's FD_COLUMNS). Kept
+// as one small helper so the value list isn't repeated across
+// createPackageRequest/createDraftPackageRequest/updateDraftTripInfo below.
+function mealValues({ lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays } = {}) {
+  return [lunchMealId || null, lunchPeople ?? null, lunchDays ?? null, dinnerMealId || null, dinnerPeople ?? null, dinnerDays ?? null];
+}
 
 // Insert helpers take an explicit `client` so the whole submission (request +
 // all selections + travelers) commits atomically as one transaction — see
 // packageRequests.controller.js#create.
 
 export async function createPackageRequest(client, {
-  agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren,
+  agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealFields
 }) {
   const { rows } = await client.query(
     `INSERT INTO package_requests
-      (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'submitted')
+      (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
+       lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'submitted', $8, $9, $10, $11, $12, $13)
      RETURNING *`,
-    [agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren]
+    [agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealValues(mealFields)]
   );
   return rows[0];
 }
@@ -111,13 +121,14 @@ export async function findPackageRequestWithLeadManager(id) {
 // leniently by draftPackageRequestSchema, not the strict submit schema).
 // Takes `client` like createPackageRequest above — the row plus its
 // selections/travelers are written as one transaction by the controller.
-export async function createDraftPackageRequest(client, { agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren }) {
+export async function createDraftPackageRequest(client, { agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealFields }) {
   const { rows } = await client.query(
     `INSERT INTO package_requests
-      (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')
+      (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
+       lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, $10, $11, $12, $13)
      RETURNING *`,
-    [agencyId, createdByUserId, destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0]
+    [agencyId, createdByUserId, destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(mealFields)]
   );
   return rows[0];
 }
@@ -125,13 +136,15 @@ export async function createDraftPackageRequest(client, { agencyId, createdByUse
 // "Continue Editing" autosave — only ever touches a row still in 'draft'
 // (WHERE guard), so a submitted request can never be silently rewritten by
 // a stale builder tab.
-export async function updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren }) {
+export async function updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealFields }) {
   const { rows } = await client.query(
     `UPDATE package_requests
-     SET destination = $1, date_from = $2, date_to = $3, pax_adults = $4, pax_children = $5, updated_at = now()
-     WHERE id = $6 AND status = 'draft'
+     SET destination = $1, date_from = $2, date_to = $3, pax_adults = $4, pax_children = $5,
+         lunch_meal_id = $6, lunch_people = $7, lunch_days = $8, dinner_meal_id = $9, dinner_people = $10, dinner_days = $11,
+         updated_at = now()
+     WHERE id = $12 AND status = 'draft'
      RETURNING *`,
-    [destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, id]
+    [destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(mealFields), id]
   );
   return rows[0] || null;
 }
@@ -265,9 +278,12 @@ export async function listItineraryForRequest(packageRequestId) {
 // explicit `client` like the other replace* functions so it can join the
 // same transaction as the rest of a create/draft-save/submit.
 //
-// `days` shape: [{ dayNumber, notes, items: [{ type, id, note? }] }] —
-// position within a day is each item's index in its `items` array. `note`
+// `days` shape: [{ dayNumber, notes, items: [{ type, id, note?, occupancy? }] }]
+// — position within a day is each item's index in its `items` array. `note`
 // is a short per-item annotation, distinct from the day's own `notes`.
+// `occupancy` ('single'/'double'/'triple' — how the trip's known headcount,
+// pax_adults, splits into rooms) is only meaningful on 'hotel' items — see
+// computeHotelCostAuto in packageRequestsAdmin.controller.js.
 export async function replaceItinerary(client, packageRequestId, days) {
   await client.query(`DELETE FROM package_request_itinerary_days WHERE package_request_id = $1`, [packageRequestId]);
   await client.query(`DELETE FROM package_request_itinerary_items WHERE package_request_id = $1`, [packageRequestId]);
@@ -279,9 +295,9 @@ export async function replaceItinerary(client, packageRequestId, days) {
     );
     for (const [position, item] of (day.items || []).entries()) {
       await client.query(
-        `INSERT INTO package_request_itinerary_items (package_request_id, day_number, item_type, item_id, position, note)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [packageRequestId, day.dayNumber, item.type, item.id, position, item.note || null]
+        `INSERT INTO package_request_itinerary_items (package_request_id, day_number, item_type, item_id, position, note, occupancy)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [packageRequestId, day.dayNumber, item.type, item.id, position, item.note || null, item.occupancy || null]
       );
     }
   }
@@ -293,7 +309,9 @@ export async function replaceItinerary(client, packageRequestId, days) {
 // (hotels/tours/transfers/activities) rather than re-querying — those pools
 // differ slightly between the agent and admin serializers (admin's include
 // prices), so the enriched item picks up whatever fields that pool already has.
-export function composeItinerary(days, items, pools) {
+// `totalAdults` (package_requests.pax_adults) is only needed to derive each
+// hotel item's `rooms` for display — callers that don't care can omit it.
+export function composeItinerary(days, items, pools, totalAdults) {
   const byDay = new Map();
   for (const d of days) {
     byDay.set(d.day_number, { dayNumber: d.day_number, notes: d.notes || '', items: [] });
@@ -311,6 +329,11 @@ export function composeItinerary(days, items, pools) {
       city: ref?.city ?? null,
       images: ref?.images ?? undefined,
       note: it.note || '',
+      // Occupancy — hotel items only (undefined for everything else). `rooms`
+      // is the derived room count (computeHotelCostAuto's pricing driver in
+      // packageRequestsAdmin.controller.js) so consumers don't need to
+      // re-derive ceil(pax_adults / capacity) themselves just to display it.
+      ...(it.item_type === 'hotel' ? { occupancy: it.occupancy ?? null, rooms: roomsForOccupancy(totalAdults, it.occupancy) } : {}),
     });
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);

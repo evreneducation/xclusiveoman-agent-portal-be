@@ -309,6 +309,16 @@ export const itineraryDaySchema = z.object({
         // Per-item annotation (e.g. "9am pickup"), separate from the day's
         // own `notes` above.
         note: z.string().max(500).optional().default(''),
+        // Hotel occupancy — two different shapes, only one used per builder
+        // (both only meaningful for type: 'hotel'):
+        // `adults` — FD Packages only (fd_itinerary_items.adults /
+        // computeNetRatePerPax): a direct headcount typed per hotel-day.
+        // `occupancy` — Custom FIT only (package_request_itinerary_items.
+        // occupancy / roomsForOccupancy): Single/Double/Triple, since
+        // headcount is already known from Trip Details (pax_adults).
+        // MICE RFQ itineraries ignore both.
+        adults: z.number().int().positive().optional(),
+        occupancy: z.enum(['single', 'double', 'triple']).optional(),
       })
     )
     .optional()
@@ -330,6 +340,16 @@ export const createPackageRequestSchema = z
     activityIds: z.array(z.string().uuid()).optional().default([]),
     travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
     itinerary: itinerarySchema,
+    // Optional lunch/dinner add-on — same shape as FD packages
+    // (fdPackageSchema below): a headcount and a day count per meal type,
+    // never a specific catalog entry (see computeMealsCost/resolveMealsSummary,
+    // src/utils/meals.js). All three null clears that meal type.
+    lunchMealId: z.string().uuid().nullable().optional(),
+    lunchPeople: z.number().int().nonnegative().nullable().optional(),
+    lunchDays: z.number().int().nonnegative().nullable().optional(),
+    dinnerMealId: z.string().uuid().nullable().optional(),
+    dinnerPeople: z.number().int().nonnegative().nullable().optional(),
+    dinnerDays: z.number().int().nonnegative().nullable().optional(),
   })
   // Plain string comparisons — dateFrom/dateTo are always "YYYY-MM-DD" (no
   // time/timezone component) coming from the FE's <input type="date">, so
@@ -369,6 +389,12 @@ export const draftPackageRequestSchema = z.object({
   activityIds: z.array(z.string().uuid()).optional().default([]),
   travelers: z.array(draftPackageRequestTravelerSchema).optional().default([]),
   itinerary: itinerarySchema,
+  lunchMealId: z.string().uuid().nullable().optional(),
+  lunchPeople: z.number().int().nonnegative().nullable().optional(),
+  lunchDays: z.number().int().nonnegative().nullable().optional(),
+  dinnerMealId: z.string().uuid().nullable().optional(),
+  dinnerPeople: z.number().int().nonnegative().nullable().optional(),
+  dinnerDays: z.number().int().nonnegative().nullable().optional(),
 });
 
 // Agent Quote lifecycle — item 5 (Accept / Request Revision / Decline a

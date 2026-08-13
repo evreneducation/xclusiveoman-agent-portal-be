@@ -15,6 +15,7 @@ import {
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
 import { hotelsModel } from '../models/catalog.model.js';
+import { resolveMealsSummary } from '../utils/meals.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
 
@@ -106,6 +107,10 @@ export async function getDeparture(req, res, next) {
       departure: {
         ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools)),
         itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
+        // Read-only breakdown for the "Meals" section below the itinerary
+        // (DepartureDetail.jsx) — already folded into ratePerPax above via
+        // resolveRatePerPax, this is purely informational.
+        meals: resolveMealsSummary(fdPackage, pools.meal),
         departureDates: dates.map((d) => ({
           id: d.id,
           date: d.date,

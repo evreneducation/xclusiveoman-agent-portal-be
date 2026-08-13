@@ -18,6 +18,9 @@ import {
   composeItinerary,
 } from '../models/packageRequests.model.js';
 import { listStaffByRole, findUserById, toPublicUser } from '../models/users.model.js';
+import { roomsForOccupancy } from '../utils/occupancy.js';
+import { computeMealsCost } from '../utils/meals.js';
+import { mealsModel } from '../models/catalog.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
 import { createNotification } from '../services/notification.service.js';
@@ -107,18 +110,42 @@ function sumPrices(items, key) {
   return items.reduce((total, item) => total + toNumberOrZero(item[key]), 0);
 }
 
+// Hotels are occupancy-aware (0046_package_request_itinerary_items_occupancy.sql):
+// price_per_night is a single-room rate, and each hotel-day picks a
+// Single/Double/Triple occupancy rather than a headcount — the headcount
+// itself is the trip's own pax_adults (Trip Details), fixed for the whole
+// request. So this sums price_per_night × rooms per itinerary-day placement
+// (rooms = ceil(pax_adults / occupancy capacity) — see roomsForOccupancy) —
+// a hotel used on 3 days counts 3 times, same as FD Packages'
+// computeNetRatePerPax, rather than once per distinct selected hotel.
+// Tours/transfers/extras still count once per selected item, not per
+// itinerary occurrence — untouched, unlike hotels.
+function computeHotelCostAuto(itineraryItems, hotels, totalAdults) {
+  return (itineraryItems || []).reduce((total, it) => {
+    if (it.item_type !== 'hotel') return total;
+    const hotel = hotels.find((h) => h.id === it.item_id);
+    if (!hotel || hotel.price_per_night == null) return total;
+    return total + Number(hotel.price_per_night) * roomsForOccupancy(totalAdults, it.occupancy);
+  }, 0);
+}
+
 // Landing Cost Breakdown auto total (item 1): sum of each selected catalog
-// item's Product Catalog price. The FIT Package Builder (untouched by this
-// task) doesn't capture a nights/qty multiplier per selection, so hotels/
-// tours/transfers count one unit per selected item; activities.price_per_pax
+// item's Product Catalog price. Tours/transfers still count one unit per
+// selected item (no nights/qty multiplier there); activities.price_per_pax
 // is the one field that's explicitly "per pax", so it's the one component
-// multiplied by total pax.
-function computeAutoCosting({ hotels, tours, transfers, activities, totalPax }) {
+// multiplied by total pax. Hotels are the exception — see
+// computeHotelCostAuto above. Meals is a flat add-on total (headcount ×
+// days) via computeMealsCost, shared with FD Packages (src/utils/meals.js) —
+// `packageRequestRow` is the raw package_requests row (lunch/dinner
+// selection, and pax_adults for hotel occupancy, both live directly on it,
+// not in the itinerary).
+function computeAutoCosting({ hotels, tours, transfers, activities, totalPax, itineraryItems, packageRequestRow, mealsCatalog }) {
   return {
-    hotelCostAuto: sumPrices(hotels, 'price_per_night'),
+    hotelCostAuto: computeHotelCostAuto(itineraryItems, hotels, packageRequestRow.pax_adults),
     tourCostAuto: sumPrices(tours, 'price'),
     transferCostAuto: sumPrices(transfers, 'price'),
     extraCostAuto: sumPrices(activities, 'price_per_pax') * Math.max(totalPax, 1),
+    mealsCostAuto: computeMealsCost(packageRequestRow, mealsCatalog),
   };
 }
 
@@ -139,7 +166,7 @@ function normalizeComponent(c) {
 // catalog item prices are included in the hotels/tours/transfers/activities
 // below, to back the Landing Cost Breakdown's per-item display.
 async function toDetail(row) {
-  const [hotels, tours, transfers, activities, travelers, activityHistory, itinerary] = await Promise.all([
+  const [hotels, tours, transfers, activities, travelers, activityHistory, itinerary, mealsCatalog] = await Promise.all([
     listHotelsForRequest(row.id),
     listToursForRequest(row.id),
     listTransfersForRequest(row.id),
@@ -147,6 +174,7 @@ async function toDetail(row) {
     listTravelersForRequest(row.id),
     buildActivityHistory(row),
     listItineraryForRequest(row.id),
+    mealsModel.list(),
   ]);
 
   const breakdown = row.net_cost_breakdown || {};
@@ -201,14 +229,25 @@ async function toDetail(row) {
     })),
     // Day-wise Itinerary Planner (FIT-5) — same composeItinerary the agent
     // serializer uses, against this controller's own (pricier) pools.
-    itinerary: composeItinerary(itinerary.days, itinerary.items, { hotel: hotels, tour: tours, transfer: transfers, activity: activities }),
+    itinerary: composeItinerary(
+      itinerary.days, itinerary.items,
+      { hotel: hotels, tour: tours, transfer: transfers, activity: activities },
+      row.pax_adults
+    ),
     // Landing Cost Breakdown + Markup Panel + Quote Summary (items 1/3/4).
     costing: {
       hotels: normalizeComponent(breakdown.hotels),
       tours: normalizeComponent(breakdown.tours),
       transfers: normalizeComponent(breakdown.transfers),
       extras: normalizeComponent(breakdown.extras),
+      meals: normalizeComponent(breakdown.meals),
     },
+    // Freshly computed (not the persisted breakdown.meals.auto snapshot from
+    // the last save) — unlike hotels/tours/etc., nothing on the admin's Quote
+    // Inbox page can change lunch/dinner people/days live, so there's no
+    // client-side mirror of this formula the way computeHotelAuto exists for
+    // hotels; the frontend just reads this value directly.
+    mealsCostAuto: computeMealsCost(row, mealsCatalog),
     landingCost: breakdown.landingCost != null ? Number(breakdown.landingCost) : null,
     markupType: markup.type || null,
     markupValue: markup.value != null ? Number(markup.value) : null,
@@ -336,22 +375,28 @@ export async function saveCosting(req, res, next) {
     const current = await findPackageRequestForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
 
-    const [hotels, tours, transfers, activities] = await Promise.all([
+    const [hotels, tours, transfers, activities, itinerary, mealsCatalog] = await Promise.all([
       listHotelsForRequest(id),
       listToursForRequest(id),
       listTransfersForRequest(id),
       listActivitiesForRequest(id),
+      listItineraryForRequest(id),
+      mealsModel.list(),
     ]);
     const totalPax = (current.pax_adults || 0) + (current.pax_children || 0);
-    const auto = computeAutoCosting({ hotels, tours, transfers, activities, totalPax });
+    const auto = computeAutoCosting({
+      hotels, tours, transfers, activities, totalPax,
+      itineraryItems: itinerary.items, packageRequestRow: current, mealsCatalog,
+    });
 
-    const { hotelCost, tourCost, transferCost, extraCost, markupType, markupValue, internalNotes } = req.body;
+    const { hotelCost, tourCost, transferCost, extraCost, mealCost, markupType, markupValue, internalNotes } = req.body;
 
     const hotelTotal = hotelCost ?? auto.hotelCostAuto;
     const tourTotal = tourCost ?? auto.tourCostAuto;
     const transferTotal = transferCost ?? auto.transferCostAuto;
     const extraTotal = extraCost ?? auto.extraCostAuto;
-    const landingCost = round2(hotelTotal + tourTotal + transferTotal + extraTotal);
+    const mealTotal = mealCost ?? auto.mealsCostAuto;
+    const landingCost = round2(hotelTotal + tourTotal + transferTotal + extraTotal + mealTotal);
 
     const sellPrice = round2(
       markupType === 'percentage' ? landingCost + (landingCost * markupValue) / 100 : landingCost + markupValue
@@ -362,6 +407,7 @@ export async function saveCosting(req, res, next) {
       tours: { auto: round2(auto.tourCostAuto), override: tourCost, total: round2(tourTotal) },
       transfers: { auto: round2(auto.transferCostAuto), override: transferCost, total: round2(transferTotal) },
       extras: { auto: round2(auto.extraCostAuto), override: extraCost, total: round2(extraTotal) },
+      meals: { auto: round2(auto.mealsCostAuto), override: mealCost, total: round2(mealTotal) },
       landingCost,
     };
     const markupRule = { type: markupType, value: markupValue };
