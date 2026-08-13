@@ -4,6 +4,7 @@ import {
   activitiesModel,
   transfersModel,
   experiencesModel,
+  mealsModel,
 } from '../models/catalog.model.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -13,6 +14,7 @@ const MODELS = {
   activities: activitiesModel,
   transfers: transfersModel,
   experiences: experiencesModel,
+  meals: mealsModel,
 };
 
 // Builds one set of {list, get, create, update, remove} handlers for a given
@@ -23,9 +25,9 @@ export function catalogHandlersFor(entity) {
   return {
     async list(req, res, next) {
       try {
-        const { city, search, mice } = req.query;
+        const { city, search, mice, mealType } = req.query;
         const isMiceEnabled = mice === undefined ? undefined : mice === 'true';
-        const rows = await model.list({ city, search, isMiceEnabled });
+        const rows = await model.list({ city, search, isMiceEnabled, mealType });
         res.json({ [entity]: rows });
       } catch (err) {
         next(err);

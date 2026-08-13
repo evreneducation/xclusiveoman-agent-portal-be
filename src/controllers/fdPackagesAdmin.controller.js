@@ -3,9 +3,12 @@ import {
   findFdPackageById,
   createFdPackage,
   updateFdPackage,
+  deleteFdPackage,
   listItineraryForPackage,
   replaceItinerary,
   composeItinerary,
+  resolveRatePerPax,
+  loadCatalogPools,
   listDepartureDates,
   addDepartureDate,
   removeDepartureDate,
@@ -13,24 +16,8 @@ import {
   addAddon,
   removeAddon,
 } from '../models/fdPackages.model.js';
-import { hotelsModel, toursModel, transfersModel, activitiesModel } from '../models/catalog.model.js';
 import { toSnakeCaseColumns } from '../validation/schemas.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
-
-// The full catalog, keyed by item type — an FD package's itinerary has no
-// separate "agent selection" step first (unlike a Custom FIT request), so
-// any hotel/tour/transfer/activity in the catalog can be placed on any day;
-// composeItinerary resolves each placed item's name/city/images against
-// these pools.
-async function loadCatalogPools() {
-  const [hotels, tours, transfers, activities] = await Promise.all([
-    hotelsModel.list(),
-    toursModel.list(),
-    transfersModel.list(),
-    activitiesModel.list(),
-  ]);
-  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities };
-}
 
 // Postgres NUMERIC columns come back from `pg` as strings (to avoid silent
 // float precision loss), not JS numbers. Left unconverted, those strings flow
@@ -43,7 +30,16 @@ function toNumOrNull(v) {
   return v === null || v === undefined ? null : Number(v);
 }
 
-function toPublicPackage(fdPackage) {
+// `ratePerPax` is the already-resolved rate (see resolveRatePerPax —
+// fdPackage.rate_per_pax when the admin set an override, else the itinerary
+// total). Callers that haven't loaded the itinerary/catalog pools
+// (create/update, which have no itinerary yet) simply omit it, so a package
+// with no override and no itinerary yet reports ratePerPax: null.
+// `rateOverride` is the raw column, unresolved — the editor needs this
+// (rather than the resolved ratePerPax) to tell whether the admin has set a
+// manual price at all, since it computes the itinerary-driven default live
+// on its own instead of trusting a value that might just be the fallback.
+function toPublicPackage(fdPackage, ratePerPax) {
   return {
     id: fdPackage.id,
     title: fdPackage.title,
@@ -60,11 +56,16 @@ function toPublicPackage(fdPackage) {
     isFeatured: fdPackage.is_featured,
     isBestseller: fdPackage.is_bestseller,
     status: fdPackage.status,
-    depositAmount: toNumOrNull(fdPackage.deposit_amount),
-    balanceDueDaysBefore: fdPackage.balance_due_days_before,
-    rateGold: toNumOrNull(fdPackage.rate_gold),
-    rateSilver: toNumOrNull(fdPackage.rate_silver),
-    rateBronze: toNumOrNull(fdPackage.rate_bronze),
+    ratePerPax: ratePerPax ?? null,
+    rateOverride: toNumOrNull(fdPackage.rate_per_pax),
+    // Raw meal selection — the editor resolves these against its own /meals
+    // fetch to compute a live cost, the same way it does for itinerary items.
+    lunchMealId: fdPackage.lunch_meal_id ?? null,
+    lunchPeople: toNumOrNull(fdPackage.lunch_people),
+    lunchDays: toNumOrNull(fdPackage.lunch_days),
+    dinnerMealId: fdPackage.dinner_meal_id ?? null,
+    dinnerPeople: toNumOrNull(fdPackage.dinner_people),
+    dinnerDays: toNumOrNull(fdPackage.dinner_days),
     createdAt: fdPackage.created_at,
     // Only present on the admin list() row (listAllFdPackagesForAdmin's seat
     // rollup) — undefined here on the single-package get(), which loads the
@@ -78,8 +79,14 @@ function toPublicPackage(fdPackage) {
 
 export async function list(req, res, next) {
   try {
-    const rows = await listAllFdPackagesForAdmin();
-    res.json({ fdPackages: rows.map(toPublicPackage) });
+    const [rows, pools] = await Promise.all([listAllFdPackagesForAdmin(), loadCatalogPools()]);
+    const fdPackages = await Promise.all(
+      rows.map(async (row) => {
+        const { items } = await listItineraryForPackage(row.id);
+        return toPublicPackage(row, resolveRatePerPax(row, items, pools));
+      })
+    );
+    res.json({ fdPackages });
   } catch (err) {
     next(err);
   }
@@ -99,7 +106,7 @@ export async function get(req, res, next) {
 
     res.json({
       fdPackage: {
-        ...toPublicPackage(fdPackage),
+        ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools)),
         itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
         departureDates: dates.map((d) => ({
           id: d.id,
@@ -137,6 +144,17 @@ export async function update(req, res, next) {
     const fdPackage = await updateFdPackage(req.params.id, toSnakeCaseColumns(req.body));
     if (!fdPackage) return res.status(404).json({ error: 'not_found' });
     res.json({ fdPackage: toPublicPackage(fdPackage) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function remove(req, res, next) {
+  try {
+    const existing = await findFdPackageById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not_found' });
+    await deleteFdPackage(req.params.id);
+    res.status(204).send();
   } catch (err) {
     next(err);
   }
@@ -209,6 +227,9 @@ export async function putItinerary(req, res, next) {
       replaceItinerary(req.params.id, req.body.days),
       loadCatalogPools(),
     ]);
+    // The editor computes the itinerary-driven net rate live on its own
+    // (mirrors computeNetRatePerPax) as items are added/removed, so this
+    // response doesn't need to carry a price at all.
     res.json({ itinerary: composeItinerary(days, items, pools) });
   } catch (err) {
     next(err);
