@@ -160,6 +160,20 @@ export const experienceSchema = z.object({
   suitableGroupSizeMax: z.number().int().nonnegative().optional(),
 });
 
+// Lunch and Dinner are independent entries — own tab, own save in the admin
+// UI — distinguished by mealType (0038_meals_split_type.sql). Price is two
+// independent flat rates, not one combined per-pax-per-day figure: a flat
+// "for 1 person" charge and a flat "for 1 day" charge, each optional and
+// captured on its own (0039_meals_person_day_price.sql).
+export const mealSchema = z.object({
+  name: z.string().min(2).max(200),
+  city: z.string().max(100).optional(),
+  description: z.string().optional(),
+  mealType: z.enum(['lunch', 'dinner']),
+  pricePerPerson: z.number().nonnegative().optional(),
+  pricePerDay: z.number().nonnegative().optional(),
+});
+
 // camelCase request bodies -> snake_case DB columns for the catalog CRUD models.
 const CATALOG_KEY_MAP = {
   boardBasisOptions: 'board_basis_options',
@@ -174,17 +188,22 @@ const CATALOG_KEY_MAP = {
   vehicleClass: 'vehicle_class',
   suitableGroupSizeMin: 'suitable_group_size_min',
   suitableGroupSizeMax: 'suitable_group_size_max',
+  mealType: 'meal_type',
+  pricePerPerson: 'price_per_person',
+  pricePerDay: 'price_per_day',
   // FD packages (fdPackageSchema) — these were missing, which silently dropped
   // them from every create/update since FD_COLUMNS looks up the snake_case key.
   heroImageUrl: 'hero_image_url',
   hotelId: 'hotel_id',
   shortDescription: 'short_description',
   isFeatured: 'is_featured',
-  depositAmount: 'deposit_amount',
-  balanceDueDaysBefore: 'balance_due_days_before',
-  rateGold: 'rate_gold',
-  rateSilver: 'rate_silver',
-  rateBronze: 'rate_bronze',
+  ratePerPax: 'rate_per_pax',
+  lunchMealId: 'lunch_meal_id',
+  lunchPeople: 'lunch_people',
+  lunchDays: 'lunch_days',
+  dinnerMealId: 'dinner_meal_id',
+  dinnerPeople: 'dinner_people',
+  dinnerDays: 'dinner_days',
 };
 
 export function toSnakeCaseColumns(body) {
@@ -209,11 +228,18 @@ export const fdPackageSchema = z.object({
   isFeatured: z.boolean().optional(),
   isBestseller: z.boolean().optional(),
   status: z.enum(['draft', 'published', 'closed']).optional(),
-  depositAmount: z.number().nonnegative().optional(),
-  balanceDueDaysBefore: z.number().int().nonnegative().optional(),
-  rateGold: z.number().nonnegative().optional(),
-  rateSilver: z.number().nonnegative().optional(),
-  rateBronze: z.number().nonnegative().optional(),
+  // Admin override of the itinerary-computed net rate — null clears the
+  // override and falls back to the itinerary total again.
+  ratePerPax: z.number().nonnegative().nullable().optional(),
+  // Optional lunch/dinner add-on: a specific meals-catalog entry, a
+  // headcount, and a day count. All three null clears that meal type;
+  // computeMealsCost only counts a meal type once all three are set.
+  lunchMealId: z.string().uuid().nullable().optional(),
+  lunchPeople: z.number().int().nonnegative().nullable().optional(),
+  lunchDays: z.number().int().nonnegative().nullable().optional(),
+  dinnerMealId: z.string().uuid().nullable().optional(),
+  dinnerPeople: z.number().int().nonnegative().nullable().optional(),
+  dinnerDays: z.number().int().nonnegative().nullable().optional(),
 });
 
 export const fdDepartureDateSchema = z.object({

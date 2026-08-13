@@ -5,6 +5,8 @@ import {
   findFdPackageById,
   listItineraryForPackage,
   composeItinerary,
+  resolveRatePerPax,
+  loadCatalogPools,
   listDepartureDates,
   findDepartureDateById,
   listAddons,
@@ -12,18 +14,23 @@ import {
   incrementSeatsBooked,
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
-import { hotelsModel, toursModel, transfersModel, activitiesModel } from '../models/catalog.model.js';
+import { hotelsModel } from '../models/catalog.model.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
 
-const TIER_RATE_COLUMN = { gold: 'rate_gold', silver: 'rate_silver', bronze: 'rate_bronze' };
+// FD packages no longer carry a per-package deposit/balance-due policy (that
+// was admin-editable, informational-only for deposit and only actually wired
+// into balance_due_date for the "days before"); every booking now uses this
+// fixed lead time instead. depositPaid stays 0 at booking time regardless —
+// deposit collection happens through the payment flow, not here.
+const DEFAULT_BALANCE_DUE_DAYS_BEFORE = 30;
 
-function tieredRate(fdPackage, tier) {
-  const column = TIER_RATE_COLUMN[tier] || 'rate_bronze';
-  return Number(fdPackage[column] ?? fdPackage.rate_bronze ?? 0);
-}
-
-function toPublicPackage(fdPackage, tier) {
+// ratePerPax is fdPackage.rate_per_pax (an admin override) when set, else the
+// sum of the package's day-by-day itinerary (see resolveRatePerPax) — the
+// same price for every agency, regardless of tier. Agency tier still exists
+// for other purposes (approvals, marketing), it just no longer drives FD
+// package pricing.
+function toPublicPackage(fdPackage, ratePerPax) {
   return {
     id: fdPackage.id,
     title: fdPackage.title,
@@ -41,30 +48,28 @@ function toPublicPackage(fdPackage, tier) {
     reviewCount: fdPackage.review_count,
     isFeatured: fdPackage.is_featured,
     isBestseller: fdPackage.is_bestseller,
-    ratePerPax: tieredRate(fdPackage, tier),
-    depositAmount: fdPackage.deposit_amount,
-    balanceDueDaysBefore: fdPackage.balance_due_days_before,
+    ratePerPax,
   };
 }
 
 // GET /api/departures?destination=&date_from=&theme=&featured=&bestseller=
 export async function listDepartures(req, res, next) {
   try {
-    const agency = req.user.agency_id ? await findAgencyById(req.user.agency_id) : null;
-    const tier = agency?.tier || 'bronze';
-
-    const packages = await listFdPackages({
-      destination: req.query.destination,
-      theme: req.query.theme,
-      featured: req.query.featured,
-      bestseller: req.query.bestseller,
-    });
+    const [packages, pools] = await Promise.all([
+      listFdPackages({
+        destination: req.query.destination,
+        theme: req.query.theme,
+        featured: req.query.featured,
+        bestseller: req.query.bestseller,
+      }),
+      loadCatalogPools(),
+    ]);
 
     const withDates = await Promise.all(
       packages.map(async (p) => {
-        const dates = await listDepartureDates(p.id);
+        const [dates, itinerary] = await Promise.all([listDepartureDates(p.id), listItineraryForPackage(p.id)]);
         return {
-          ...toPublicPackage(p, tier),
+          ...toPublicPackage(p, resolveRatePerPax(p, itinerary.items, pools)),
           nextDepartures: dates.map((d) => ({
             id: d.id,
             date: d.date,
@@ -81,7 +86,7 @@ export async function listDepartures(req, res, next) {
   }
 }
 
-// GET /api/departures/:id — resolves tiered rate + itinerary/add-ons for the caller.
+// GET /api/departures/:id — resolves net rate (from the itinerary) + itinerary/add-ons for the caller.
 export async function getDeparture(req, res, next) {
   try {
     const fdPackage = await findFdPackageById(req.params.id);
@@ -89,28 +94,17 @@ export async function getDeparture(req, res, next) {
       return res.status(404).json({ error: 'not_found' });
     }
 
-    const agency = req.user.agency_id ? await findAgencyById(req.user.agency_id) : null;
-    const tier = agency?.tier || 'bronze';
-
-    const [itinerary, dates, addons, hotel, hotelsForItinerary, tours, transfers, activities] = await Promise.all([
+    const [itinerary, dates, addons, hotel, pools] = await Promise.all([
       listItineraryForPackage(fdPackage.id),
       listDepartureDates(fdPackage.id),
       listAddons(fdPackage.id),
       fdPackage.hotel_id ? hotelsModel.findById(fdPackage.hotel_id) : null,
-      hotelsModel.list(),
-      toursModel.list(),
-      transfersModel.list(),
-      activitiesModel.list(),
+      loadCatalogPools(),
     ]);
-    // Same pools shape as fdPackagesAdmin.controller.js's loadCatalogPools —
-    // the agent-facing read of a published package's itinerary resolves
-    // against the full catalog too, since an FD package's itinerary has no
-    // separate "agent selection" step to resolve against instead.
-    const pools = { hotel: hotelsForItinerary, tour: tours, transfer: transfers, activity: activities };
 
     res.json({
       departure: {
-        ...toPublicPackage(fdPackage, tier),
+        ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools)),
         itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
         departureDates: dates.map((d) => ({
           id: d.id,
@@ -159,21 +153,21 @@ export async function createBooking(req, res, next) {
     }
 
     const agency = await findAgencyById(req.user.agency_id);
-    const tier = agency?.tier || 'bronze';
     const { pax, addonIds = [], travelers = [] } = req.body;
 
-    const addons = await findAddonsByIds(fdPackage.id, addonIds);
-    const ratePerPax = tieredRate(fdPackage, tier);
+    const [addons, itinerary, pools] = await Promise.all([
+      findAddonsByIds(fdPackage.id, addonIds),
+      listItineraryForPackage(fdPackage.id),
+      loadCatalogPools(),
+    ]);
+    const ratePerPax = resolveRatePerPax(fdPackage, itinerary.items, pools);
     const addonsPerPax = addons.reduce((sum, a) => sum + Number(a.price_per_pax), 0);
     const totalPrice = (ratePerPax + addonsPerPax) * pax;
     const depositPaid = 0;
     const balanceDue = totalPrice - depositPaid;
-    const balanceDueDate = fdPackage.balance_due_days_before
-      ? new Date(
-          new Date(departureDate.date).getTime() -
-            fdPackage.balance_due_days_before * 24 * 60 * 60 * 1000
-        )
-      : null;
+    const balanceDueDate = new Date(
+      new Date(departureDate.date).getTime() - DEFAULT_BALANCE_DUE_DAYS_BEFORE * 24 * 60 * 60 * 1000
+    );
 
     await client.query('BEGIN');
 

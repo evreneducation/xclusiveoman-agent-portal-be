@@ -1,10 +1,12 @@
 import { pool } from '../db/pool.js';
+import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel } from './catalog.model.js';
 
 const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
   'suitable_age_min', 'is_featured', 'is_bestseller', 'status',
-  'deposit_amount', 'balance_due_days_before', 'rate_gold', 'rate_silver', 'rate_bronze',
-  'images', 'hotel_id',
+  'images', 'hotel_id', 'rate_per_pax',
+  'lunch_meal_id', 'lunch_people', 'lunch_days',
+  'dinner_meal_id', 'dinner_people', 'dinner_days',
 ];
 
 export async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {
@@ -158,6 +160,71 @@ export async function replaceItinerary(fdPackageId, days) {
     client.release();
   }
   return listItineraryForPackage(fdPackageId);
+}
+
+// The full catalog, keyed by item type — an FD package's itinerary has no
+// separate "agent selection" step first (unlike a Custom FIT request), so
+// any hotel/tour/transfer/activity in the catalog can be placed on any day;
+// composeItinerary/computeNetRatePerPax resolve each placed item's
+// name/city/images/price against these pools. `meal` is here too, for
+// computeMealsCost to resolve the package's selected lunch/dinner entries
+// against. Shared by the admin editor and the agent-facing departures
+// endpoints so both resolve itinerary items and price the package identically.
+export async function loadCatalogPools() {
+  const [hotels, tours, transfers, activities, meals] = await Promise.all([
+    hotelsModel.list(),
+    toursModel.list(),
+    transfersModel.list(),
+    activitiesModel.list(),
+    mealsModel.list(),
+  ]);
+  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities, meal: meals };
+}
+
+// Pricing is no longer a manually-entered tiered rate (Gold/Silver/Bronze) —
+// it's the sum of what's actually placed in the day-by-day itinerary, so the
+// number always matches what the itinerary shows. Each item contributes its
+// catalog price once per occurrence: a hotel placed on 3 separate days (the
+// single-select-per-day hotel section) counts as 3 nights, matching how a
+// real stay would be priced.
+const ITEM_PRICE_FIELD = { hotel: 'price_per_night', tour: 'price', transfer: 'price', activity: 'price_per_pax' };
+
+export function computeNetRatePerPax(items, pools) {
+  return (items || []).reduce((total, it) => {
+    const field = ITEM_PRICE_FIELD[it.item_type];
+    const ref = field && (pools[it.item_type] || []).find((p) => p.id === it.item_id);
+    return total + (ref ? Number(ref[field]) || 0 : 0);
+  }, 0);
+}
+
+// Meals are a flat add-on total (headcount × days), not one line per
+// itinerary day the way hotels/tours/transfers/activities are, so they're
+// priced separately and added on top of the itinerary total. A meal type
+// only contributes once a specific catalog entry, a headcount, and a day
+// count are all set — matches PricingForm/MealsManager's client-side mirror
+// of this same formula. The catalog only captures a "price for 1 day" per
+// meal_type (price_per_person is no longer set from the admin UI); that
+// field is treated as the per-person-per-day rate here.
+function mealTypeCost(fdPackage, pools, prefix) {
+  const mealId = fdPackage[`${prefix}_meal_id`];
+  const people = fdPackage[`${prefix}_people`];
+  const days = fdPackage[`${prefix}_days`];
+  if (!mealId || !people || !days) return 0;
+  const meal = (pools.meal || []).find((m) => m.id === mealId);
+  return meal ? Number(meal.price_per_day || 0) * Number(people) * Number(days) : 0;
+}
+
+export function computeMealsCost(fdPackage, pools) {
+  return mealTypeCost(fdPackage, pools, 'lunch') + mealTypeCost(fdPackage, pools, 'dinner');
+}
+
+// The effective net rate: fdPackage.rate_per_pax when the admin has set an
+// override, else the itinerary total plus any selected meals. Shared by
+// every reader (admin catalog, agent listing/detail, booking) so they never
+// disagree about which price applies.
+export function resolveRatePerPax(fdPackage, items, pools) {
+  if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
+  return computeNetRatePerPax(items, pools) + computeMealsCost(fdPackage, pools);
 }
 
 // Composes the persisted days/items rows into the [{dayNumber, notes, items:

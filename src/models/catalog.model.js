@@ -27,6 +27,11 @@ function createCrudModel(table, columns) {
         values.push(filters.isMiceEnabled);
         i += 1;
       }
+      if (filters.mealType && columns.includes('meal_type')) {
+        clauses.push(`meal_type = $${i}`);
+        values.push(filters.mealType);
+        i += 1;
+      }
 
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const { rows } = await pool.query(
@@ -96,4 +101,12 @@ export const transfersModel = createCrudModel('transfers', [
 
 export const experiencesModel = createCrudModel('experiences', [
   'name', 'description', 'images', 'suitable_group_size_min', 'suitable_group_size_max',
+]);
+
+// Lunch and Dinner are independent entries (own tab, own save in the admin
+// UI), distinguished by meal_type. Price is two independent flat rates —
+// price_per_person and price_per_day — not one combined per-pax-per-day
+// figure. See 0037_meals.sql / 0038_meals_split_type.sql / 0039_meals_person_day_price.sql.
+export const mealsModel = createCrudModel('meals', [
+  'name', 'city', 'description', 'meal_type', 'price_per_person', 'price_per_day',
 ]);
