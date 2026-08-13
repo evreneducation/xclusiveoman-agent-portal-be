@@ -1,10 +1,14 @@
 import { pool } from '../db/pool.js';
+import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel } from './catalog.model.js';
+import { roomsForAdults } from '../utils/occupancy.js';
+import { computeMealsCost } from '../utils/meals.js';
 
 const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
   'suitable_age_min', 'is_featured', 'is_bestseller', 'status',
-  'deposit_amount', 'balance_due_days_before', 'rate_gold', 'rate_silver', 'rate_bronze',
-  'images', 'hotel_id',
+  'images', 'hotel_id', 'rate_per_pax',
+  'lunch_meal_id', 'lunch_people', 'lunch_days',
+  'dinner_meal_id', 'dinner_people', 'dinner_days',
 ];
 
 export async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {
@@ -91,6 +95,16 @@ export async function createFdPackage(fields) {
   return rows[0];
 }
 
+// fd_itinerary_days/items, fd_departure_dates, and fd_addons all cascade off
+// fd_package_id (ON DELETE CASCADE). bookings.fd_departure_date_id does not
+// — it has no cascade — so this throws a Postgres 23503 (foreign_key_violation),
+// surfaced by errorHandler.js as a 409, if any booking still exists against
+// one of this package's departure dates. That's intentional: a package with
+// real bookings shouldn't just vanish.
+export async function deleteFdPackage(id) {
+  await pool.query('DELETE FROM fd_packages WHERE id = $1', [id]);
+}
+
 export async function updateFdPackage(id, fields) {
   const cols = FD_COLUMNS.filter((c) => fields[c] !== undefined);
   if (cols.length === 0) return findFdPackageById(id);
@@ -126,10 +140,13 @@ export async function listItineraryForPackage(fdPackageId) {
 
 // Same "always send full state, clear and reinsert" shape as
 // packageRequests.model.js's replaceItinerary. `days` shape: [{ dayNumber,
-// notes, items: [{ type, id, note? }] }] — position within a day is each
-// item's index in its `items` array. Runs in its own transaction (unlike
-// package-requests' replaceItinerary, an FD package's itinerary save isn't
-// part of a larger multi-table request, so there's no outer `client` to join).
+// notes, items: [{ type, id, note?, adults? }] }] — position within a day is
+// each item's index in its `items` array. `adults` (hotel occupancy) is only
+// meaningful on 'hotel' items; sent as-is for anything else, which just
+// leaves the column null since nothing reads it back off a non-hotel row.
+// Runs in its own transaction (unlike package-requests' replaceItinerary, an
+// FD package's itinerary save isn't part of a larger multi-table request, so
+// there's no outer `client` to join).
 export async function replaceItinerary(fdPackageId, days) {
   const client = await pool.connect();
   try {
@@ -144,9 +161,9 @@ export async function replaceItinerary(fdPackageId, days) {
       );
       for (const [position, item] of (day.items || []).entries()) {
         await client.query(
-          `INSERT INTO fd_itinerary_items (fd_package_id, day_number, item_type, item_id, position, note)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [fdPackageId, day.dayNumber, item.type, item.id, position, item.note || null]
+          `INSERT INTO fd_itinerary_items (fd_package_id, day_number, item_type, item_id, position, note, adults)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [fdPackageId, day.dayNumber, item.type, item.id, position, item.note || null, item.adults || null]
         );
       }
     }
@@ -158,6 +175,54 @@ export async function replaceItinerary(fdPackageId, days) {
     client.release();
   }
   return listItineraryForPackage(fdPackageId);
+}
+
+// The full catalog, keyed by item type — an FD package's itinerary has no
+// separate "agent selection" step first (unlike a Custom FIT request), so
+// any hotel/tour/transfer/activity in the catalog can be placed on any day;
+// composeItinerary/computeNetRatePerPax resolve each placed item's
+// name/city/images/price against these pools. `meal` is here too, for
+// computeMealsCost to resolve the package's selected lunch/dinner entries
+// against. Shared by the admin editor and the agent-facing departures
+// endpoints so both resolve itinerary items and price the package identically.
+export async function loadCatalogPools() {
+  const [hotels, tours, transfers, activities, meals] = await Promise.all([
+    hotelsModel.list(),
+    toursModel.list(),
+    transfersModel.list(),
+    activitiesModel.list(),
+    mealsModel.list(),
+  ]);
+  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities, meal: meals };
+}
+
+// Pricing is no longer a manually-entered tiered rate (Gold/Silver/Bronze) —
+// it's the sum of what's actually placed in the day-by-day itinerary, so the
+// number always matches what the itinerary shows. Each item contributes its
+// catalog price once per occurrence: a hotel placed on 3 separate days (the
+// single-select-per-day hotel section) counts as 3 nights, matching how a
+// real stay would be priced.
+const ITEM_PRICE_FIELD = { hotel: 'price_per_night', tour: 'price', transfer: 'price', activity: 'price_per_pax' };
+
+export function computeNetRatePerPax(items, pools) {
+  return (items || []).reduce((total, it) => {
+    const field = ITEM_PRICE_FIELD[it.item_type];
+    const ref = field && (pools[it.item_type] || []).find((p) => p.id === it.item_id);
+    if (!ref) return total;
+    const price = Number(ref[field]) || 0;
+    const multiplier = it.item_type === 'hotel' ? roomsForAdults(it.adults) : 1;
+    return total + price * multiplier;
+  }, 0);
+}
+
+// The effective net rate: fdPackage.rate_per_pax when the admin has set an
+// override, else the itinerary total plus any selected meals (see
+// computeMealsCost, src/utils/meals.js — shared with the Custom FIT Package
+// Builder's costing). Shared by every reader (admin catalog, agent
+// listing/detail, booking) so they never disagree about which price applies.
+export function resolveRatePerPax(fdPackage, items, pools) {
+  if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
+  return computeNetRatePerPax(items, pools) + computeMealsCost(fdPackage, pools.meal);
 }
 
 // Composes the persisted days/items rows into the [{dayNumber, notes, items:
@@ -185,6 +250,11 @@ export function composeItinerary(days, items, pools) {
       city: ref?.city ?? null,
       images: ref?.images ?? undefined,
       note: it.note || '',
+      // Occupancy — hotel items only (undefined for everything else, same as
+      // a never-set hotel item). `rooms` is the derived room count
+      // (computeNetRatePerPax's pricing driver) so consumers don't need to
+      // re-derive ceil(adults / 2) themselves just to display it.
+      ...(it.item_type === 'hotel' ? { adults: it.adults ?? null, rooms: roomsForAdults(it.adults) } : {}),
     });
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);

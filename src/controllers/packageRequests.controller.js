@@ -163,6 +163,15 @@ async function toPublicPackageRequest(row) {
     statusLabel: STATUS_LABELS[row.status] || row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    // Raw meal selection, so "Continue Editing" can prefill the Meals
+    // section (PackageBuilder.jsx) — no price ever included here, same as
+    // everywhere else in this agent-facing serializer.
+    lunchMealId: row.lunch_meal_id,
+    lunchPeople: row.lunch_people,
+    lunchDays: row.lunch_days,
+    dinnerMealId: row.dinner_meal_id,
+    dinnerPeople: row.dinner_people,
+    dinnerDays: row.dinner_days,
     hotels: hotels.map((h) => ({
       id: h.id,
       name: h.name,
@@ -207,7 +216,11 @@ async function toPublicPackageRequest(row) {
     // Day-wise Itinerary Planner (FIT-5) — enriched against the same
     // hotels/tours/transfers/activities pools above, so an item resolves to
     // its name/city even though only its type+id persist.
-    itinerary: composeItinerary(itinerary.days, itinerary.items, { hotel: hotels, tour: tours, transfer: transfers, activity: activities }),
+    itinerary: composeItinerary(
+      itinerary.days, itinerary.items,
+      { hotel: hotels, tour: tours, transfer: transfers, activity: activities },
+      row.pax_adults
+    ),
     // REL-4: lead manager's contact card once assigned.
     leadManager: row.lead_manager_user_id
       ? {
@@ -275,6 +288,7 @@ export async function create(req, res, next) {
     const {
       destination, dateFrom, dateTo, paxAdults, paxChildren,
       hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     } = req.body;
 
     await client.query('BEGIN');
@@ -287,6 +301,7 @@ export async function create(req, res, next) {
       dateTo,
       paxAdults,
       paxChildren,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     });
 
     await addHotelSelections(client, packageRequest.id, hotelIds);
@@ -336,13 +351,17 @@ export async function create(req, res, next) {
 export async function createDraft(req, res, next) {
   const client = await pool.connect();
   try {
-    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary } = req.body;
+    const {
+      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
+    } = req.body;
 
     await client.query('BEGIN');
     const draft = await createDraftPackageRequest(client, {
       agencyId: req.user.agency_id,
       createdByUserId: req.user.id,
       destination, dateFrom, dateTo, paxAdults, paxChildren,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     });
     await replaceHotelSelections(client, draft.id, hotelIds);
     await replaceTourSelections(client, draft.id, tourIds);
@@ -388,10 +407,16 @@ export async function updateDraft(req, res, next) {
       return res.status(400).json({ error: 'not_a_draft', message: 'This request has already been submitted and can no longer be edited here.' });
     }
 
-    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary } = req.body;
+    const {
+      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
+    } = req.body;
 
     await client.query('BEGIN');
-    const updated = await updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren });
+    const updated = await updateDraftTripInfo(client, id, {
+      destination, dateFrom, dateTo, paxAdults, paxChildren,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
+    });
     await replaceHotelSelections(client, id, hotelIds);
     await replaceTourSelections(client, id, tourIds);
     await replaceTransferSelections(client, id, transferIds);
@@ -424,10 +449,16 @@ export async function submit(req, res, next) {
       return res.status(400).json({ error: 'not_a_draft', message: 'This request has already been submitted.' });
     }
 
-    const { destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary } = req.body;
+    const {
+      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
+    } = req.body;
 
     await client.query('BEGIN');
-    await updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren });
+    await updateDraftTripInfo(client, id, {
+      destination, dateFrom, dateTo, paxAdults, paxChildren,
+      lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
+    });
     await replaceHotelSelections(client, id, hotelIds);
     await replaceTourSelections(client, id, tourIds);
     await replaceTransferSelections(client, id, transferIds);

@@ -9,6 +9,7 @@ import {
   activitySchema,
   transferSchema,
   experienceSchema,
+  mealSchema,
   toSnakeCaseColumns,
 } from '../validation/schemas.js';
 
@@ -25,6 +26,7 @@ const ENTITIES = [
   { path: 'activities', schema: activitySchema },
   { path: 'transfers', schema: transferSchema },
   { path: 'experiences', schema: experienceSchema },
+  { path: 'meals', schema: mealSchema },
 ];
 
 // Public-to-agents listing/detail (doc §12.3) — any authenticated user, agent or staff.

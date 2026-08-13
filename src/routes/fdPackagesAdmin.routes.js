@@ -19,6 +19,7 @@ router.get('/', fdAdmin.list);
 router.get('/:id', fdAdmin.get);
 router.post('/', validateBody(fdPackageSchema), fdAdmin.create);
 router.patch('/:id', validateBody(fdPackageSchema.partial()), fdAdmin.update);
+router.delete('/:id', fdAdmin.remove);
 router.post('/:id/hero-image', upload.single('image'), fdAdmin.uploadHeroImage);
 router.post('/:id/images', upload.array('images', 10), fdAdmin.uploadImages);
 router.delete('/:id/images/:url', fdAdmin.deleteImage);
