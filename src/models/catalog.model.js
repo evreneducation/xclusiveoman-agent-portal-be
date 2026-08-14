@@ -110,3 +110,18 @@ export const experiencesModel = createCrudModel('experiences', [
 export const mealsModel = createCrudModel('meals', [
   'name', 'city', 'description', 'meal_type', 'price_per_person', 'price_per_day',
 ]);
+
+// Product Catalog "Inclusions & Exclusions" tab (see
+// 0049_inclusions_exclusions_catalog.sql) — reusable, name-only phrases the
+// admin curates for reference when writing a quotation's client-facing
+// Inclusions/Exclusions text (Quote Inbox's Costing panel). Two bare tables
+// (not one type-discriminated table like meals) since there's nothing else
+// to distinguish per row — just a plain name-only CRUD entity each.
+export const inclusionsModel = createCrudModel('inclusions', ['name']);
+export const exclusionsModel = createCrudModel('exclusions', ['name']);
+
+// Product Catalog "Visa" tab (see 0051_visa_catalog.sql) — a single
+// admin-priced rate per person, not a list. The admin UI (ProductCatalog.jsx's
+// VisaTab) only ever edits the one row in place, same "one entry" convention
+// Meals already uses per meal_type.
+export const visaModel = createCrudModel('visa', ['price_per_person']);

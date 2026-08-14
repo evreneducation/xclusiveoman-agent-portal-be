@@ -20,7 +20,7 @@ import {
 import { listStaffByRole, findUserById, toPublicUser } from '../models/users.model.js';
 import { roomsForOccupancy } from '../utils/occupancy.js';
 import { computeMealsCost } from '../utils/meals.js';
-import { mealsModel } from '../models/catalog.model.js';
+import { mealsModel, visaModel } from '../models/catalog.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
 import { createNotification } from '../services/notification.service.js';
@@ -129,6 +129,17 @@ function computeHotelCostAuto(itineraryItems, hotels, totalAdults) {
   }, 0);
 }
 
+// Visa add-on flat total: visa_people × the Product Catalog's one Visa row
+// (price_per_person — see visaModel/0051_visa_catalog.sql). Only counts once
+// the agent has actually checked the Visa box and a headcount is set — a
+// stray visa_people with visa_enabled false (or vice versa) contributes
+// nothing, same "all pieces required" gate computeMealsCost uses per meal type.
+function computeVisaCostAuto(row, visaCatalog) {
+  if (!row.visa_enabled || !row.visa_people) return 0;
+  const visa = (visaCatalog || [])[0];
+  return visa ? Number(visa.price_per_person || 0) * Number(row.visa_people) : 0;
+}
+
 // Landing Cost Breakdown auto total (item 1): sum of each selected catalog
 // item's Product Catalog price. Tours/transfers still count one unit per
 // selected item (no nights/qty multiplier there); activities.price_per_pax
@@ -138,14 +149,16 @@ function computeHotelCostAuto(itineraryItems, hotels, totalAdults) {
 // days) via computeMealsCost, shared with FD Packages (src/utils/meals.js) —
 // `packageRequestRow` is the raw package_requests row (lunch/dinner
 // selection, and pax_adults for hotel occupancy, both live directly on it,
-// not in the itinerary).
-function computeAutoCosting({ hotels, tours, transfers, activities, totalPax, itineraryItems, packageRequestRow, mealsCatalog }) {
+// not in the itinerary). Visa is a similar flat add-on total, see
+// computeVisaCostAuto above.
+function computeAutoCosting({ hotels, tours, transfers, activities, totalPax, itineraryItems, packageRequestRow, mealsCatalog, visaCatalog }) {
   return {
     hotelCostAuto: computeHotelCostAuto(itineraryItems, hotels, packageRequestRow.pax_adults),
     tourCostAuto: sumPrices(tours, 'price'),
     transferCostAuto: sumPrices(transfers, 'price'),
     extraCostAuto: sumPrices(activities, 'price_per_pax') * Math.max(totalPax, 1),
     mealsCostAuto: computeMealsCost(packageRequestRow, mealsCatalog),
+    visaCostAuto: computeVisaCostAuto(packageRequestRow, visaCatalog),
   };
 }
 
@@ -166,7 +179,7 @@ function normalizeComponent(c) {
 // catalog item prices are included in the hotels/tours/transfers/activities
 // below, to back the Landing Cost Breakdown's per-item display.
 async function toDetail(row) {
-  const [hotels, tours, transfers, activities, travelers, activityHistory, itinerary, mealsCatalog] = await Promise.all([
+  const [hotels, tours, transfers, activities, travelers, activityHistory, itinerary, mealsCatalog, visaCatalog] = await Promise.all([
     listHotelsForRequest(row.id),
     listToursForRequest(row.id),
     listTransfersForRequest(row.id),
@@ -175,6 +188,7 @@ async function toDetail(row) {
     buildActivityHistory(row),
     listItineraryForRequest(row.id),
     mealsModel.list(),
+    visaModel.list(),
   ]);
 
   const breakdown = row.net_cost_breakdown || {};
@@ -241,6 +255,7 @@ async function toDetail(row) {
       transfers: normalizeComponent(breakdown.transfers),
       extras: normalizeComponent(breakdown.extras),
       meals: normalizeComponent(breakdown.meals),
+      visa: normalizeComponent(breakdown.visa),
     },
     // Freshly computed (not the persisted breakdown.meals.auto snapshot from
     // the last save) — unlike hotels/tours/etc., nothing on the admin's Quote
@@ -248,6 +263,24 @@ async function toDetail(row) {
     // client-side mirror of this formula the way computeHotelAuto exists for
     // hotels; the frontend just reads this value directly.
     mealsCostAuto: computeMealsCost(row, mealsCatalog),
+    // Same reasoning as mealsCostAuto above — the agent's Visa headcount is
+    // fixed once submitted, nothing here changes it live.
+    visaCostAuto: computeVisaCostAuto(row, visaCatalog),
+    // Raw meal selection — same fields the agent-facing serializer exposes
+    // (packageRequests.controller.js) — so the Inclusions auto-seed below can
+    // tell "meals were actually selected" apart from "priced at ₹0" (which
+    // mealsCostAuto alone can't: a ₹0 catalog rate would compute to 0 either way).
+    lunchMealId: row.lunch_meal_id,
+    lunchPeople: row.lunch_people,
+    lunchDays: row.lunch_days,
+    dinnerMealId: row.dinner_meal_id,
+    dinnerPeople: row.dinner_people,
+    dinnerDays: row.dinner_days,
+    // Raw Visa selection — same reason as the meal fields above, and the
+    // same field the Inclusions auto-seed reads to add "Visa" (see
+    // admin/pages/QuoteInboxDetail.jsx).
+    visaEnabled: row.visa_enabled,
+    visaPeople: row.visa_people,
     landingCost: breakdown.landingCost != null ? Number(breakdown.landingCost) : null,
     markupType: markup.type || null,
     markupValue: markup.value != null ? Number(markup.value) : null,
@@ -255,6 +288,12 @@ async function toDetail(row) {
     // Internal Notes (item 5) — admin-only by construction: this whole
     // controller/serializer is never reachable from the agent-facing routes.
     internalNotes: row.internal_notes || '',
+    // Inclusions/Exclusions — admin-authored free text set alongside costing;
+    // unlike internalNotes, this is client-facing (shown read-only on the
+    // agent's own quote view once published — packageRequests.controller.js),
+    // so the admin can see/edit it here at any point, not just post-publish.
+    inclusions: row.inclusions || '',
+    exclusions: row.exclusions || '',
     publishedAt: row.published_at,
     publishedBy: row.published_by_user_id
       ? { id: row.published_by_user_id, fullName: row.published_by_full_name }
@@ -375,28 +414,33 @@ export async function saveCosting(req, res, next) {
     const current = await findPackageRequestForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
 
-    const [hotels, tours, transfers, activities, itinerary, mealsCatalog] = await Promise.all([
+    const [hotels, tours, transfers, activities, itinerary, mealsCatalog, visaCatalog] = await Promise.all([
       listHotelsForRequest(id),
       listToursForRequest(id),
       listTransfersForRequest(id),
       listActivitiesForRequest(id),
       listItineraryForRequest(id),
       mealsModel.list(),
+      visaModel.list(),
     ]);
     const totalPax = (current.pax_adults || 0) + (current.pax_children || 0);
     const auto = computeAutoCosting({
       hotels, tours, transfers, activities, totalPax,
-      itineraryItems: itinerary.items, packageRequestRow: current, mealsCatalog,
+      itineraryItems: itinerary.items, packageRequestRow: current, mealsCatalog, visaCatalog,
     });
 
-    const { hotelCost, tourCost, transferCost, extraCost, mealCost, markupType, markupValue, internalNotes } = req.body;
+    const {
+      hotelCost, tourCost, transferCost, extraCost, mealCost, visaCost,
+      markupType, markupValue, internalNotes, inclusions, exclusions,
+    } = req.body;
 
     const hotelTotal = hotelCost ?? auto.hotelCostAuto;
     const tourTotal = tourCost ?? auto.tourCostAuto;
     const transferTotal = transferCost ?? auto.transferCostAuto;
     const extraTotal = extraCost ?? auto.extraCostAuto;
     const mealTotal = mealCost ?? auto.mealsCostAuto;
-    const landingCost = round2(hotelTotal + tourTotal + transferTotal + extraTotal + mealTotal);
+    const visaTotal = visaCost ?? auto.visaCostAuto;
+    const landingCost = round2(hotelTotal + tourTotal + transferTotal + extraTotal + mealTotal + visaTotal);
 
     const sellPrice = round2(
       markupType === 'percentage' ? landingCost + (landingCost * markupValue) / 100 : landingCost + markupValue
@@ -408,6 +452,7 @@ export async function saveCosting(req, res, next) {
       transfers: { auto: round2(auto.transferCostAuto), override: transferCost, total: round2(transferTotal) },
       extras: { auto: round2(auto.extraCostAuto), override: extraCost, total: round2(extraTotal) },
       meals: { auto: round2(auto.mealsCostAuto), override: mealCost, total: round2(mealTotal) },
+      visa: { auto: round2(auto.visaCostAuto), override: visaCost, total: round2(visaTotal) },
       landingCost,
     };
     const markupRule = { type: markupType, value: markupValue };
@@ -417,7 +462,7 @@ export async function saveCosting(req, res, next) {
     const nextStatus = ['submitted', 'assigned', 'costed'].includes(current.status) ? 'costed' : current.status;
 
     const updated = await updatePackageRequestCosting(id, {
-      netCostBreakdown, markupRule, sellPrice, internalNotes, status: nextStatus,
+      netCostBreakdown, markupRule, sellPrice, internalNotes, inclusions, exclusions, status: nextStatus,
     });
 
     // Activity History (item 7) — only when the figure actually changed, so

@@ -50,6 +50,11 @@ function toPublicPackage(fdPackage, ratePerPax) {
     isFeatured: fdPackage.is_featured,
     isBestseller: fdPackage.is_bestseller,
     ratePerPax,
+    // Client-facing Inclusions/Exclusions, admin-authored in FdPackageEditor.jsx
+    // (see 0050_fd_packages_inclusions_exclusions.sql) — read-only here,
+    // shown on the departure detail page (DepartureDetail.jsx).
+    inclusions: fdPackage.inclusions || '',
+    exclusions: fdPackage.exclusions || '',
   };
 }
 

@@ -106,16 +106,20 @@ export async function updatePackageRequestLeadManager(id, leadManagerUserId, sta
 }
 
 // Quote Details — Editable Costing + Markup Panel ("Save Draft"). Always
-// writes net_cost_breakdown/markup_rule/sell_price/internal_notes together
-// since the FE always saves the full costing state in one call.
-export async function updatePackageRequestCosting(id, { netCostBreakdown, markupRule, sellPrice, internalNotes, status }) {
+// writes net_cost_breakdown/markup_rule/sell_price/internal_notes/inclusions/
+// exclusions together since the FE always saves the full costing state in
+// one call. inclusions/exclusions (0048_package_request_inclusions_exclusions.sql)
+// are the client-facing counterpart to internal_notes — admin-authored free
+// text shown read-only on the agent's own quote view once published
+// (packageRequests.controller.js), unlike internal_notes which stays admin-only.
+export async function updatePackageRequestCosting(id, { netCostBreakdown, markupRule, sellPrice, internalNotes, inclusions, exclusions, status }) {
   const { rows } = await pool.query(
     `UPDATE package_requests
      SET net_cost_breakdown = $1, markup_rule = $2, sell_price = $3, internal_notes = $4,
-         status = $5, updated_at = now()
-     WHERE id = $6
+         inclusions = $5, exclusions = $6, status = $7, updated_at = now()
+     WHERE id = $8
      RETURNING *`,
-    [JSON.stringify(netCostBreakdown), JSON.stringify(markupRule), sellPrice, internalNotes, status, id]
+    [JSON.stringify(netCostBreakdown), JSON.stringify(markupRule), sellPrice, internalNotes, inclusions || '', exclusions || '', status, id]
   );
   return rows[0] || null;
 }

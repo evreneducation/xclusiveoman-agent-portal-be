@@ -9,6 +9,9 @@ const FD_COLUMNS = [
   'images', 'hotel_id', 'rate_per_pax',
   'lunch_meal_id', 'lunch_people', 'lunch_days',
   'dinner_meal_id', 'dinner_people', 'dinner_days',
+  // Client-facing Inclusions/Exclusions — see
+  // 0050_fd_packages_inclusions_exclusions.sql.
+  'inclusions', 'exclusions',
 ];
 
 export async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {
