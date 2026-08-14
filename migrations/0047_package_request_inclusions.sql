@@ -1,0 +1,16 @@
+-- Package Inclusions — a client-facing bullet list shown under an
+-- "Inclusions" heading on the Review step and the exported PDF
+-- (ItineraryDocument.jsx), auto-populated from whatever the agent has added
+-- to the Day-wise Itinerary Planner (hotel/tour/transfer/activity) plus
+-- Meals, with every line individually editable/removable in the builder
+-- (shared/inclusions/index.js on the FE).
+--
+-- Stored as one JSONB object rather than a plain array so a line the agent
+-- deliberately removes stays removed across saves even while its source
+-- item (e.g. a still-selected hotel) remains in the itinerary:
+--   { items: [{ sourceKey: string|null, text: string }], dismissedKeys: string[] }
+-- `sourceKey` ties a line back to the itinerary item/meal it was generated
+-- from (null for a line the agent typed in by hand); `dismissedKeys` is the
+-- set of sourceKeys the agent has removed, so reconciliation never
+-- re-adds them while that source is still selected.
+ALTER TABLE package_requests ADD COLUMN inclusions JSONB;

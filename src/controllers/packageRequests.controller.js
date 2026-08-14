@@ -16,6 +16,7 @@ import {
   listItineraryForRequest,
   replaceItinerary,
   composeItinerary,
+  composeInclusions,
   listPackageRequestsForAgency,
   findPackageRequestWithLeadManager,
   createDraftPackageRequest,
@@ -221,6 +222,13 @@ async function toPublicPackageRequest(row) {
       { hotel: hotels, tour: tours, transfer: transfers, activity: activities },
       row.pax_adults
     ),
+    // Package Inclusions (see 0047_package_request_inclusions.sql) — the
+    // Review step's editable "Inclusions" bullet list, also printed on the
+    // PDF. `sourceKey`/`dismissedKeys` are the FE's own reconciliation
+    // bookkeeping (shared/inclusions/index.js) so a resumed draft keeps
+    // lines the agent removed removed; read-only viewers just render each
+    // item's `text`.
+    inclusions: composeInclusions(row),
     // REL-4: lead manager's contact card once assigned.
     leadManager: row.lead_manager_user_id
       ? {
@@ -287,7 +295,7 @@ export async function create(req, res, next) {
   try {
     const {
       destination, dateFrom, dateTo, paxAdults, paxChildren,
-      hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      hotelIds, tourIds, transferIds, activityIds, travelers, itinerary, inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     } = req.body;
 
@@ -301,6 +309,7 @@ export async function create(req, res, next) {
       dateTo,
       paxAdults,
       paxChildren,
+      inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     });
 
@@ -352,7 +361,7 @@ export async function createDraft(req, res, next) {
   const client = await pool.connect();
   try {
     const {
-      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary, inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     } = req.body;
 
@@ -360,7 +369,7 @@ export async function createDraft(req, res, next) {
     const draft = await createDraftPackageRequest(client, {
       agencyId: req.user.agency_id,
       createdByUserId: req.user.id,
-      destination, dateFrom, dateTo, paxAdults, paxChildren,
+      destination, dateFrom, dateTo, paxAdults, paxChildren, inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     });
     await replaceHotelSelections(client, draft.id, hotelIds);
@@ -408,13 +417,13 @@ export async function updateDraft(req, res, next) {
     }
 
     const {
-      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary, inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     } = req.body;
 
     await client.query('BEGIN');
     const updated = await updateDraftTripInfo(client, id, {
-      destination, dateFrom, dateTo, paxAdults, paxChildren,
+      destination, dateFrom, dateTo, paxAdults, paxChildren, inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     });
     await replaceHotelSelections(client, id, hotelIds);
@@ -450,13 +459,13 @@ export async function submit(req, res, next) {
     }
 
     const {
-      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary,
+      destination, dateFrom, dateTo, paxAdults, paxChildren, hotelIds, tourIds, transferIds, activityIds, travelers, itinerary, inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     } = req.body;
 
     await client.query('BEGIN');
     await updateDraftTripInfo(client, id, {
-      destination, dateFrom, dateTo, paxAdults, paxChildren,
+      destination, dateFrom, dateTo, paxAdults, paxChildren, inclusions,
       lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerPeople, dinnerDays,
     });
     await replaceHotelSelections(client, id, hotelIds);

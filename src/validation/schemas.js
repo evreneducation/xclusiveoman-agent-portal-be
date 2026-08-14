@@ -327,6 +327,25 @@ export const itineraryDaySchema = z.object({
 
 export const itinerarySchema = z.array(itineraryDaySchema).optional().default([]);
 
+// Package Inclusions — the Review step's client-facing "Inclusions" bullet
+// list (also printed in the PDF), auto-populated from the itinerary/meals
+// and freely edited/removed line-by-line by the agent (shared/inclusions/
+// index.js on the FE). `sourceKey` and `dismissedKeys` are the FE's own
+// reconciliation bookkeeping (never rendered) — persisted as-is so a draft
+// resumes with lines the agent removed staying removed. See
+// 0047_package_request_inclusions.sql.
+const inclusionItemSchema = z.object({
+  sourceKey: z.string().max(200).nullable().optional(),
+  text: z.string().max(500),
+});
+export const inclusionsSchema = z
+  .object({
+    items: z.array(inclusionItemSchema).optional().default([]),
+    dismissedKeys: z.array(z.string().max(200)).optional().default([]),
+  })
+  .optional()
+  .default({ items: [], dismissedKeys: [] });
+
 export const createPackageRequestSchema = z
   .object({
     destination: z.string().min(2, 'Destination is required').max(200),
@@ -340,6 +359,7 @@ export const createPackageRequestSchema = z
     activityIds: z.array(z.string().uuid()).optional().default([]),
     travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
     itinerary: itinerarySchema,
+    inclusions: inclusionsSchema,
     // Optional lunch/dinner add-on — same shape as FD packages
     // (fdPackageSchema below): a headcount and a day count per meal type,
     // never a specific catalog entry (see computeMealsCost/resolveMealsSummary,
@@ -389,6 +409,7 @@ export const draftPackageRequestSchema = z.object({
   activityIds: z.array(z.string().uuid()).optional().default([]),
   travelers: z.array(draftPackageRequestTravelerSchema).optional().default([]),
   itinerary: itinerarySchema,
+  inclusions: inclusionsSchema,
   lunchMealId: z.string().uuid().nullable().optional(),
   lunchPeople: z.number().int().nonnegative().nullable().optional(),
   lunchDays: z.number().int().nonnegative().nullable().optional(),
