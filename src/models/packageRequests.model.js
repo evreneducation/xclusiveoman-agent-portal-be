@@ -9,20 +9,29 @@ function mealValues({ lunchMealId, lunchPeople, lunchDays, dinnerMealId, dinnerP
   return [lunchMealId || null, lunchPeople ?? null, lunchDays ?? null, dinnerMealId || null, dinnerPeople ?? null, dinnerDays ?? null];
 }
 
+// Package Inclusions (see 0047_package_request_inclusions.sql) — stored as
+// one JSONB object, `{ items, dismissedKeys }`. `undefined`/missing input
+// (e.g. an older client that doesn't send this yet) is normalized to the
+// empty shape rather than nulling out a value that was already saved would —
+// callers always pass the builder's full current state, same as itinerary.
+function inclusionsValue(inclusions) {
+  return JSON.stringify(inclusions || { items: [], dismissedKeys: [] });
+}
+
 // Insert helpers take an explicit `client` so the whole submission (request +
 // all selections + travelers) commits atomically as one transaction — see
 // packageRequests.controller.js#create.
 
 export async function createPackageRequest(client, {
-  agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealFields
+  agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, inclusions, ...mealFields
 }) {
   const { rows } = await client.query(
     `INSERT INTO package_requests
       (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
-       lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'submitted', $8, $9, $10, $11, $12, $13)
+       lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days, inclusions)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'submitted', $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
-    [agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealValues(mealFields)]
+    [agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealValues(mealFields), inclusionsValue(inclusions)]
   );
   return rows[0];
 }
@@ -121,14 +130,14 @@ export async function findPackageRequestWithLeadManager(id) {
 // leniently by draftPackageRequestSchema, not the strict submit schema).
 // Takes `client` like createPackageRequest above — the row plus its
 // selections/travelers are written as one transaction by the controller.
-export async function createDraftPackageRequest(client, { agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealFields }) {
+export async function createDraftPackageRequest(client, { agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, inclusions, ...mealFields }) {
   const { rows } = await client.query(
     `INSERT INTO package_requests
       (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
-       lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, $10, $11, $12, $13)
+       lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days, inclusions)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
-    [agencyId, createdByUserId, destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(mealFields)]
+    [agencyId, createdByUserId, destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(mealFields), inclusionsValue(inclusions)]
   );
   return rows[0];
 }
@@ -136,15 +145,15 @@ export async function createDraftPackageRequest(client, { agencyId, createdByUse
 // "Continue Editing" autosave — only ever touches a row still in 'draft'
 // (WHERE guard), so a submitted request can never be silently rewritten by
 // a stale builder tab.
-export async function updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealFields }) {
+export async function updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren, inclusions, ...mealFields }) {
   const { rows } = await client.query(
     `UPDATE package_requests
      SET destination = $1, date_from = $2, date_to = $3, pax_adults = $4, pax_children = $5,
          lunch_meal_id = $6, lunch_people = $7, lunch_days = $8, dinner_meal_id = $9, dinner_people = $10, dinner_days = $11,
-         updated_at = now()
-     WHERE id = $12 AND status = 'draft'
+         inclusions = $12, updated_at = now()
+     WHERE id = $13 AND status = 'draft'
      RETURNING *`,
-    [destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(mealFields), id]
+    [destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(mealFields), inclusionsValue(inclusions), id]
   );
   return rows[0] || null;
 }
@@ -337,4 +346,16 @@ export function composeItinerary(days, items, pools, totalAdults) {
     });
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
+}
+
+// Normalizes package_requests.inclusions (JSONB, parsed to a JS object by
+// pg — null for a request created before 0047_package_request_inclusions.sql
+// or one that's never had a line added) into the always-present
+// `{ items, dismissedKeys }` shape both serializers return.
+export function composeInclusions(row) {
+  const raw = row.inclusions;
+  return {
+    items: Array.isArray(raw?.items) ? raw.items : [],
+    dismissedKeys: Array.isArray(raw?.dismissedKeys) ? raw.dismissedKeys : [],
+  };
 }
