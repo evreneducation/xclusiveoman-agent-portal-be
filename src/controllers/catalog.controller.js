@@ -5,6 +5,9 @@ import {
   transfersModel,
   experiencesModel,
   mealsModel,
+  inclusionsModel,
+  exclusionsModel,
+  visaModel,
 } from '../models/catalog.model.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -15,6 +18,13 @@ const MODELS = {
   transfers: transfersModel,
   experiences: experiencesModel,
   meals: mealsModel,
+  inclusions: inclusionsModel,
+  exclusions: exclusionsModel,
+  // Plural key ('visas', not 'visa') purely so catalogHandlersFor's
+  // `entity.slice(0, -1)` singular response key still comes out right
+  // ("visa") — Visa itself is a singleton row, the route/response shape
+  // otherwise matches every other list-style catalog entity.
+  visas: visaModel,
 };
 
 // Builds one set of {list, get, create, update, remove} handlers for a given
