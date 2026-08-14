@@ -174,6 +174,22 @@ export const mealSchema = z.object({
   pricePerDay: z.number().nonnegative().optional(),
 });
 
+// Product Catalog "Inclusions & Exclusions" tab (see
+// 0049_inclusions_exclusions_catalog.sql) — reusable, name-only phrases the
+// admin curates for reference when writing a quotation's client-facing
+// Inclusions/Exclusions text. Shared by both the inclusions and exclusions
+// catalog entities (catalog.routes.js's ENTITIES) since neither has any
+// other field.
+export const nameOnlyCatalogSchema = z.object({
+  name: z.string().min(1).max(300),
+});
+
+// Product Catalog "Visa" tab (see 0051_visa_catalog.sql) — a single
+// admin-priced rate per person, no name field (there's only ever the one row).
+export const visaSchema = z.object({
+  pricePerPerson: z.number().nonnegative(),
+});
+
 // camelCase request bodies -> snake_case DB columns for the catalog CRUD models.
 const CATALOG_KEY_MAP = {
   boardBasisOptions: 'board_basis_options',
@@ -240,6 +256,12 @@ export const fdPackageSchema = z.object({
   dinnerMealId: z.string().uuid().nullable().optional(),
   dinnerPeople: z.number().int().nonnegative().nullable().optional(),
   dinnerDays: z.number().int().nonnegative().nullable().optional(),
+  // Client-facing Inclusions/Exclusions — same shape/behavior as Custom FIT
+  // quotes (packageRequestCostingSchema above): one point per line, edited
+  // in FdPackageEditor.jsx via the catalog dropdown + editable list
+  // (admin/components/InclusionExclusionList.jsx).
+  inclusions: z.string().max(5000).optional(),
+  exclusions: z.string().max(5000).optional(),
 });
 
 export const fdDepartureDateSchema = z.object({
@@ -327,25 +349,6 @@ export const itineraryDaySchema = z.object({
 
 export const itinerarySchema = z.array(itineraryDaySchema).optional().default([]);
 
-// Package Inclusions — the Review step's client-facing "Inclusions" bullet
-// list (also printed in the PDF), auto-populated from the itinerary/meals
-// and freely edited/removed line-by-line by the agent (shared/inclusions/
-// index.js on the FE). `sourceKey` and `dismissedKeys` are the FE's own
-// reconciliation bookkeeping (never rendered) — persisted as-is so a draft
-// resumes with lines the agent removed staying removed. See
-// 0047_package_request_inclusions.sql.
-const inclusionItemSchema = z.object({
-  sourceKey: z.string().max(200).nullable().optional(),
-  text: z.string().max(500),
-});
-export const inclusionsSchema = z
-  .object({
-    items: z.array(inclusionItemSchema).optional().default([]),
-    dismissedKeys: z.array(z.string().max(200)).optional().default([]),
-  })
-  .optional()
-  .default({ items: [], dismissedKeys: [] });
-
 export const createPackageRequestSchema = z
   .object({
     destination: z.string().min(2, 'Destination is required').max(200),
@@ -359,7 +362,6 @@ export const createPackageRequestSchema = z
     activityIds: z.array(z.string().uuid()).optional().default([]),
     travelers: z.array(packageRequestTravelerSchema).min(1, 'Add at least one traveller'),
     itinerary: itinerarySchema,
-    inclusions: inclusionsSchema,
     // Optional lunch/dinner add-on — same shape as FD packages
     // (fdPackageSchema below): a headcount and a day count per meal type,
     // never a specific catalog entry (see computeMealsCost/resolveMealsSummary,
@@ -370,6 +372,14 @@ export const createPackageRequestSchema = z
     dinnerMealId: z.string().uuid().nullable().optional(),
     dinnerPeople: z.number().int().nonnegative().nullable().optional(),
     dinnerDays: z.number().int().nonnegative().nullable().optional(),
+    // Optional Visa add-on — a checkbox plus an adults-only headcount, no
+    // catalog entry to pick (there's only ever the one Visa row, resolved by
+    // meal_type-style singleton — see visaModel/visa table). visaPeople is
+    // independent of visaEnabled (mirrors lunchMealId/lunchPeople) so
+    // toggling off doesn't need to also null this out for visaEnabled to
+    // stay the single source of truth for "is Visa included".
+    visaEnabled: z.boolean().optional().default(false),
+    visaPeople: z.number().int().nonnegative().nullable().optional(),
   })
   // Plain string comparisons — dateFrom/dateTo are always "YYYY-MM-DD" (no
   // time/timezone component) coming from the FE's <input type="date">, so
@@ -409,13 +419,14 @@ export const draftPackageRequestSchema = z.object({
   activityIds: z.array(z.string().uuid()).optional().default([]),
   travelers: z.array(draftPackageRequestTravelerSchema).optional().default([]),
   itinerary: itinerarySchema,
-  inclusions: inclusionsSchema,
   lunchMealId: z.string().uuid().nullable().optional(),
   lunchPeople: z.number().int().nonnegative().nullable().optional(),
   lunchDays: z.number().int().nonnegative().nullable().optional(),
   dinnerMealId: z.string().uuid().nullable().optional(),
   dinnerPeople: z.number().int().nonnegative().nullable().optional(),
   dinnerDays: z.number().int().nonnegative().nullable().optional(),
+  visaEnabled: z.boolean().optional().default(false),
+  visaPeople: z.number().int().nonnegative().nullable().optional(),
 });
 
 // Agent Quote lifecycle — item 5 (Accept / Request Revision / Decline a
@@ -447,9 +458,19 @@ export const packageRequestCostingSchema = z.object({
   tourCost: z.number().nonnegative().nullable(),
   transferCost: z.number().nonnegative().nullable(),
   extraCost: z.number().nonnegative().nullable(),
+  // Visa add-on (see 0052_package_request_visa.sql) — auto total is
+  // visaPeople × the catalog's one price_per_person row, same override
+  // convention as every other *Cost field here.
+  visaCost: z.number().nonnegative().nullable(),
   markupType: z.enum(['percentage', 'fixed']),
   markupValue: z.number().nonnegative(),
   internalNotes: z.string().max(5000).optional().default(''),
+  // Inclusions/Exclusions (see 0048_package_request_inclusions_exclusions.sql)
+  // — admin-authored free text set alongside costing, shown read-only on the
+  // agent's own quote view once published (packageRequests.controller.js).
+  // Unlike internalNotes, these are client-facing, not admin-only.
+  inclusions: z.string().max(5000).optional().default(''),
+  exclusions: z.string().max(5000).optional().default(''),
 });
 
 // --- MICE Booking Engine (doc §6.3 / §9.4, MICE-1..MICE-7) ---

@@ -66,6 +66,10 @@ function toPublicPackage(fdPackage, ratePerPax) {
     dinnerMealId: fdPackage.dinner_meal_id ?? null,
     dinnerPeople: toNumOrNull(fdPackage.dinner_people),
     dinnerDays: toNumOrNull(fdPackage.dinner_days),
+    // Client-facing Inclusions/Exclusions — see
+    // 0050_fd_packages_inclusions_exclusions.sql.
+    inclusions: fdPackage.inclusions || '',
+    exclusions: fdPackage.exclusions || '',
     createdAt: fdPackage.created_at,
     // Only present on the admin list() row (listAllFdPackagesForAdmin's seat
     // rollup) — undefined here on the single-package get(), which loads the
