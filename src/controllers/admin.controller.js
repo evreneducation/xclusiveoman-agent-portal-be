@@ -1,11 +1,16 @@
 import { pool } from '../db/pool.js';
 import { listAgencies, findAgencyById, updateAgency } from '../models/agencies.model.js';
-import { findUserById } from '../models/users.model.js';
+import { findUserById, listAgencyOwnerEmails } from '../models/users.model.js';
 import { sendEmail } from '../services/email.service.js';
 import { pickNextRoundRobinRm } from '../services/rmAssignment.service.js';
 import { getIo } from '../sockets/index.js';
 
-function toAdminAgency(agency) {
+// `owner` (Task 10 — Audience Segments) is the agency's active
+// agency_owner row from listAgencyOwnerEmails, when the caller has one to
+// pass; omitted entirely (as patchAgency below still does) it's simply
+// `undefined` and ownerName/ownerEmail come back null — a purely additive
+// field, no existing caller's response shape is narrowed or changed.
+function toAdminAgency(agency, owner) {
   return {
     id: agency.id,
     name: agency.name,
@@ -19,24 +24,59 @@ function toAdminAgency(agency) {
     rmUserId: agency.rm_user_id,
     rmName: agency.rm_full_name ?? null,
     rmEmail: agency.rm_email ?? null,
+    ownerName: owner?.full_name ?? null,
+    ownerEmail: owner?.email ?? null,
     createdAt: agency.created_at,
   };
 }
 
-// GET /api/admin/agencies?status=&inactiveSinceDays= — the latter backs
-// Marketing Center's "Inactive 30+ days" audience segment (see
-// listAgencies' comment for what "inactive" means here). Parsed manually
-// rather than through the validateBody/zod schemas (those are only used on
-// writes in this codebase) — a non-numeric or non-positive value is simply
-// ignored, same as an unrecognised `status` value already falls through to
-// "no filter" today.
+// GET /api/admin/agencies?status=&tier=&country=&inactiveSinceDays=&search=
+// — tier/country/inactiveSinceDays back Marketing Center's four audience
+// segments. listAgencies() already accepted tier/country (added for, and
+// still shared with, services/marketingSend.service.js#resolveAudience —
+// the same function that resolves an actual campaign's real recipients);
+// this handler simply forwards them from the query string now too (Task 10
+// — Audience Segments), same as `status`/`inactiveSinceDays` already were.
+// A segment's shown count/members can therefore never drift from what
+// sending to it would actually do — both read the exact same WHERE clauses.
+//
+// `search` (Task 10) is a free-text match over agency name / owner name /
+// owner email, applied here in JS rather than in listAgencies' SQL — it
+// needs the owner data this handler already joins in below (listAgencies
+// itself only ever joins the assigned RM, not the owner), and it only ever
+// narrows an already-segment-filtered result, never decides segment
+// membership itself (that's still 100% the SQL WHERE clauses above).
+// Parsed manually rather than through the validateBody/zod schemas (those
+// are only used on writes in this codebase) — an unrecognised/invalid
+// value for any of these is simply ignored, falling through to "no filter",
+// same as `status` already did.
 export async function getAgencies(req, res, next) {
   try {
-    const { status } = req.query;
+    const { status, tier, country, search } = req.query;
     const inactiveSinceDaysNum = Number(req.query.inactiveSinceDays);
     const inactiveSinceDays = Number.isInteger(inactiveSinceDaysNum) && inactiveSinceDaysNum > 0 ? inactiveSinceDaysNum : undefined;
-    const agencies = await listAgencies({ status, inactiveSinceDays });
-    res.json({ agencies: agencies.map(toAdminAgency) });
+    const rows = await listAgencies({ status, tier, country, inactiveSinceDays });
+
+    // Task 10 — each agency's real send target (its active owner's
+    // name/email — the same account resolveRecipients() would actually
+    // email), for display. An agency with no active owner shows
+    // ownerName/ownerEmail as null rather than being dropped from this
+    // list — unlike an actual campaign send, this is a directory view, not
+    // a recipient list, so a not-currently-emailable agency still belongs
+    // in it.
+    const ownerRows = await listAgencyOwnerEmails(rows.map((r) => r.id));
+    const ownerByAgency = new Map(ownerRows.map((r) => [r.agency_id, r]));
+
+    let agencies = rows.map((r) => toAdminAgency(r, ownerByAgency.get(r.id)));
+
+    if (search) {
+      const needle = search.trim().toLowerCase();
+      agencies = agencies.filter((a) =>
+        [a.name, a.ownerName, a.ownerEmail, a.country].some((v) => v && v.toLowerCase().includes(needle))
+      );
+    }
+
+    res.json({ agencies });
   } catch (err) {
     next(err);
   }

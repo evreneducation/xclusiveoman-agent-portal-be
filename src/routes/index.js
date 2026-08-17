@@ -17,6 +17,7 @@ import salesManagersRoutes from './salesManagers.routes.js';
 import locationsRoutes from './locations.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 import marketingRoutes from './marketing.routes.js';
+import marketingTrackingRoutes from './marketingTracking.routes.js';
 
 const router = Router();
 
@@ -31,6 +32,10 @@ router.use('/admin/fd-packages', fdPackagesAdminRoutes);
 router.use('/admin/relationship-managers', relationshipManagersRoutes);
 router.use('/admin/sales-managers', salesManagersRoutes);
 router.use('/admin/marketing', marketingRoutes);
+// Public, no requireAuth — Task 11 (Open & Click Tracking). See
+// marketingTracking.routes.js's own comment for why this is the one
+// deliberate exception to every other Marketing route staying protected.
+router.use('/marketing/track', marketingTrackingRoutes);
 router.use('/', catalogRoutes);
 router.use('/departures', departuresRoutes);
 router.use('/package-requests', packageRequestsRoutes);

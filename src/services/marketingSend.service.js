@@ -1,5 +1,7 @@
 import { pool } from '../db/pool.js';
-import { isSmtpConfigured, sendEmail } from './email.service.js';
+import { isSmtpConfigured, sendEmail, verifySmtpConnection } from './email.service.js';
+import { buildMarketingEmailHtml, resolveTrackedLinks, appendTrackingPixel } from './emailTemplate.service.js';
+import { buildOpenTrackingUrl, buildClickTrackingUrl } from './marketingTracking.service.js';
 import { listAgencyOwnerEmails } from '../models/users.model.js';
 import { findRmEmailsByAgencyIds } from '../models/agencies.model.js';
 import {
@@ -12,6 +14,7 @@ import {
   markRecipientSent,
   resolveAudience,
 } from '../models/marketingCampaigns.model.js';
+import { recordCampaignEvent } from './marketingActivity.service.js';
 
 // Marketing Center Task 5's send logic, extracted out of the controller so
 // Task 6's scheduler (jobs/marketingScheduler.job.js) can call the exact
@@ -37,6 +40,98 @@ export function unavailableProviderReason(channel, provider) {
     return isSmtpConfigured() ? null : `${PROVIDER_LABELS.built_in} is not configured yet (no SMTP credentials set).`;
   }
   return `${PROVIDER_LABELS[provider] || provider} is not connected yet — configure it in Channel Settings before sending.`;
+}
+
+// --- Channel Settings (Task 9) ---
+//
+// The exact channel -> provider pairing validation/schemas.js's
+// CHANNEL_PROVIDERS already enforces server-side on every campaign
+// create/schedule request — repeated here (not imported: schemas.js keeps
+// its consts module-private, same as this file's own PROVIDER_LABELS
+// above) only as the list of providers Channel Settings has anything to
+// report a status for, never as a second source of truth for which
+// provider a given campaign is allowed to use.
+const CHANNEL_PROVIDERS = {
+  email: ['built_in', 'mailchimp', 'zoho'],
+  whatsapp: ['whatsapp_business_api'],
+};
+
+// Display labels for Channel Settings / Compose's Channel card — separate
+// from PROVIDER_LABELS above (which reads as a sentence fragment, e.g. "The
+// built-in sender is not configured yet…") since these are card headings.
+const PROVIDER_DISPLAY_LABELS = {
+  built_in: 'Built-in sender',
+  mailchimp: 'Mailchimp',
+  zoho: 'Zoho Campaigns',
+  whatsapp_business_api: 'WhatsApp Business API',
+};
+
+export function isKnownMarketingProvider(provider) {
+  return Object.prototype.hasOwnProperty.call(PROVIDER_DISPLAY_LABELS, provider);
+}
+
+// The one place that decides a provider's real status — never "connected"
+// merely because credentials exist. built_in is the only provider with any
+// configuration surface at all today (env vars — see email.service.js);
+// verifySmtpConnection() does a real round-trip to the SMTP server, so
+// "connected" here means the server just now accepted the credentials, not
+// just that three env vars are non-empty. Mailchimp, Zoho Campaigns, and
+// WhatsApp Business API are reported 'not_implemented' rather than
+// 'configuration_required': confirmed by inspection there is no SDK
+// dependency, no credential env var, and no credential storage anywhere in
+// this backend for any of the three — and the project's own documentation
+// (Xclusive Oman Master Documentation §3.2 "Out of Scope (MVP)") explicitly
+// places WhatsApp Business API automated sending in Phase 2. Never invents
+// a configuration form for a provider that has nowhere real to send its
+// values.
+async function computeProviderStatus(provider) {
+  if (provider === 'built_in') {
+    if (!isSmtpConfigured()) {
+      return {
+        status: 'configuration_required',
+        message: 'SMTP is configured through the deployment environment (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS) — those variables are not currently set.',
+      };
+    }
+    const result = await verifySmtpConnection();
+    return result.verified
+      ? { status: 'connected', message: null }
+      : { status: 'connection_failed', message: result.reason };
+  }
+  if (provider === 'mailchimp') {
+    return { status: 'not_implemented', message: 'No Mailchimp integration exists yet — this provider cannot send campaigns.' };
+  }
+  if (provider === 'zoho') {
+    return { status: 'not_implemented', message: 'No Zoho Campaigns integration exists yet — this provider cannot send campaigns.' };
+  }
+  if (provider === 'whatsapp_business_api') {
+    return {
+      status: 'not_implemented',
+      message: 'WhatsApp Business API integration is out of scope for this MVP (see project documentation) — this provider cannot send campaigns.',
+    };
+  }
+  return { status: 'not_implemented', message: null };
+}
+
+// GET /admin/marketing/channels — every provider Compose's own Channel
+// section offers, with its real status.
+export async function getChannelStatuses() {
+  const results = [];
+  for (const [channel, providers] of Object.entries(CHANNEL_PROVIDERS)) {
+    for (const provider of providers) {
+      // eslint-disable-next-line no-await-in-loop -- four providers total, one SMTP round-trip at most; a Promise.all here buys nothing worth the extra complexity.
+      const { status, message } = await computeProviderStatus(provider);
+      results.push({ channel, provider, label: PROVIDER_DISPLAY_LABELS[provider], status, message });
+    }
+  }
+  return results;
+}
+
+// POST /admin/marketing/channels/:provider/test-connection — same
+// computation as above, for a single provider on demand. Diagnostic only:
+// nothing is written anywhere (no config row exists to update), so this is
+// always safe to call as often as an admin wants.
+export async function testProviderConnection(provider) {
+  return computeProviderStatus(provider);
 }
 
 // Server-side audience resolution + the emailable recipient set (each
@@ -111,6 +206,15 @@ export async function executeCampaignSend(campaignId) {
     rmEmailByAgency = new Map(rmRows.map((r) => [r.agency_id, r.rm_email]));
   }
 
+  // Branded HTML version of the campaign's plain subject/body (Compose has
+  // no rich text editor — this is the only formatting step), built once
+  // (identical for every recipient — only Reply-To varies per-agency below)
+  // and only for email; a WhatsApp campaign has no HTML body to build (and
+  // in practice never reaches here today — whatsapp_business_api always has
+  // a non-null `reason` above, from unavailableProviderReason).
+  const emailTemplate =
+    campaign.channel === 'email' && !reason ? buildMarketingEmailHtml({ subject: campaign.subject, bodyText: campaign.body }) : null;
+
   let successCount = 0;
   let failureCount = 0;
 
@@ -122,7 +226,29 @@ export async function executeCampaignSend(campaignId) {
     }
     try {
       const replyTo = campaign.reply_to_account_manager ? rmEmailByAgency.get(row.agency_id) || undefined : undefined;
-      const result = await sendEmail({ to: row.recipient_address, subject: campaign.subject, text: campaign.body, replyTo });
+
+      // Task 11 — Open & Click Tracking. Each recipient gets their own
+      // signed tracking pixel + click-tracking links (never a single
+      // campaign-level identifier — a shared token couldn't tell recipients
+      // apart), built fresh per recipient from the one shared template.
+      // Only for a real send: a row here always has a real
+      // marketing_campaign_recipients.id to attribute the open/click to
+      // (unlike Send Test — see marketing.controller.js#sendTest's own
+      // comment on why that path never tracks).
+      let html = emailTemplate?.html;
+      if (html) {
+        html = resolveTrackedLinks(html, emailTemplate.links, (url) => buildClickTrackingUrl(row.id, url));
+        html = appendTrackingPixel(html, buildOpenTrackingUrl(row.id));
+      }
+
+      const result = await sendEmail({
+        to: row.recipient_address,
+        subject: campaign.subject,
+        text: campaign.body,
+        html,
+        attachments: emailTemplate?.attachments,
+        replyTo,
+      });
       if (result.delivered) {
         await markRecipientSent(row.id);
         successCount += 1;
@@ -141,5 +267,14 @@ export async function executeCampaignSend(campaignId) {
   // Meaningful statuses only — never reported as fully "sent" when any
   // recipient failed.
   const finalStatus = successCount === 0 ? 'failed' : failureCount === 0 ? 'sent' : 'partially_failed';
-  return finalizeCampaign(campaignId, { status: finalStatus, successCount, failureCount });
+  const finalCampaign = await finalizeCampaign(campaignId, { status: finalStatus, successCount, failureCount });
+
+  // Task 8 — Admin Activity + Notification, fired exactly once here: this
+  // is the single call site every send path (send-now via
+  // marketing.controller.js#createCampaign, and a scheduled campaign via
+  // marketingScheduler.job.js) funnels through, right at the point the
+  // campaign's final state is authoritatively written.
+  await recordCampaignEvent(finalStatus, finalCampaign);
+
+  return finalCampaign;
 }
