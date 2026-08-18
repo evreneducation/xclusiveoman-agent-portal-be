@@ -20,6 +20,8 @@ import marketingRoutes from './marketing.routes.js';
 import marketingTrackingRoutes from './marketingTracking.routes.js';
 import fdOperationsAdminRoutes from './fdOperationsAdmin.routes.js';
 import bookingsAdminRoutes from './bookingsAdmin.routes.js';
+import supportTicketsRoutes from './supportTickets.routes.js';
+import supportTicketsAdminRoutes from './supportTicketsAdmin.routes.js';
 
 const router = Router();
 
@@ -27,6 +29,18 @@ router.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 router.use('/auth', authRoutes);
 router.use('/agencies', agenciesRoutes);
+// Admin Support & Helpdesk (Task 18) — mounted at the more specific
+// /admin/support/tickets prefix, and deliberately registered BEFORE the
+// bare-/admin routers below. adminRoutes/adminCatalogRouter/adminPaymentsRouter
+// each apply their own blanket requireRole(...) to every request that
+// matches the bare /admin prefix — including paths with no route defined in
+// them at all — so if any of those routers' own role gate doesn't include
+// 'support' (adminPaymentsRouter's is finance/ops_admin/super_admin), a
+// support-role request to /admin/support/tickets/... would be rejected by
+// that unrelated router before Express ever reaches this one. Registering
+// the more specific prefix first avoids that entirely; no other router's
+// code or behavior changes.
+router.use('/admin/support/tickets', supportTicketsAdminRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin', adminCatalogRouter);
 router.use('/admin', adminPaymentsRouter);
@@ -40,6 +54,7 @@ router.use('/admin/operations', fdOperationsAdminRoutes);
 // Admin Bookings & Documents — Manual Booking Flow (Task 13) — its own RBAC
 // gate too (ops_admin/super_admin); see bookingsAdmin.routes.js.
 router.use('/admin/bookings', bookingsAdminRoutes);
+router.use('/support/tickets', supportTicketsRoutes);
 // Public, no requireAuth — Task 11 (Open & Click Tracking). See
 // marketingTracking.routes.js's own comment for why this is the one
 // deliberate exception to every other Marketing route staying protected.

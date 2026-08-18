@@ -354,6 +354,35 @@ export const emailToSupplierSchema = z.object({
   documentRefs: z.array(documentRefSchema).min(1, 'Select at least one document to send'),
 });
 
+// --- Admin Support & Helpdesk (Task 18 — Screen 27/28, SUP-1..3) ---
+
+// SUP-1: "Subject + description form" — both required (see migration
+// 0056's own comment on why `description` is required despite the ERD's
+// terser one-line listing).
+export const createTicketSchema = z.object({
+  subject: z.string().min(1, 'Subject is required').max(200),
+  description: z.string().min(1, 'Description is required').max(5000),
+  priority: z.enum(['low', 'normal', 'high']).optional().default('normal'),
+});
+
+// SUP-3 — shared by both the agent's and admin's reply endpoints.
+export const ticketMessageSchema = z.object({
+  message: z.string().min(1, 'Message is required').max(5000),
+});
+
+// PATCH /admin/support/tickets/:id — "Assign, change status" (doc's own
+// route purpose, §12.10). Both optional/independent; at least one must be
+// present. assignedToUserId may be explicitly null to unassign. Priority is
+// deliberately absent — Task 18 scope: set once at creation, never admin-editable.
+export const updateTicketSchema = z
+  .object({
+    status: z.enum(['open', 'in_progress', 'resolved']).optional(),
+    assignedToUserId: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => v.status !== undefined || v.assignedToUserId !== undefined, {
+    message: 'Provide status and/or assignedToUserId',
+  });
+
 // --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
 
 // Passport is required for adult travelers only — isChild (backed by
