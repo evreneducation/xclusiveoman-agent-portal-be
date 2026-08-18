@@ -27,6 +27,20 @@ export const env = {
     .map((s) => s.trim())
     .filter(Boolean),
   agentPortalUrl: process.env.AGENT_PORTAL_URL || "http://localhost:5173/agent",
+  // Task 11 (Marketing Center — Open & Click Tracking) — the backend's own
+  // publicly-reachable base URL, needed to build absolute tracking-pixel/
+  // click-redirect URLs embedded in an outbound email (unlike agentPortalUrl
+  // above, which points at the *frontend*). Defaults to this same process's
+  // own port for local dev, so tracking works out of the box without any
+  // new required configuration.
+  apiBaseUrl: process.env.API_BASE_URL || `http://localhost:${Number(process.env.PORT || 4000)}`,
+  // Signs/verifies marketing tracking-pixel and click-redirect tokens
+  // (services/marketingTracking.service.js). Falls back to
+  // JWT_REFRESH_SECRET (already a required startup env var above) so
+  // tracking works in every existing deployment with zero new required
+  // configuration — a dedicated MARKETING_TRACKING_SECRET is optional, for
+  // stricter isolation between the two token purposes.
+  marketingTrackingSecret: process.env.MARKETING_TRACKING_SECRET || process.env.JWT_REFRESH_SECRET,
   smtp: {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 465),

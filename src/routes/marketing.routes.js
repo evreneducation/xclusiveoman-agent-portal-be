@@ -23,4 +23,15 @@ router.post('/campaigns', validateBody(createMarketingCampaignSchema), marketing
 router.post('/campaigns/schedule', validateBody(scheduleMarketingCampaignSchema), marketingController.scheduleCampaign);
 router.post('/campaigns/:id/cancel', marketingController.cancelCampaign);
 
+// Campaign History (Task 7) — read-only, same requireAuth/requireRole gate
+// above as every other route in this router.
+router.get('/campaigns', marketingController.listCampaigns);
+router.get('/campaigns/:id', marketingController.getCampaign);
+router.get('/campaigns/:id/recipients', marketingController.listCampaignRecipients);
+
+// Channel Settings (Task 9) — same gate; both routes are read-only/diagnostic
+// (no provider configuration is ever written by either).
+router.get('/channels', marketingController.getChannels);
+router.post('/channels/:provider/test-connection', marketingController.testChannelConnection);
+
 export default router;

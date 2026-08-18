@@ -1,4 +1,3 @@
-import { pool } from '../db/pool.js';
 import { env } from '../config/env.js';
 import {
   listFdPackages,
@@ -10,21 +9,13 @@ import {
   listDepartureDates,
   findDepartureDateById,
   listAddons,
-  findAddonsByIds,
-  incrementSeatsBooked,
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
 import { hotelsModel } from '../models/catalog.model.js';
 import { resolveMealsSummary } from '../utils/meals.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
-
-// FD packages no longer carry a per-package deposit/balance-due policy (that
-// was admin-editable, informational-only for deposit and only actually wired
-// into balance_due_date for the "days before"); every booking now uses this
-// fixed lead time instead. depositPaid stays 0 at booking time regardless —
-// deposit collection happens through the payment flow, not here.
-const DEFAULT_BALANCE_DUE_DAYS_BEFORE = 30;
+import { createFdBooking } from '../services/booking.service.js';
 
 // ratePerPax is fdPackage.rate_per_pax (an admin override) when set, else the
 // sum of the package's day-by-day itinerary (see resolveRatePerPax) — the
@@ -149,8 +140,14 @@ export async function getDeparture(req, res, next) {
 }
 
 // POST /api/departures/:id/bookings — FGD-5, FGD-6, FGD-9; re-validates price server-side (rule 67).
+// The actual transaction (pricing, atomic seat allocation, booking/traveler/
+// addon inserts) now lives in services/booking.service.js#createFdBooking
+// (Task 13), shared with the Admin Manual Booking flow
+// (bookingsAdmin.controller.js) — this handler's own job is unchanged:
+// resolve+validate the package/departure/agency, then hand off. Behavior
+// here is byte-for-byte the same as before the extraction (no
+// agreedTotalPrice/depositPaid override, createdVia stays 'self_service').
 export async function createBooking(req, res, next) {
-  const client = await pool.connect();
   try {
     const fdPackage = await findFdPackageById(req.params.id);
     if (!fdPackage || fdPackage.status !== 'published') {
@@ -165,54 +162,16 @@ export async function createBooking(req, res, next) {
     const agency = await findAgencyById(req.user.agency_id);
     const { pax, addonIds = [], travelers = [] } = req.body;
 
-    const [addons, itinerary, pools] = await Promise.all([
-      findAddonsByIds(fdPackage.id, addonIds),
-      listItineraryForPackage(fdPackage.id),
-      loadCatalogPools(),
-    ]);
-    const ratePerPax = resolveRatePerPax(fdPackage, itinerary.items, pools);
-    const addonsPerPax = addons.reduce((sum, a) => sum + Number(a.price_per_pax), 0);
-    const totalPrice = (ratePerPax + addonsPerPax) * pax;
-    const depositPaid = 0;
-    const balanceDue = totalPrice - depositPaid;
-    const balanceDueDate = new Date(
-      new Date(departureDate.date).getTime() - DEFAULT_BALANCE_DUE_DAYS_BEFORE * 24 * 60 * 60 * 1000
-    );
-
-    await client.query('BEGIN');
-
-    const seatsResult = await incrementSeatsBooked(client, departureDate.id, pax);
-    const status = seatsResult ? 'pending_payment' : 'waitlisted';
-
-    const { rows: bookingRows } = await client.query(
-      `INSERT INTO bookings
-        (source_type, source_id, fd_departure_date_id, agency_id, created_by_user_id,
-         pax, total_price, deposit_paid, balance_due, balance_due_date, status, created_via)
-       VALUES ('fd_package', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'self_service')
-       RETURNING *`,
-      [
-        fdPackage.id, departureDate.id, agency.id, req.user.id,
-        pax, totalPrice, depositPaid, balanceDue, balanceDueDate, status,
-      ]
-    );
-    const booking = bookingRows[0];
-
-    for (const traveler of travelers) {
-      await client.query(
-        `INSERT INTO booking_travelers (booking_id, name, passport_no, dob, room_share_group)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [booking.id, traveler.name, traveler.passportNo || null, traveler.dob || null, traveler.roomShareGroup || null]
-      );
-    }
-
-    for (const addon of addons) {
-      await client.query(
-        `INSERT INTO booking_addons (booking_id, fd_addon_id, price_per_pax) VALUES ($1, $2, $3)`,
-        [booking.id, addon.id, addon.price_per_pax]
-      );
-    }
-
-    await client.query('COMMIT');
+    const { booking } = await createFdBooking({
+      fdPackage,
+      departureDate,
+      agencyId: agency.id,
+      createdByUserId: req.user.id,
+      createdVia: 'self_service',
+      pax,
+      addonIds,
+      travelers,
+    });
 
     getIo()?.to(`agency:${agency.id}`).emit('booking:status_changed', {
       bookingId: booking.id,
@@ -230,10 +189,7 @@ export async function createBooking(req, res, next) {
       },
     });
   } catch (err) {
-    await client.query('ROLLBACK');
     next(err);
-  } finally {
-    client.release();
   }
 }
 
