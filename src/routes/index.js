@@ -22,6 +22,7 @@ import fdOperationsAdminRoutes from './fdOperationsAdmin.routes.js';
 import bookingsAdminRoutes from './bookingsAdmin.routes.js';
 import supportTicketsRoutes from './supportTickets.routes.js';
 import supportTicketsAdminRoutes from './supportTicketsAdmin.routes.js';
+import analyticsRoutes from './analytics.routes.js';
 
 const router = Router();
 
@@ -41,6 +42,12 @@ router.use('/agencies', agenciesRoutes);
 // the more specific prefix first avoids that entirely; no other router's
 // code or behavior changes.
 router.use('/admin/support/tickets', supportTicketsAdminRoutes);
+// Admin Analytics & Reporting (Task 19) — same "specific prefix before the
+// bare /admin routers" ordering as Support above, for the same reason
+// (defensive — ops_admin/super_admin already pass every earlier router's
+// own gate today, but this keeps the convention consistent and correct
+// regardless of what any of those gates allow in the future).
+router.use('/admin/analytics', analyticsRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin', adminCatalogRouter);
 router.use('/admin', adminPaymentsRouter);
