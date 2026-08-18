@@ -68,12 +68,15 @@ export async function listAgencyUsers(agencyId) {
 //
 // `full_name` was added for Audience Segments (admin.controller.js#getAgencies,
 // Task 10) to show who each agency's real send target actually is by name,
-// not just email — existing callers (resolveRecipients above) that only
-// destructure row.agency_id/row.email are unaffected by the extra column.
+// not just email. `id` was added for the FD Operations Tracker (Task 12 —
+// driver-dispatch/tour-update notifications need a real recipientUserId to
+// call notification.service.js#createNotification with, not just an email
+// address). Existing callers (resolveRecipients above) that only
+// destructure row.agency_id/row.email are unaffected by either extra column.
 export async function listAgencyOwnerEmails(agencyIds) {
   if (agencyIds.length === 0) return [];
   const { rows } = await pool.query(
-    `SELECT agency_id, full_name, email FROM users
+    `SELECT id, agency_id, full_name, email FROM users
      WHERE agency_id = ANY($1::uuid[]) AND role = 'agency_owner' AND status = 'active'`,
     [agencyIds]
   );

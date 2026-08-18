@@ -18,6 +18,8 @@ import locationsRoutes from './locations.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 import marketingRoutes from './marketing.routes.js';
 import marketingTrackingRoutes from './marketingTracking.routes.js';
+import fdOperationsAdminRoutes from './fdOperationsAdmin.routes.js';
+import bookingsAdminRoutes from './bookingsAdmin.routes.js';
 
 const router = Router();
 
@@ -32,6 +34,12 @@ router.use('/admin/fd-packages', fdPackagesAdminRoutes);
 router.use('/admin/relationship-managers', relationshipManagersRoutes);
 router.use('/admin/sales-managers', salesManagersRoutes);
 router.use('/admin/marketing', marketingRoutes);
+// FD Operations Tracker (Task 12) — its own RBAC gate (ops_admin/super_admin),
+// separate from Marketing's above; see fdOperationsAdmin.routes.js.
+router.use('/admin/operations', fdOperationsAdminRoutes);
+// Admin Bookings & Documents — Manual Booking Flow (Task 13) — its own RBAC
+// gate too (ops_admin/super_admin); see bookingsAdmin.routes.js.
+router.use('/admin/bookings', bookingsAdminRoutes);
 // Public, no requireAuth — Task 11 (Open & Click Tracking). See
 // marketingTracking.routes.js's own comment for why this is the one
 // deliberate exception to every other Marketing route staying protected.

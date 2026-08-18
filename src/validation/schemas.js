@@ -281,20 +281,77 @@ export const fdAddonSchema = z
     message: 'Provide exactly one of activityId or tourId',
   });
 
+// Reused by both the agent self-service booking schema (below) and the
+// Admin Manual Booking flow (Task 13, manualBookingSchema further down) —
+// same traveler shape either way: name required, everything else optional
+// (passport/DOB are collected later via the separate Documents & Visa flow,
+// Screen 23, not at booking time).
+const bookingTravelerSchema = z.object({
+  name: z.string().min(1),
+  passportNo: z.string().optional(),
+  dob: z.string().optional(),
+  roomShareGroup: z.string().optional(),
+});
+
 export const createBookingSchema = z.object({
   departureDateId: z.string().uuid(),
   pax: z.number().int().positive(),
   addonIds: z.array(z.string().uuid()).optional(),
-  travelers: z
-    .array(
-      z.object({
-        name: z.string().min(1),
-        passportNo: z.string().optional(),
-        dob: z.string().optional(),
-        roomShareGroup: z.string().optional(),
-      })
-    )
-    .optional(),
+  travelers: z.array(bookingTravelerSchema).optional(),
+});
+
+// --- Admin Manual Booking (Task 13 — Screen 22) ---
+
+// FD-only (see booking.service.js/bookingsAdmin.model.js's own comments) —
+// `fdPackageId`/`departureDateId` replace the documented `source_selection`,
+// and every field name follows this codebase's existing camelCase JSON
+// convention rather than the doc's own snake_case route-body shorthand
+// (createBookingSchema above, and every other schema in this file, are the
+// precedent). `agreedTotalPrice` is MAN-3's "admin enters an agreed sell
+// price directly" — required, not derived from the catalog; still just a
+// plain validated positive number, same guarantee "never trust a client
+// price" gives self-service, just applied to a value that's supposed to
+// diverge from the catalog rather than reproduce it.
+export const manualBookingSchema = z.object({
+  agencyId: z.string().uuid(),
+  fdPackageId: z.string().uuid(),
+  departureDateId: z.string().uuid(),
+  pax: z.number().int().positive(),
+  travelers: z.array(bookingTravelerSchema).optional(),
+  addonIds: z.array(z.string().uuid()).optional(),
+  agreedTotalPrice: z.number().positive(),
+  // Offline deposit the admin is recording (money already collected by
+  // phone/bank transfer before this screen exists) — never a real
+  // Cashfree/NEFT payment record (Task 13 explicitly excludes both), just
+  // the amount used to derive the booking's initial status.
+  depositPaid: z.number().nonnegative().optional().default(0),
+  // Purely descriptive of how that offline deposit was actually collected —
+  // not wired to the Cashfree/NEFT/credit-terms pipelines (none of those
+  // are admin-initiable here); captured in the booking's audit log entry.
+  paymentMethod: z.enum(['cashfree', 'neft', 'credit_terms']).optional(),
+});
+
+// --- Client Documents & Visa Processing (Task 14 — Screen 23, DOC-3) ---
+
+// documentRefs identify which already-uploaded documents to attach — either
+// a traveler's passport_scan/passport_photo/visa_copy (travelerId required)
+// or the booking-level voucher (no travelerId). The controller re-verifies
+// each ref actually has an uploaded file before attaching anything — this
+// schema only shapes the request, it can't know what's actually on file.
+const documentRefSchema = z
+  .object({
+    type: z.enum(['passport_scan', 'passport_photo', 'visa_copy', 'voucher']),
+    travelerId: z.string().uuid().optional(),
+  })
+  .refine((v) => v.type === 'voucher' || !!v.travelerId, {
+    message: 'travelerId is required for traveler-level documents',
+    path: ['travelerId'],
+  });
+
+export const emailToSupplierSchema = z.object({
+  to: z.string().email('Enter a valid supplier email address'),
+  message: z.string().max(2000).optional(),
+  documentRefs: z.array(documentRefSchema).min(1, 'Select at least one document to send'),
 });
 
 // --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
@@ -668,6 +725,36 @@ export const scheduleMarketingCampaignSchema = withMarketingCrossFieldRules(
       { message: 'Scheduled time must be in the future', path: ['scheduledDate'] }
     )
 );
+
+// --- FD Operations Tracker (Task 12 — Screen 19) ---
+
+// Every stage the generic advance-stage endpoint can set. 'driver_sent' is
+// deliberately excluded — it's only ever set automatically as a side effect
+// of a real driver dispatch (marketing.controller.js-style single source of
+// truth; see fdOperations.model.js#advanceStage's own comment), never via
+// this endpoint directly.
+const FD_OPERATIONS_STAGES = ['docs_collected', 'supplier_coordination', 'visa_processing', 'trip_live', 'completed'];
+
+export const advanceFdOperationsStageSchema = z.object({
+  stage: z.enum(FD_OPERATIONS_STAGES),
+});
+
+export const fdOperationsSupplierLogSchema = z.object({
+  supplierName: z.string().min(1, 'Supplier name is required').max(200),
+  item: z.string().min(1, 'Item is required').max(300),
+  status: z.enum(['pending', 'confirmed']).optional().default('pending'),
+});
+
+export const fdOperationsDriverDetailsSchema = z.object({
+  driverName: z.string().min(1, 'Driver name is required').max(150),
+  vehicle: z.string().min(1, 'Vehicle is required').max(150),
+  pickupDetails: z.string().min(1, 'Pickup time/point is required').max(500),
+});
+
+export const fdOperationsTourUpdateSchema = z.object({
+  updateType: z.enum(['itinerary_change', 'delay', 'general_notice']),
+  message: z.string().min(1, 'Message is required').max(2000),
+});
 
 // "depositAmount" -> "Deposit amount"
 function humanizeField(field) {
