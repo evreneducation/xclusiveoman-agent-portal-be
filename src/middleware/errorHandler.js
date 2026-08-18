@@ -17,6 +17,16 @@ export function errorHandler(err, req, res, next) {
     return res.status(409).json({ error: 'conflict', message: 'This record is still referenced elsewhere and cannot be deleted.' });
   }
 
+  if (err.name === 'MulterError') {
+    // Multer's own errors (oversized file, too many files, wrong field
+    // name, …) never carry a `.status`, so they fell through to a generic
+    // 500 below every upload endpoint in this codebase already had —
+    // discovered while testing Task 14's document uploads, fixed here
+    // rather than in middleware/upload.js since every upload endpoint
+    // (hero images, NEFT slips, documents, …) shares this one handler.
+    return res.status(400).json({ error: 'upload_rejected', message: err.message });
+  }
+
   const status = err.status || 500;
   res.status(status).json({
     error: err.publicCode || 'internal_error',
