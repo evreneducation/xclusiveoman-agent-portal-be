@@ -383,6 +383,15 @@ export const updateTicketSchema = z
     message: 'Provide status and/or assignedToUserId',
   });
 
+// --- Agent Review & Rating Popup (Task 20 — Screen 32, REV-1..4) ---
+
+// Rating is required; review text is optional (doc §9.10 step 49: "rates
+// and optionally writes a review").
+export const submitReviewSchema = z.object({
+  rating: z.number().int().min(1, 'Rating must be between 1 and 5').max(5, 'Rating must be between 1 and 5'),
+  reviewText: z.string().max(2000).optional(),
+});
+
 // --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
 
 // Passport is required for adult travelers only — isChild (backed by

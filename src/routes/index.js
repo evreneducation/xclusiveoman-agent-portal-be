@@ -23,6 +23,7 @@ import bookingsAdminRoutes from './bookingsAdmin.routes.js';
 import supportTicketsRoutes from './supportTickets.routes.js';
 import supportTicketsAdminRoutes from './supportTicketsAdmin.routes.js';
 import analyticsRoutes from './analytics.routes.js';
+import reviewsRoutes from './reviews.routes.js';
 
 const router = Router();
 
@@ -76,6 +77,7 @@ router.use('/mice/rfqs', miceRfqsRoutes);
 router.use('/admin/mice-rfqs', miceRfqsAdminRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/bookings', bookingsRoutes);
+router.use('/reviews', reviewsRoutes);
 router.use('/departure-locations', locationsRoutes);
 router.use('/notifications', notificationsRoutes);
 
