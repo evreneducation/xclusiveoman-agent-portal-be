@@ -24,6 +24,7 @@ import supportTicketsRoutes from './supportTickets.routes.js';
 import supportTicketsAdminRoutes from './supportTicketsAdmin.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import reviewsRoutes from './reviews.routes.js';
+import reviewsAdminRoutes from './reviewsAdmin.routes.js';
 import cmsRoutes from './cms.routes.js';
 import cmsPublicRoutes from './cmsPublic.routes.js';
 
@@ -58,6 +59,11 @@ router.use('/admin/analytics', analyticsRoutes);
 // requireRole(...) would otherwise reject a matching-prefix request before
 // Express ever reaches this one.
 router.use('/admin/cms', cmsRoutes);
+// Admin Reviews Management (Task 21 — Item 33) — its own RBAC gate
+// (ops_admin/super_admin, narrower than STAFF_ROLES — see
+// reviewsAdmin.routes.js), registered before the bare-/admin routers for
+// the same reason as Support/Analytics/CMS above.
+router.use('/admin/reviews', reviewsAdminRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin', adminCatalogRouter);
 router.use('/admin', adminPaymentsRouter);

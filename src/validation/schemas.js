@@ -392,6 +392,14 @@ export const submitReviewSchema = z.object({
   reviewText: z.string().max(2000).optional(),
 });
 
+// --- Admin Reviews Management (Task 21 — Item 33, REV-3) ---
+// 'needs_review' is deliberately excluded — it's only ever the submission
+// default (reviews.model.js#createReview), never an admin-settable target;
+// REV-3 is "publish/hide" only.
+export const updateReviewStatusSchema = z.object({
+  status: z.enum(['published', 'hidden']),
+});
+
 // --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
 
 // Passport is required for adult travelers only — isChild (backed by
