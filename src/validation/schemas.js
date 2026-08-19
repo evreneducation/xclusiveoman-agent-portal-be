@@ -794,6 +794,26 @@ export const fdOperationsTourUpdateSchema = z.object({
   message: z.string().min(1, 'Message is required').max(2000),
 });
 
+// Admin Content & CMS Management (Task 21 — Item 34, CMS-1/CMS-2). Matches
+// cms_pages (0058_cms.sql) exactly — no SEO/author/tag/ordering/scheduling
+// fields, per the doc's own ERD not defining any. `slug` gets a light
+// URL-safe format check (lowercase/digits/hyphens) — not itself documented,
+// but "slug" has an established, unambiguous technical meaning and this
+// merely enforces that shape rather than inventing a new field.
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export const cmsPageSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(300),
+  section: z.string().min(1, 'Section is required').max(150),
+  slug: z
+    .string()
+    .min(1, 'Slug is required')
+    .max(200)
+    .regex(SLUG_PATTERN, 'Use lowercase letters, numbers, and hyphens only'),
+  bodyHtml: z.string().max(200000).optional(),
+  status: z.enum(['draft', 'published']).optional().default('draft'),
+});
+
 // "depositAmount" -> "Deposit amount"
 function humanizeField(field) {
   const spaced = field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();

@@ -24,6 +24,8 @@ import supportTicketsRoutes from './supportTickets.routes.js';
 import supportTicketsAdminRoutes from './supportTicketsAdmin.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import reviewsRoutes from './reviews.routes.js';
+import cmsRoutes from './cms.routes.js';
+import cmsPublicRoutes from './cmsPublic.routes.js';
 
 const router = Router();
 
@@ -49,6 +51,13 @@ router.use('/admin/support/tickets', supportTicketsAdminRoutes);
 // own gate today, but this keeps the convention consistent and correct
 // regardless of what any of those gates allow in the future).
 router.use('/admin/analytics', analyticsRoutes);
+// Admin Content & CMS Management (Task 21 — Item 34) — its own RBAC gate
+// (super_admin only, narrower than every other /admin/* router — see
+// cms.routes.js), registered before the bare-/admin routers below for the
+// same reason Support/Analytics are: those routers' own blanket
+// requireRole(...) would otherwise reject a matching-prefix request before
+// Express ever reaches this one.
+router.use('/admin/cms', cmsRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin', adminCatalogRouter);
 router.use('/admin', adminPaymentsRouter);
@@ -67,6 +76,12 @@ router.use('/support/tickets', supportTicketsRoutes);
 // marketingTracking.routes.js's own comment for why this is the one
 // deliberate exception to every other Marketing route staying protected.
 router.use('/marketing/track', marketingTrackingRoutes);
+// Public CMS Page Viewer (Task 21 — Item 34 continuation) — deliberately no
+// requireAuth, same "one documented public exception" pattern as
+// /marketing/track just above. Entirely separate from /admin/cms
+// (cmsRoutes, still super_admin only, untouched) — see
+// cmsPublic.routes.js's own comment.
+router.use('/cms', cmsPublicRoutes);
 router.use('/', catalogRoutes);
 router.use('/departures', departuresRoutes);
 router.use('/package-requests', packageRequestsRoutes);
