@@ -1,7 +1,6 @@
 import { pool } from '../db/pool.js';
 import { findAgencyById, updateAgency } from '../models/agencies.model.js';
 import { createUser, findUserByEmail, listAgencyUsers, toPublicUser } from '../models/users.model.js';
-import { hashPassword } from '../services/auth.service.js';
 
 function toPublicAgency(agency, rm) {
   return {
@@ -60,21 +59,19 @@ export async function patchMyAgency(req, res, next) {
 export async function createSubUser(req, res, next) {
   const client = await pool.connect();
   try {
-    const { fullName, email, password, phone, permissions } = req.body;
+    const { fullName, email, phone, permissions } = req.body;
 
     const existing = await findUserByEmail(email);
     if (existing) {
       return res.status(409).json({ error: 'conflict', message: 'Email already registered' });
     }
 
-    const passwordHash = await hashPassword(password);
     const user = await createUser(client, {
       agencyId: req.user.agency_id,
       role: 'agency_staff',
       fullName,
       email,
       phone,
-      passwordHash,
       permissions,
     });
 

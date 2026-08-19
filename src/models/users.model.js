@@ -2,11 +2,11 @@ import { pool } from '../db/pool.js';
 
 export async function createUser(
   client,
-  { agencyId, role, fullName, email, phone, whatsappNumber, passwordHash, permissions }
+  { agencyId, role, fullName, email, phone, whatsappNumber, permissions }
 ) {
   const { rows } = await client.query(
-    `INSERT INTO users (agency_id, role, full_name, email, phone, whatsapp_number, password_hash, permissions)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{}'::jsonb))
+    `INSERT INTO users (agency_id, role, full_name, email, phone, whatsapp_number, permissions)
+     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '{}'::jsonb))
      RETURNING *`,
     [
       agencyId || null,
@@ -15,7 +15,6 @@ export async function createUser(
       email.toLowerCase(),
       phone || null,
       whatsappNumber || null,
-      passwordHash,
       permissions ? JSON.stringify(permissions) : null,
     ]
   );
@@ -94,7 +93,6 @@ export async function updateUser(id, fields) {
     fullName: 'full_name',
     phone: 'phone',
     whatsappNumber: 'whatsapp_number',
-    passwordHash: 'password_hash',
   };
 
   for (const [key, column] of Object.entries(columnMap)) {

@@ -7,7 +7,6 @@ import {
   toPublicUser,
   updateUser,
 } from '../models/users.model.js';
-import { hashPassword } from '../services/auth.service.js';
 
 // GET /api/admin/sales-managers
 // Lists the sales_manager staff pool. Unlike relationship managers, sales
@@ -25,14 +24,13 @@ export async function list(req, res, next) {
 export async function create(req, res, next) {
   const client = await pool.connect();
   try {
-    const { fullName, email, password, phone, whatsappNumber } = req.body;
+    const { fullName, email, phone, whatsappNumber } = req.body;
 
     const existing = await findUserByEmail(email);
     if (existing) {
       return res.status(409).json({ error: 'conflict', message: 'Email already registered' });
     }
 
-    const passwordHash = await hashPassword(password);
     const user = await createUser(client, {
       agencyId: null,
       role: 'sales_manager',
@@ -40,7 +38,6 @@ export async function create(req, res, next) {
       email,
       phone,
       whatsappNumber,
-      passwordHash,
     });
 
     res.status(201).json({ user: toPublicUser(user) });

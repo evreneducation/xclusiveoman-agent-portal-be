@@ -194,6 +194,65 @@ export function resolveTrackedLinks(html, links, resolveUrl) {
   return out;
 }
 
+// Email OTP login (auth.controller.js#requestLoginOtp) — same branded
+// table-based/inline-styles shell buildMarketingEmailHtml uses above (logo
+// header, accent divider, ACCENT_SOFT footer), but its own small template
+// rather than routing a 6-digit code through the marketing template's
+// paragraph/link-tokenizing machinery, which is built for arbitrary
+// admin-authored body text, not a single numeric code.
+export function buildOtpEmailHtml({ otp, expiresInMinutes }) {
+  const digits = escapeHtml(otp);
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0; padding:0; background:#f4f4f2;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f2; padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid ${BORDER};">
+            <tr>
+              <td style="background:${INK}; padding:24px 32px;">
+                <img src="cid:${LOGO_CID}" alt="Xclusive Oman" width="150" style="display:block; height:auto; border:0; max-width:150px;" />
+              </td>
+            </tr>
+            <tr>
+              <td style="height:4px; background:${ACCENT}; line-height:4px; font-size:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding:32px; font-family:Arial, Helvetica, sans-serif; text-align:center;">
+                <h1 style="margin:0 0 8px; font-size:19px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Your sign-in code</h1>
+                <p style="margin:0 0 24px; font-size:13px; line-height:1.6; color:${MUTED};">Enter this code to finish signing in to Xclusive Oman.</p>
+                <div style="margin:0 auto 24px; display:inline-block; padding:16px 28px; background:${ACCENT_SOFT}; border:1px solid ${ACCENT}; border-radius:8px;">
+                  <span style="font-family:'SFMono-Regular', Consolas, monospace; font-size:34px; font-weight:700; letter-spacing:10px; color:${INK};">${digits}</span>
+                </div>
+                <p style="margin:0; font-size:12px; line-height:1.6; color:${MUTED};">This code expires in ${expiresInMinutes} minutes.<br>If you didn't request this, you can safely ignore this email.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 32px; background:${ACCENT_SOFT};">
+                <p style="margin:0; font-size:11px; line-height:1.6; color:${MUTED}; font-family:Arial, Helvetica, sans-serif;">
+                  Xclusive Oman — B2B &amp; MICE Trade Portal. This message was sent to you as a registered Xclusive Oman trade partner.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  const attachments = [
+    {
+      filename: 'xclusive-oman-logo.png',
+      path: LOGO_ATTACHMENT_PATH,
+      cid: LOGO_CID,
+      contentDisposition: 'inline',
+    },
+  ];
+
+  return { html, attachments };
+}
+
 // Appends the 1x1 open-tracking pixel just before </body> — kept as its own
 // step (never a placeholder baked into the base template) so a template
 // with no tracking desired (Send Test) simply never calls this, rather

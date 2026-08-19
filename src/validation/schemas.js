@@ -12,21 +12,20 @@ export const registerSchema = z.object({
   ownerFullName: z.string().min(2).max(200),
   email: z.string().email(),
   phone: z.string().min(1, 'Phone is required').max(30),
-  password: z.string().min(8).max(128),
 });
 
-export const loginSchema = z.object({
+// Email OTP login is the sole sign-in mechanism now — no password anywhere
+// (users.password_hash was dropped, 0060_drop_password.sql). loginSchema/
+// forgotPasswordSchema/resetPasswordSchema and their controller functions/
+// routes were removed in the same change, not just left dormant, since the
+// column their logic depended on no longer exists.
+export const requestOtpSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1),
 });
 
-export const forgotPasswordSchema = z.object({
+export const verifyOtpSchema = z.object({
   email: z.string().email(),
-});
-
-export const resetPasswordSchema = z.object({
-  token: z.string().min(10),
-  password: z.string().min(8).max(128),
+  otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
 });
 
 export const patchAgencyMeSchema = z.object({
@@ -39,7 +38,6 @@ export const patchAgencyMeSchema = z.object({
 export const createSubUserSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
-  password: z.string().min(8).max(128),
   phone: z.string().max(30).optional(),
   permissions: z.record(z.boolean()).optional(),
 });
@@ -56,7 +54,6 @@ export const patchAdminAgencySchema = z.object({
 export const createRelationshipManagerSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
-  password: z.string().min(8).max(128),
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
 });
@@ -77,7 +74,6 @@ export const patchRelationshipManagerSchema = z.object({
 export const createSalesManagerSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
-  password: z.string().min(8).max(128),
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
 });
