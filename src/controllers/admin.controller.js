@@ -137,16 +137,24 @@ export async function patchAgency(req, res, next) {
         // which has already been durably written by updateAgency() above
         // (same posture as auth.controller.js#notifyAdminsOfNewAgent).
         try {
+          // The RM this same approval just assigned (either the round-robin
+          // pick above or an explicit rmUserId override) — looked up fresh
+          // off the just-updated agency row rather than patch.rmUserId, so
+          // this is always the RM that actually landed in the DB.
+          const rm = agency.rm_user_id ? await findUserById(agency.rm_user_id) : null;
+          const rmDetails = rm ? { fullName: rm.full_name, email: rm.email, phone: rm.phone } : null;
+
           const { html, attachments } = buildAgentApprovedEmailHtml({
             fullName: owner.full_name,
             agencyName: agency.name,
             tier: agency.tier,
             loginUrl: env.agentLoginUrl,
+            rm: rmDetails,
           });
           await sendEmail({
             to: owner.email,
             subject: 'Your Xclusive Oman agency has been approved',
-            text: `Good news — ${agency.name} has been approved${agency.tier ? ` at ${agency.tier} tier` : ''}. Sign in at ${env.agentLoginUrl}.`,
+            text: `Good news — ${agency.name} has been approved${agency.tier ? ` at ${agency.tier} tier` : ''}. Sign in at ${env.agentLoginUrl}.${rmDetails ? ` Your Relationship Manager: ${rmDetails.fullName} (${rmDetails.email}).` : ''}`,
             html,
             attachments,
           });
