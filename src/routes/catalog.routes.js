@@ -22,6 +22,24 @@ function toColumns(req, res, next) {
   next();
 }
 
+// Hotel occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql) —
+// derives the legacy price_per_night column from whichever occupancy price
+// was actually submitted (priority double -> single -> triple, the same
+// "2 adults per room" baseline this app already assumed everywhere before
+// occupancy pricing existed), so MICE quote costing (miceRfqsAdmin.
+// controller.js), which still reads price_per_night as-is, keeps working
+// without the admin ever entering it directly. Only touches the body when at
+// least one occupancy price is actually present in this request — a PATCH
+// that only changes e.g. the description shouldn't blank out an
+// already-set price_per_night.
+function deriveHotelPricePerNight(req, res, next) {
+  const { double_price: doublePrice, single_price: singlePrice, triple_price: triplePrice } = req.body;
+  if (doublePrice != null || singlePrice != null || triplePrice != null) {
+    req.body.price_per_night = doublePrice ?? singlePrice ?? triplePrice;
+  }
+  next();
+}
+
 const ENTITIES = [
   { path: 'hotels', schema: hotelSchema },
   { path: 'tours', schema: tourSchema },
@@ -50,8 +68,11 @@ adminCatalogRouter.use(requireAuth, requireRole(...STAFF_ROLES), requireFeature(
 
 for (const { path, schema } of ENTITIES) {
   const handlers = catalogHandlersFor(path);
-  adminCatalogRouter.post(`/${path}`, validateBody(schema), toColumns, handlers.create);
-  adminCatalogRouter.patch(`/${path}/:id`, validateBody(schema.partial()), toColumns, handlers.update);
+  // Only 'hotels' carries occupancy-tiered pricing — every other entity's
+  // pipeline is unchanged.
+  const extra = path === 'hotels' ? [deriveHotelPricePerNight] : [];
+  adminCatalogRouter.post(`/${path}`, validateBody(schema), toColumns, ...extra, handlers.create);
+  adminCatalogRouter.patch(`/${path}/:id`, validateBody(schema.partial()), toColumns, ...extra, handlers.update);
   adminCatalogRouter.delete(`/${path}/:id`, handlers.remove);
 }
 

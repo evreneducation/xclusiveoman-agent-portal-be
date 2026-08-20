@@ -205,16 +205,45 @@ export async function loadCatalogPools() {
 // catalog price once per occurrence: a hotel placed on 3 separate days (the
 // single-select-per-day hotel section) counts as 3 nights, matching how a
 // real stay would be priced.
-const ITEM_PRICE_FIELD = { hotel: 'price_per_night', tour: 'price', transfer: 'price', activity: 'price_per_pax' };
+const ITEM_PRICE_FIELD = { tour: 'price', transfer: 'price', activity: 'price_per_pax' };
+
+// Hotel occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql, Task 1/6)
+// — a hotel's per-pax nightly rate is its double-occupancy room price ÷ 2
+// (the "2 adults share a room" baseline this app already assumed everywhere
+// before occupancy pricing existed — roomsForAdults' own "unset = 1 room"
+// default), falling back to single (÷1) then triple (÷3) if the hotel
+// doesn't offer double. Deliberately headcount-independent: an FD package's
+// own admin-set rate can't depend on a real group size, since that's only
+// known once an agent actually books (agent/pages/DepartureDetail.jsx's
+// Traveler Details step) — admin no longer enters an adults count at all
+// (fd_itinerary_items.adults stays in the DB for old rows, just unused by
+// this formula going forward). Returns null when the hotel has no price on
+// any of the three tiers, so callers can tell "free" apart from "not priced".
+const HOTEL_RATE_FALLBACK_ORDER = [
+  { field: 'double_price', capacity: 2 },
+  { field: 'single_price', capacity: 1 },
+  { field: 'triple_price', capacity: 3 },
+];
+
+export function resolveHotelPerPaxRate(hotel) {
+  if (!hotel) return null;
+  for (const { field, capacity } of HOTEL_RATE_FALLBACK_ORDER) {
+    if (hotel[field] != null) return Number(hotel[field]) / capacity;
+  }
+  return null;
+}
 
 export function computeNetRatePerPax(items, pools) {
   return (items || []).reduce((total, it) => {
+    if (it.item_type === 'hotel') {
+      const hotel = (pools.hotel || []).find((h) => h.id === it.item_id);
+      const perPax = resolveHotelPerPaxRate(hotel);
+      return perPax != null ? total + perPax : total;
+    }
     const field = ITEM_PRICE_FIELD[it.item_type];
     const ref = field && (pools[it.item_type] || []).find((p) => p.id === it.item_id);
     if (!ref) return total;
-    const price = Number(ref[field]) || 0;
-    const multiplier = it.item_type === 'hotel' ? roomsForAdults(it.adults) : 1;
-    return total + price * multiplier;
+    return total + (Number(ref[field]) || 0);
   }, 0);
 }
 

@@ -111,22 +111,32 @@ function sumPrices(items, key) {
   return items.reduce((total, item) => total + toNumberOrZero(item[key]), 0);
 }
 
-// Hotels are occupancy-aware (0046_package_request_itinerary_items_occupancy.sql):
-// price_per_night is a single-room rate, and each hotel-day picks a
-// Single/Double/Triple occupancy rather than a headcount — the headcount
-// itself is the trip's own pax_adults (Trip Details), fixed for the whole
-// request. So this sums price_per_night × rooms per itinerary-day placement
-// (rooms = ceil(pax_adults / occupancy capacity) — see roomsForOccupancy) —
-// a hotel used on 3 days counts 3 times, same as FD Packages'
-// computeNetRatePerPax, rather than once per distinct selected hotel.
-// Tours/transfers/extras still count once per selected item, not per
-// itinerary occurrence — untouched, unlike hotels.
+// Occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql) — each
+// hotel-day already picks a Single/Double/Triple occupancy
+// (0046_package_request_itinerary_items_occupancy.sql; the headcount itself
+// is the trip's own pax_adults, fixed for the whole request), but until now
+// that choice only decided *room count*, not price — every occupancy was
+// costed at the same flat price_per_night. This now reads the hotel's own
+// price for the specific tier chosen (single_price/double_price/triple_price)
+// instead — a hotel that doesn't offer the chosen tier contributes nothing
+// for that placement (checked directly, not silently substituted from a
+// different tier, since this feeds a real client-facing quote). Still sums
+// tierPrice × rooms per itinerary-day placement (rooms = ceil(pax_adults /
+// occupancy capacity) — see roomsForOccupancy) — a hotel used on 3 days
+// counts 3 times, same as FD Packages' computeNetRatePerPax, rather than
+// once per distinct selected hotel. Tours/transfers/extras still count once
+// per selected item, not per itinerary occurrence — untouched, unlike hotels.
+const OCCUPANCY_PRICE_FIELD = { single: 'single_price', double: 'double_price', triple: 'triple_price' };
+
 function computeHotelCostAuto(itineraryItems, hotels, totalAdults) {
   return (itineraryItems || []).reduce((total, it) => {
     if (it.item_type !== 'hotel') return total;
     const hotel = hotels.find((h) => h.id === it.item_id);
-    if (!hotel || hotel.price_per_night == null) return total;
-    return total + Number(hotel.price_per_night) * roomsForOccupancy(totalAdults, it.occupancy);
+    if (!hotel) return total;
+    const field = OCCUPANCY_PRICE_FIELD[it.occupancy] || OCCUPANCY_PRICE_FIELD.double;
+    const tierPrice = hotel[field];
+    if (tierPrice == null) return total; // this hotel doesn't offer the chosen occupancy
+    return total + Number(tierPrice) * roomsForOccupancy(totalAdults, it.occupancy);
   }, 0);
 }
 
@@ -205,6 +215,13 @@ async function toDetail(row) {
       description: h.description,
       images: h.images || [],
       pricePerNight: h.price_per_night != null ? Number(h.price_per_night) : null,
+      // Occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql) — lets
+      // the itinerary builder's occupancy picker (QuoteInboxDetail.jsx) know
+      // which of single/double/triple this hotel actually offers, rather
+      // than blindly costing every choice at the same flat pricePerNight.
+      singlePrice: h.single_price != null ? Number(h.single_price) : null,
+      doublePrice: h.double_price != null ? Number(h.double_price) : null,
+      triplePrice: h.triple_price != null ? Number(h.triple_price) : null,
     })),
     tours: tours.map((t) => ({
       id: t.id,

@@ -131,7 +131,21 @@ export const hotelSchema = z.object({
   }),
   images: z.array(z.string()).min(1, 'Upload at least one image'),
   description: z.string().min(1, 'Description is required'),
-  pricePerNight: z.number().positive('Price must be a positive number'),
+  // Occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql) — admin
+  // checks which of single/double/triple this hotel offers and prices each
+  // one independently, replacing the old single flat pricePerNight field in
+  // this form. All three optional at the zod level (not a `.refine()`
+  // "at least one required" — that would return a ZodEffects, and
+  // catalog.routes.js calls `schema.partial()` on this exact schema object
+  // for PATCH, which only exists on a plain ZodObject); "at least one
+  // occupancy price set" is instead enforced in the Hotel Editor UI itself
+  // (HotelEditor.jsx) before it ever submits. pricePerNight itself is no
+  // longer collected here — it's derived server-side (toColumns pipeline,
+  // catalog.routes.js) so MICE costing, which still reads it, keeps working
+  // unchanged.
+  singlePrice: z.number().positive('Price must be a positive number').optional(),
+  doublePrice: z.number().positive('Price must be a positive number').optional(),
+  triplePrice: z.number().positive('Price must be a positive number').optional(),
   boardBasisOptions: z.array(z.string()).optional(),
   miceBallroomCapacity: z.number().int().nonnegative().optional(),
   miceBreakoutRooms: z.number().int().nonnegative().optional(),
@@ -228,6 +242,9 @@ const CATALOG_KEY_MAP = {
   isBestseller: 'is_bestseller',
   pricePerPax: 'price_per_pax',
   pricePerNight: 'price_per_night',
+  singlePrice: 'single_price',
+  doublePrice: 'double_price',
+  triplePrice: 'triple_price',
   vehicleClass: 'vehicle_class',
   suitableGroupSizeMin: 'suitable_group_size_min',
   suitableGroupSizeMax: 'suitable_group_size_max',
