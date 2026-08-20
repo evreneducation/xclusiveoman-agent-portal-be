@@ -13,16 +13,15 @@ import 'dotenv/config';
 import { pool } from '../src/db/pool.js';
 import { env } from '../src/config/env.js';
 
-// Dev convenience only: in development this points at a real inbox so OTP
-// emails during local testing are actually receivable. In production it's
-// deliberately left blank — fill it in before running the seed there.
-const DEFAULT_EMAIL = env.nodeEnv === 'development' ? 'shreysrivastava573@gmail.com' : '';
+// Set per-environment via SEED_ADMIN_EMAIL in .env (src/config/env.js) —
+// dev points at a real inbox so OTP emails during local testing are actually
+// receivable; prod should be set to whichever inbox will run the seed there.
+const DEFAULT_EMAIL = env.seedAdminEmail;
 const DEFAULT_FULL_NAME = 'Super Admin';
 
 async function main() {
   if (!DEFAULT_EMAIL) {
-    console.log('No seed email configured for this environment (NODE_ENV is not "development").');
-    console.log('Set DEFAULT_EMAIL in scripts/seed.js before running the seed here.');
+    console.log('No seed email configured for this environment — set SEED_ADMIN_EMAIL in .env.');
     await pool.end();
     return;
   }
