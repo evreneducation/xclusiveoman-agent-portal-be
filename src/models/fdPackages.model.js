@@ -1,5 +1,5 @@
 import { pool } from '../db/pool.js';
-import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel } from './catalog.model.js';
+import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel, visaModel } from './catalog.model.js';
 import { roomsForAdults } from '../utils/occupancy.js';
 import { computeMealsCost } from '../utils/meals.js';
 
@@ -9,6 +9,8 @@ const FD_COLUMNS = [
   'images', 'hotel_id', 'rate_per_pax',
   'lunch_meal_id', 'lunch_people', 'lunch_days',
   'dinner_meal_id', 'dinner_people', 'dinner_days',
+  // Task 5 — "included or not" (0062_fd_addons_transfer_visa.sql).
+  'visa_enabled',
   // Client-facing Inclusions/Exclusions — see
   // 0050_fd_packages_inclusions_exclusions.sql.
   'inclusions', 'exclusions',
@@ -186,17 +188,21 @@ export async function replaceItinerary(fdPackageId, days) {
 // composeItinerary/computeNetRatePerPax resolve each placed item's
 // name/city/images/price against these pools. `meal` is here too, for
 // computeMealsCost to resolve the package's selected lunch/dinner entries
-// against. Shared by the admin editor and the agent-facing departures
-// endpoints so both resolve itinerary items and price the package identically.
+// against. `visa` (Task 5) is the single-row Visa catalog, read by
+// booking.service.js#createFdBooking to price a package's visa_enabled flag
+// at booking time. Shared by the admin editor and the agent-facing
+// departures endpoints so both resolve itinerary items and price the
+// package identically.
 export async function loadCatalogPools() {
-  const [hotels, tours, transfers, activities, meals] = await Promise.all([
+  const [hotels, tours, transfers, activities, meals, visa] = await Promise.all([
     hotelsModel.list(),
     toursModel.list(),
     transfersModel.list(),
     activitiesModel.list(),
     mealsModel.list(),
+    visaModel.list(),
   ]);
-  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities, meal: meals };
+  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities, meal: meals, visa };
 }
 
 // Pricing is no longer a manually-entered tiered rate (Gold/Silver/Bronze) —
@@ -330,10 +336,11 @@ export async function incrementSeatsBooked(client, departureDateId, pax) {
 
 export async function listAddons(fdPackageId) {
   const { rows } = await pool.query(
-    `SELECT fd_addons.*, activities.name AS activity_name, tours.name AS tour_name
+    `SELECT fd_addons.*, activities.name AS activity_name, tours.name AS tour_name, transfers.name AS transfer_name
      FROM fd_addons
      LEFT JOIN activities ON activities.id = fd_addons.activity_id
      LEFT JOIN tours ON tours.id = fd_addons.tour_id
+     LEFT JOIN transfers ON transfers.id = fd_addons.transfer_id
      WHERE fd_package_id = $1`,
     [fdPackageId]
   );
@@ -349,11 +356,15 @@ export async function findAddonsByIds(fdPackageId, addonIds) {
   return rows;
 }
 
-export async function addAddon(fdPackageId, { activityId, tourId, location, pricePerPax }) {
+// Task 5 — pricePerPax is derived server-side by the caller (fdPackagesAdmin
+// .controller.js#postAddon reads it straight off the selected catalog item)
+// rather than admin-typed; `location` is gone, the old manual-entry-only
+// concept it existed for.
+export async function addAddon(fdPackageId, { activityId, tourId, transferId, pricePerPax }) {
   const { rows } = await pool.query(
-    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, location, price_per_pax)
+    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, transfer_id, price_per_pax)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [fdPackageId, activityId || null, tourId || null, location || null, pricePerPax]
+    [fdPackageId, activityId || null, tourId || null, transferId || null, pricePerPax]
   );
   return rows[0];
 }

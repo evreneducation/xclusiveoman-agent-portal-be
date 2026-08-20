@@ -264,6 +264,7 @@ const CATALOG_KEY_MAP = {
   dinnerMealId: 'dinner_meal_id',
   dinnerPeople: 'dinner_people',
   dinnerDays: 'dinner_days',
+  visaEnabled: 'visa_enabled',
 };
 
 export function toSnakeCaseColumns(body) {
@@ -291,15 +292,27 @@ export const fdPackageSchema = z.object({
   // Admin override of the itinerary-computed net rate — null clears the
   // override and falls back to the itinerary total again.
   ratePerPax: z.number().nonnegative().nullable().optional(),
-  // Optional lunch/dinner add-on: a specific meals-catalog entry, a
-  // headcount, and a day count. All three null clears that meal type;
-  // computeMealsCost only counts a meal type once all three are set.
+  // Task 4/5 — lunch/dinner are now checkbox-only inclusions: lunchMealId/
+  // dinnerMealId non-null *is* "included" (the same one meals-catalog row
+  // per meal_type MealsManager already resolved automatically — nothing
+  // else to pick), no headcount/day-count collected here anymore. Their
+  // actual cost is computed later, at booking time, once a real pax is
+  // known (booking.service.js#createFdBooking, utils/meals.js#computeFdMealsPerPax)
+  // — a package's own Duration field stands in for "day count". The People/
+  // Days columns stay in the schema, still accepted but no longer sent by
+  // FdPackageEditor.jsx, purely so any already-saved package data survives
+  // being round-tripped through a PATCH untouched.
   lunchMealId: z.string().uuid().nullable().optional(),
   lunchPeople: z.number().int().nonnegative().nullable().optional(),
   lunchDays: z.number().int().nonnegative().nullable().optional(),
   dinnerMealId: z.string().uuid().nullable().optional(),
   dinnerPeople: z.number().int().nonnegative().nullable().optional(),
   dinnerDays: z.number().int().nonnegative().nullable().optional(),
+  // Task 5 — Visa is a simple "included or not" checkbox (no catalog
+  // picker, there's only ever one Visa product — see 0062_fd_addons_transfer_visa.sql).
+  // Priced at booking time from the visa catalog's price_per_person, same
+  // deferred-until-real-pax-is-known posture as meals above.
+  visaEnabled: z.boolean().optional(),
   // Client-facing Inclusions/Exclusions — same shape/behavior as Custom FIT
   // quotes (packageRequestCostingSchema above): one point per line, edited
   // in FdPackageEditor.jsx via the catalog dropdown + editable list
@@ -314,15 +327,19 @@ export const fdDepartureDateSchema = z.object({
   location: z.string().min(1, 'Location is required').max(100), // e.g. "Mumbai" — picked from GET /departure-locations
 });
 
+// Task 5 — admin picks a real catalog item (activity/tour/transfer) as a
+// paid add-on by checkbox; its price is read straight from that catalog
+// entry server-side (fdPackagesAdmin.controller.js#postAddon) rather than
+// typed in by hand, so pricePerPax/location (the old manual-entry fields)
+// are gone from this schema entirely.
 export const fdAddonSchema = z
   .object({
     activityId: z.string().uuid().optional(),
     tourId: z.string().uuid().optional(),
-    location: z.string().min(1).max(100).optional(),
-    pricePerPax: z.number().nonnegative(),
+    transferId: z.string().uuid().optional(),
   })
-  .refine((v) => Boolean(v.activityId) !== Boolean(v.tourId), {
-    message: 'Provide exactly one of activityId or tourId',
+  .refine((v) => [v.activityId, v.tourId, v.transferId].filter(Boolean).length === 1, {
+    message: 'Provide exactly one of activityId, tourId, or transferId',
   });
 
 // Reused by both the agent self-service booking schema (below) and the
