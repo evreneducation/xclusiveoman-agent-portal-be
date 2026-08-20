@@ -29,7 +29,12 @@ const SELECT_COLUMNS = `
   u.full_name AS created_by_name
 `;
 
-function buildFilters({ status, agencyId, search }) {
+// `agencyIds` (plural, array) is the Team Portal's Relationship Manager
+// scoping (bookingsAdmin.routes.js's own `scopeToOwnAgencyBooking` comment) —
+// distinct from `agencyId` (singular), the existing admin UI's own
+// single-agency filter dropdown. Both can be present; each is its own
+// independent AND'd clause.
+function buildFilters({ status, agencyId, agencyIds, search }) {
   const clauses = [];
   const values = [];
   let i = 1;
@@ -44,6 +49,11 @@ function buildFilters({ status, agencyId, search }) {
     values.push(agencyId);
     i += 1;
   }
+  if (agencyIds) {
+    clauses.push(`b.agency_id = ANY($${i}::uuid[])`);
+    values.push(agencyIds);
+    i += 1;
+  }
   if (search) {
     clauses.push(`(a.name ILIKE $${i} OR fp.title ILIKE $${i})`);
     values.push(`%${search}%`);
@@ -56,8 +66,8 @@ function buildFilters({ status, agencyId, search }) {
 
 // GET /admin/bookings — same LIMIT/OFFSET + {rows,total,page,pageSize} shape
 // as listPackageRequestsForAdmin (packageRequestsAdmin.model.js).
-export async function listBookingsForAdmin({ status, agencyId, search, page, pageSize } = {}) {
-  const { where, values, next } = buildFilters({ status, agencyId, search });
+export async function listBookingsForAdmin({ status, agencyId, agencyIds, search, page, pageSize } = {}) {
+  const { where, values, next } = buildFilters({ status, agencyId, agencyIds, search });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) ${JOINS} ${where}`, values);
   const total = Number(countRows[0].count);

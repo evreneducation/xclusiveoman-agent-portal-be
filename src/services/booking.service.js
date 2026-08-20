@@ -6,6 +6,8 @@ import {
   findAddonsByIds,
   incrementSeatsBooked,
 } from '../models/fdPackages.model.js';
+import { listTravelersForRequest } from '../models/packageRequests.model.js';
+import { findBookingBySource } from '../models/bookings.model.js';
 
 // FD booking creation — the one real "create a bookings row" transaction in
 // this codebase (Task 13). Extracted out of departures.controller.js#createBooking
@@ -137,6 +139,75 @@ export async function createFdBooking({
     await client.query('COMMIT');
 
     return { booking, waitlisted };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// FIT quote -> booking conversion (FIT-13: "an accepted+paid quote converts
+// to a booking" — package_requests.status already has a 'converted' value,
+// and booking_source_type already includes 'package_request', but nothing
+// ever actually inserted one; agent's respond() previously just flipped the
+// quote to 'accepted' and stopped there). Called from
+// packageRequests.controller.js#respond right after that status transition
+// commits.
+//
+// FIT quotes have no per-package deposit/balance-due policy defined either
+// (same gap FD packages had before DEFAULT_BALANCE_DUE_DAYS_BEFORE above) —
+// reuses that same 30-day-before-trip default off the quote's own
+// date_from, rather than inventing a second, undocumented policy.
+export async function createBookingFromPackageRequest(packageRequest) {
+  // Idempotent by construction, not just by the caller's own guard: a
+  // package_request can only ever transition published -> accepted once
+  // (respondToPackageRequest's own WHERE status='published' clause makes a
+  // second respond() call fail with 'not_published' before this is ever
+  // reached again), but this checks for real regardless — "already created?
+  // don't create it again" — rather than trusting that invariant alone.
+  const existing = await findBookingBySource('package_request', packageRequest.id);
+  if (existing) {
+    return { booking: existing, created: false };
+  }
+
+  const client = await pool.connect();
+  try {
+    const travelers = await listTravelersForRequest(packageRequest.id);
+    const pax = Math.max(1, (packageRequest.pax_adults || 0) + (packageRequest.pax_children || 0));
+    const totalPrice = Number(packageRequest.sell_price) || 0;
+    const depositPaid = 0; // no deposit captured at accept time — same as FD self-service's own default
+    const balanceDue = Math.max(0, totalPrice - depositPaid);
+    const balanceDueDate = new Date(
+      new Date(packageRequest.date_from).getTime() - DEFAULT_BALANCE_DUE_DAYS_BEFORE * 24 * 60 * 60 * 1000
+    );
+    const status = deriveStatusFromDeposit(depositPaid, totalPrice);
+
+    await client.query('BEGIN');
+
+    const { rows: bookingRows } = await client.query(
+      `INSERT INTO bookings
+        (source_type, source_id, agency_id, created_by_user_id,
+         pax, total_price, deposit_paid, balance_due, balance_due_date, status, created_via)
+       VALUES ('package_request', $1, $2, $3, $4, $5, $6, $7, $8, $9, 'self_service')
+       RETURNING *`,
+      [
+        packageRequest.id, packageRequest.agency_id, packageRequest.created_by_user_id,
+        pax, totalPrice, depositPaid, balanceDue, balanceDueDate, status,
+      ]
+    );
+    const booking = bookingRows[0];
+
+    for (const traveler of travelers) {
+      await client.query(
+        `INSERT INTO booking_travelers (booking_id, name, passport_no, dob, room_share_group)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [booking.id, traveler.name, traveler.passport_no || null, traveler.dob || null, traveler.room_share_group || null]
+      );
+    }
+
+    await client.query('COMMIT');
+    return { booking, created: true };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

@@ -1,6 +1,6 @@
 import { listBookingsForAdmin } from '../models/bookingsAdmin.model.js';
 import { findFdPackageById, findDepartureDateById } from '../models/fdPackages.model.js';
-import { findAgencyById } from '../models/agencies.model.js';
+import { findAgencyById, listAgenciesByRmIds } from '../models/agencies.model.js';
 import { listAgencyOwnerEmails } from '../models/users.model.js';
 import { createFdBooking } from '../services/booking.service.js';
 import { insertAuditLog } from '../models/auditLogs.model.js';
@@ -41,10 +41,24 @@ function toPublicBooking(b) {
 export async function listBookings(req, res, next) {
   try {
     const { search, status, agencyId, page, pageSize } = req.query;
+
+    // Team Portal Bookings & Docs — a Relationship Manager only ever lists
+    // bookings for their own assigned agencies (bookingsAdmin.routes.js's
+    // scopeToOwnAgencyBooking does the same for the :id detail routes).
+    let agencyIds;
+    if (req.user.role === 'relationship_manager') {
+      const own = await listAgenciesByRmIds([req.user.id]);
+      agencyIds = own.map((a) => a.id);
+      if (agencyIds.length === 0) {
+        return res.json({ bookings: [], pagination: { total: 0, page: 1, pageSize: Number(pageSize) || 20, totalPages: 1 } });
+      }
+    }
+
     const { rows, total, page: currentPage, pageSize: limit } = await listBookingsForAdmin({
       search,
       status,
       agencyId,
+      agencyIds,
       page,
       pageSize,
     });
@@ -73,6 +87,13 @@ export async function createManualBooking(req, res, next) {
     if (!agency) return res.status(404).json({ error: 'agency_not_found' });
     if (agency.status !== 'approved') {
       return res.status(400).json({ error: 'agency_not_approved', message: 'Only approved agencies can be booked for.' });
+    }
+
+    // Team Portal Bookings & Docs — a Relationship Manager may only book on
+    // behalf of their own assigned agencies, same scoping as listBookings/
+    // scopeToOwnAgencyBooking above.
+    if (req.user.role === 'relationship_manager' && agency.rm_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'forbidden', message: 'This agency is not assigned to you.' });
     }
 
     const fdPackage = await findFdPackageById(fdPackageId);

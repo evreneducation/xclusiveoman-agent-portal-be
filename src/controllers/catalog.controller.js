@@ -21,11 +21,24 @@ const MODELS = {
   inclusions: inclusionsModel,
   exclusions: exclusionsModel,
   // Plural key ('visas', not 'visa') purely so catalogHandlersFor's
-  // `entity.slice(0, -1)` singular response key still comes out right
-  // ("visa") — Visa itself is a singleton row, the route/response shape
-  // otherwise matches every other list-style catalog entity.
+  // singular response key still comes out right ("visa") — Visa itself is a
+  // singleton row, the route/response shape otherwise matches every other
+  // list-style catalog entity.
   visas: visaModel,
 };
+
+// Naive `entity.slice(0, -1)` mis-singularizes "activities" -> "activitie"
+// (dropping a trailing 's' doesn't undo an "-ies" plural). Every other
+// entity name here happens to be a plain "-s" plural, so this is the one
+// case that needs a real exception rather than the generic rule — found via
+// Task 21 regression testing: ActivityEditor.jsx's `{ activity }` and
+// MiceCatalog.jsx's MiceActivityForm `{ activity }` destructure both
+// silently got `undefined` because the response key was actually
+// "activitie", breaking load-for-edit and post-create list updates.
+function singularize(entity) {
+  if (entity === 'activities') return 'activity';
+  return entity.slice(0, -1);
+}
 
 // Builds one set of {list, get, create, update, remove} handlers for a given
 // catalog entity name (doc §12.3) rather than repeating the pattern per type.
@@ -48,7 +61,7 @@ export function catalogHandlersFor(entity) {
       try {
         const row = await model.findById(req.params.id);
         if (!row) return res.status(404).json({ error: 'not_found' });
-        res.json({ [entity.slice(0, -1)]: row });
+        res.json({ [singularize(entity)]: row });
       } catch (err) {
         next(err);
       }
@@ -57,7 +70,7 @@ export function catalogHandlersFor(entity) {
     async create(req, res, next) {
       try {
         const row = await model.create(req.body);
-        res.status(201).json({ [entity.slice(0, -1)]: row });
+        res.status(201).json({ [singularize(entity)]: row });
       } catch (err) {
         next(err);
       }
@@ -67,7 +80,7 @@ export function catalogHandlersFor(entity) {
       try {
         const row = await model.update(req.params.id, req.body);
         if (!row) return res.status(404).json({ error: 'not_found' });
-        res.json({ [entity.slice(0, -1)]: row });
+        res.json({ [singularize(entity)]: row });
       } catch (err) {
         next(err);
       }
@@ -92,7 +105,7 @@ export function catalogHandlersFor(entity) {
 // `<singular>Id` body field (e.g. hotelId, tourId) only organizes the
 // Cloudinary folder for an in-progress edit; it has no effect on validation.
 export function uploadImagesHandlerFor(entity) {
-  const idField = `${entity.slice(0, -1)}Id`;
+  const idField = `${singularize(entity)}Id`;
 
   return async function uploadImages(req, res, next) {
     try {

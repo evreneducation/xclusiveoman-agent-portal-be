@@ -11,6 +11,13 @@ import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 export function createApp() {
   const app = express();
 
+  // Needed for express-rate-limit (middleware/rateLimiter.js) to key off the
+  // real client IP rather than the reverse proxy's — the deployed backend
+  // sits behind one (see refreshCookieOptions' own sameSite/secure split in
+  // auth.controller.js for another spot that already assumes a prod proxy).
+  // '1' trusts exactly one hop, matching a single load balancer/PaaS proxy.
+  app.set('trust proxy', 1);
+
   app.use(helmet());
   app.use(
     cors({

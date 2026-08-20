@@ -3,21 +3,20 @@
  * the API (which requires an existing super_admin to create staff). This is
  * an operational necessity, not demo/seed data.
  *
- * Usage: node scripts/create-super-admin.js <email> <password> "<full name>"
+ * No password — email OTP is the sole sign-in mechanism (users.password_hash
+ * was dropped, 0060_drop_password.sql); the account can sign in immediately
+ * via /admin/login using this email.
+ *
+ * Usage: node scripts/create-super-admin.js <email> "<full name>"
  */
 import 'dotenv/config';
 import { pool } from '../src/db/pool.js';
-import { hashPassword } from '../src/services/auth.service.js';
 
 async function main() {
-  const [, , email, password, fullName] = process.argv;
+  const [, , email, fullName] = process.argv;
 
-  if (!email || !password || !fullName) {
-    console.error('Usage: node scripts/create-super-admin.js <email> <password> "<full name>"');
-    process.exit(1);
-  }
-  if (password.length < 8) {
-    console.error('Password must be at least 8 characters.');
+  if (!email || !fullName) {
+    console.error('Usage: node scripts/create-super-admin.js <email> "<full name>"');
     process.exit(1);
   }
 
@@ -29,12 +28,11 @@ async function main() {
     process.exit(1);
   }
 
-  const passwordHash = await hashPassword(password);
   const { rows } = await pool.query(
-    `INSERT INTO users (agency_id, role, full_name, email, password_hash, status)
-     VALUES (NULL, 'super_admin', $1, $2, $3, 'active')
+    `INSERT INTO users (agency_id, role, full_name, email, status)
+     VALUES (NULL, 'super_admin', $1, $2, 'active')
      RETURNING id, email, role`,
-    [fullName, email.toLowerCase(), passwordHash]
+    [fullName, email.toLowerCase()]
   );
 
   console.log('Super admin created:', rows[0]);

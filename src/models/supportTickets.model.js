@@ -56,7 +56,11 @@ export async function findTicketForAgency(ticketId, agencyId) {
 
 // --- Admin-side (all agencies) ---
 
-function buildAdminFilters({ status, priority, assignedToUserId, search }) {
+// `agencyIds` — Team Portal Support Tickets scoping (a Relationship
+// Manager only ever sees tickets raised by their own assigned agencies),
+// mirrors every other admin list's identical param (bookingsAdmin.model.js,
+// packageRequestsAdmin.model.js, …) — server-set, never client-suppliable.
+function buildAdminFilters({ status, priority, assignedToUserId, agencyIds, search }) {
   const clauses = [];
   const values = [];
   let i = 1;
@@ -76,6 +80,11 @@ function buildAdminFilters({ status, priority, assignedToUserId, search }) {
     values.push(assignedToUserId);
     i += 1;
   }
+  if (agencyIds) {
+    clauses.push(`t.agency_id = ANY($${i}::uuid[])`);
+    values.push(agencyIds);
+    i += 1;
+  }
   if (search) {
     clauses.push(`(t.subject ILIKE $${i} OR a.name ILIKE $${i} OR creator.full_name ILIKE $${i})`);
     values.push(`%${search}%`);
@@ -89,8 +98,8 @@ function buildAdminFilters({ status, priority, assignedToUserId, search }) {
 // GET /admin/support/tickets — same LIMIT/OFFSET + {rows,total,page,pageSize}
 // shape as every other admin list in this codebase (packageRequestsAdmin,
 // bookingsAdmin, …).
-export async function listTicketsForAdmin({ status, priority, assignedToUserId, search, page, pageSize } = {}) {
-  const { where, values, next } = buildAdminFilters({ status, priority, assignedToUserId, search });
+export async function listTicketsForAdmin({ status, priority, assignedToUserId, agencyIds, search, page, pageSize } = {}) {
+  const { where, values, next } = buildAdminFilters({ status, priority, assignedToUserId, agencyIds, search });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) ${ADMIN_JOINS} ${where}`, values);
   const total = Number(countRows[0].count);

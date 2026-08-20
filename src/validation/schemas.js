@@ -12,21 +12,20 @@ export const registerSchema = z.object({
   ownerFullName: z.string().min(2).max(200),
   email: z.string().email(),
   phone: z.string().min(1, 'Phone is required').max(30),
-  password: z.string().min(8).max(128),
 });
 
-export const loginSchema = z.object({
+// Email OTP login is the sole sign-in mechanism now — no password anywhere
+// (users.password_hash was dropped, 0060_drop_password.sql). loginSchema/
+// forgotPasswordSchema/resetPasswordSchema and their controller functions/
+// routes were removed in the same change, not just left dormant, since the
+// column their logic depended on no longer exists.
+export const requestOtpSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1),
 });
 
-export const forgotPasswordSchema = z.object({
+export const verifyOtpSchema = z.object({
   email: z.string().email(),
-});
-
-export const resetPasswordSchema = z.object({
-  token: z.string().min(10),
-  password: z.string().min(8).max(128),
+  otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
 });
 
 export const patchAgencyMeSchema = z.object({
@@ -39,7 +38,6 @@ export const patchAgencyMeSchema = z.object({
 export const createSubUserSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
-  password: z.string().min(8).max(128),
   phone: z.string().max(30).optional(),
   permissions: z.record(z.boolean()).optional(),
 });
@@ -53,12 +51,28 @@ export const patchAdminAgencySchema = z.object({
 
 // --- Relationship Managers (doc §4 role table, REL-1/REL-2) ---
 
+// Access Features — the checkbox set an admin picks for this RM (config/
+// accessFeatures.js#RM_FEATURE_KEYS is the single source of truth for which
+// keys exist; kept in sync here by hand since zod has no way to import that
+// array into a static object shape). Every key is optional on its own —
+// relationshipManagers.controller.js#normalizeRmPermissions fills in
+// whichever keys are omitted from RM_DEFAULT_PERMISSIONS, so a caller only
+// has to send the ones it's actually changing.
+export const rmPermissionsSchema = z
+  .object({
+    approvedAgents: z.boolean().optional(),
+    quotesPricing: z.boolean().optional(),
+    supportTickets: z.boolean().optional(),
+    bookingsDocs: z.boolean().optional(),
+  })
+  .partial();
+
 export const createRelationshipManagerSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
-  password: z.string().min(8).max(128),
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
+  permissions: rmPermissionsSchema.optional(),
 });
 
 export const patchRelationshipManagerSchema = z.object({
@@ -66,6 +80,7 @@ export const patchRelationshipManagerSchema = z.object({
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
   status: z.enum(['active', 'disabled']).optional(),
+  permissions: rmPermissionsSchema.optional(),
 });
 
 // --- Sales Managers ---
@@ -74,12 +89,23 @@ export const patchRelationshipManagerSchema = z.object({
 // generic /admin/team CRUD (any staff role, including super_admin) was
 // removed in favor of these two dedicated, narrowly-scoped flows.
 
+// Access Features — mirrors rmPermissionsSchema above, keyed off config/
+// accessFeatures.js#LM_FEATURE_KEYS instead.
+export const lmPermissionsSchema = z
+  .object({
+    catalog: z.boolean().optional(),
+    quotesPricing: z.boolean().optional(),
+    bookingsDocs: z.boolean().optional(),
+    fdOperations: z.boolean().optional(),
+  })
+  .partial();
+
 export const createSalesManagerSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
-  password: z.string().min(8).max(128),
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
+  permissions: lmPermissionsSchema.optional(),
 });
 
 export const patchSalesManagerSchema = z.object({
@@ -87,6 +113,7 @@ export const patchSalesManagerSchema = z.object({
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
   status: z.enum(['active', 'disabled']).optional(),
+  permissions: lmPermissionsSchema.optional(),
 });
 
 // --- Catalog (doc §11.2 / §12.3) ---
@@ -104,7 +131,21 @@ export const hotelSchema = z.object({
   }),
   images: z.array(z.string()).min(1, 'Upload at least one image'),
   description: z.string().min(1, 'Description is required'),
-  pricePerNight: z.number().positive('Price must be a positive number'),
+  // Occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql) — admin
+  // checks which of single/double/triple this hotel offers and prices each
+  // one independently, replacing the old single flat pricePerNight field in
+  // this form. All three optional at the zod level (not a `.refine()`
+  // "at least one required" — that would return a ZodEffects, and
+  // catalog.routes.js calls `schema.partial()` on this exact schema object
+  // for PATCH, which only exists on a plain ZodObject); "at least one
+  // occupancy price set" is instead enforced in the Hotel Editor UI itself
+  // (HotelEditor.jsx) before it ever submits. pricePerNight itself is no
+  // longer collected here — it's derived server-side (toColumns pipeline,
+  // catalog.routes.js) so MICE costing, which still reads it, keeps working
+  // unchanged.
+  singlePrice: z.number().positive('Price must be a positive number').optional(),
+  doublePrice: z.number().positive('Price must be a positive number').optional(),
+  triplePrice: z.number().positive('Price must be a positive number').optional(),
   boardBasisOptions: z.array(z.string()).optional(),
   miceBallroomCapacity: z.number().int().nonnegative().optional(),
   miceBreakoutRooms: z.number().int().nonnegative().optional(),
@@ -201,6 +242,9 @@ const CATALOG_KEY_MAP = {
   isBestseller: 'is_bestseller',
   pricePerPax: 'price_per_pax',
   pricePerNight: 'price_per_night',
+  singlePrice: 'single_price',
+  doublePrice: 'double_price',
+  triplePrice: 'triple_price',
   vehicleClass: 'vehicle_class',
   suitableGroupSizeMin: 'suitable_group_size_min',
   suitableGroupSizeMax: 'suitable_group_size_max',
@@ -220,6 +264,7 @@ const CATALOG_KEY_MAP = {
   dinnerMealId: 'dinner_meal_id',
   dinnerPeople: 'dinner_people',
   dinnerDays: 'dinner_days',
+  visaEnabled: 'visa_enabled',
 };
 
 export function toSnakeCaseColumns(body) {
@@ -247,15 +292,27 @@ export const fdPackageSchema = z.object({
   // Admin override of the itinerary-computed net rate — null clears the
   // override and falls back to the itinerary total again.
   ratePerPax: z.number().nonnegative().nullable().optional(),
-  // Optional lunch/dinner add-on: a specific meals-catalog entry, a
-  // headcount, and a day count. All three null clears that meal type;
-  // computeMealsCost only counts a meal type once all three are set.
+  // Task 4/5 — lunch/dinner are now checkbox-only inclusions: lunchMealId/
+  // dinnerMealId non-null *is* "included" (the same one meals-catalog row
+  // per meal_type MealsManager already resolved automatically — nothing
+  // else to pick), no headcount/day-count collected here anymore. Their
+  // actual cost is computed later, at booking time, once a real pax is
+  // known (booking.service.js#createFdBooking, utils/meals.js#computeFdMealsPerPax)
+  // — a package's own Duration field stands in for "day count". The People/
+  // Days columns stay in the schema, still accepted but no longer sent by
+  // FdPackageEditor.jsx, purely so any already-saved package data survives
+  // being round-tripped through a PATCH untouched.
   lunchMealId: z.string().uuid().nullable().optional(),
   lunchPeople: z.number().int().nonnegative().nullable().optional(),
   lunchDays: z.number().int().nonnegative().nullable().optional(),
   dinnerMealId: z.string().uuid().nullable().optional(),
   dinnerPeople: z.number().int().nonnegative().nullable().optional(),
   dinnerDays: z.number().int().nonnegative().nullable().optional(),
+  // Task 5 — Visa is a simple "included or not" checkbox (no catalog
+  // picker, there's only ever one Visa product — see 0062_fd_addons_transfer_visa.sql).
+  // Priced at booking time from the visa catalog's price_per_person, same
+  // deferred-until-real-pax-is-known posture as meals above.
+  visaEnabled: z.boolean().optional(),
   // Client-facing Inclusions/Exclusions — same shape/behavior as Custom FIT
   // quotes (packageRequestCostingSchema above): one point per line, edited
   // in FdPackageEditor.jsx via the catalog dropdown + editable list
@@ -270,15 +327,19 @@ export const fdDepartureDateSchema = z.object({
   location: z.string().min(1, 'Location is required').max(100), // e.g. "Mumbai" — picked from GET /departure-locations
 });
 
+// Task 5 — admin picks a real catalog item (activity/tour/transfer) as a
+// paid add-on by checkbox; its price is read straight from that catalog
+// entry server-side (fdPackagesAdmin.controller.js#postAddon) rather than
+// typed in by hand, so pricePerPax/location (the old manual-entry fields)
+// are gone from this schema entirely.
 export const fdAddonSchema = z
   .object({
     activityId: z.string().uuid().optional(),
     tourId: z.string().uuid().optional(),
-    location: z.string().min(1).max(100).optional(),
-    pricePerPax: z.number().nonnegative(),
+    transferId: z.string().uuid().optional(),
   })
-  .refine((v) => Boolean(v.activityId) !== Boolean(v.tourId), {
-    message: 'Provide exactly one of activityId or tourId',
+  .refine((v) => [v.activityId, v.tourId, v.transferId].filter(Boolean).length === 1, {
+    message: 'Provide exactly one of activityId, tourId, or transferId',
   });
 
 // Reused by both the agent self-service booking schema (below) and the
@@ -390,6 +451,14 @@ export const updateTicketSchema = z
 export const submitReviewSchema = z.object({
   rating: z.number().int().min(1, 'Rating must be between 1 and 5').max(5, 'Rating must be between 1 and 5'),
   reviewText: z.string().max(2000).optional(),
+});
+
+// --- Admin Reviews Management (Task 21 — Item 33, REV-3) ---
+// 'needs_review' is deliberately excluded — it's only ever the submission
+// default (reviews.model.js#createReview), never an admin-settable target;
+// REV-3 is "publish/hide" only.
+export const updateReviewStatusSchema = z.object({
+  status: z.enum(['published', 'hidden']),
 });
 
 // --- Custom FIT Package Builder (doc §6.2 / §9.3 / FIT-1..FIT-7) ---
@@ -792,6 +861,26 @@ export const fdOperationsDriverDetailsSchema = z.object({
 export const fdOperationsTourUpdateSchema = z.object({
   updateType: z.enum(['itinerary_change', 'delay', 'general_notice']),
   message: z.string().min(1, 'Message is required').max(2000),
+});
+
+// Admin Content & CMS Management (Task 21 — Item 34, CMS-1/CMS-2). Matches
+// cms_pages (0058_cms.sql) exactly — no SEO/author/tag/ordering/scheduling
+// fields, per the doc's own ERD not defining any. `slug` gets a light
+// URL-safe format check (lowercase/digits/hyphens) — not itself documented,
+// but "slug" has an established, unambiguous technical meaning and this
+// merely enforces that shape rather than inventing a new field.
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export const cmsPageSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(300),
+  section: z.string().min(1, 'Section is required').max(150),
+  slug: z
+    .string()
+    .min(1, 'Slug is required')
+    .max(200)
+    .regex(SLUG_PATTERN, 'Use lowercase letters, numbers, and hyphens only'),
+  bodyHtml: z.string().max(200000).optional(),
+  status: z.enum(['draft', 'published']).optional().default('draft'),
 });
 
 // "depositAmount" -> "Deposit amount"

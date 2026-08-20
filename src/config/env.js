@@ -27,6 +27,26 @@ export const env = {
     .map((s) => s.trim())
     .filter(Boolean),
   agentPortalUrl: process.env.AGENT_PORTAL_URL || "http://localhost:5173/agent",
+  // Transactional emails (staff welcome, agent registration/approval —
+  // services/emailTemplate.service.js) link straight to each portal's own
+  // login page. Both portals are one frontend deployment (AGENT_PORTAL_URL
+  // above already documents this), so these are derived from it — stripping
+  // its trailing "/agent" gets back to that shared origin — rather than
+  // needing a second required env var just for the /admin half.
+  get adminLoginUrl() {
+    return `${this.agentPortalUrl.replace(/\/agent\/?$/, "")}/admin/login`;
+  },
+  get agentLoginUrl() {
+    return `${this.agentPortalUrl.replace(/\/agent\/?$/, "")}/agent/login`;
+  },
+  // Lead Managers (sales_manager) and Relationship Managers
+  // (relationship_manager) sign in at their own /team route, not
+  // /admin/login — a distinctly-themed portal (frontend) scoped to just the
+  // Access Features an admin checked for them, rather than the full Admin
+  // Console. Same derivation as adminLoginUrl/agentLoginUrl above.
+  get teamLoginUrl() {
+    return `${this.agentPortalUrl.replace(/\/agent\/?$/, "")}/team/login`;
+  },
   // Task 11 (Marketing Center — Open & Click Tracking) — the backend's own
   // publicly-reachable base URL, needed to build absolute tracking-pixel/
   // click-redirect URLs embedded in an outbound email (unlike agentPortalUrl
@@ -49,6 +69,12 @@ export const env = {
     from: process.env.SMTP_FROM || "Xclusive Oman <no-reply@xclusiveoman.com>",
   },
   whatsappSalesNumber: process.env.WHATSAPP_SALES_NUMBER || "",
+  // scripts/seed.js's default super_admin account — set per-environment in
+  // .env (see .env.example), no built-in fallback: an unset SEED_ADMIN_EMAIL
+  // just means seed.js logs that nothing is configured and skips (see its
+  // own DEFAULT_EMAIL check), rather than silently seeding someone's actual
+  // inbox as super_admin.
+  seedAdminEmail: process.env.SEED_ADMIN_EMAIL || "",
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
     apiKey: process.env.CLOUDINARY_API_KEY,

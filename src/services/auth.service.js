@@ -1,17 +1,13 @@
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 
-const SALT_ROUNDS = 10;
-
-export async function hashPassword(plain) {
-  return bcrypt.hash(plain, SALT_ROUNDS);
-}
-
-export async function verifyPassword(plain, hash) {
-  return bcrypt.compare(plain, hash);
-}
+// No password hashing/verification anywhere anymore — email OTP
+// (generateNumericOtp below) is the sole authentication mechanism,
+// users.password_hash was dropped (0060_drop_password.sql). bcryptjs is
+// still a listed dependency (package.json) but nothing in this backend
+// calls it now; left installed rather than uninstalled since removing a
+// dependency wasn't asked for.
 
 function baseClaims(user) {
   return {
@@ -70,10 +66,19 @@ export function verifyItineraryPdfToken(token) {
   return claims;
 }
 
-export function generateRawToken() {
-  return crypto.randomBytes(32).toString('hex');
-}
-
+// Still used by the OTP flow below (hashes the 6-digit code before storing
+// it) — generateRawToken (the old forgot-password reset-token generator)
+// was removed since nothing calls it anymore.
 export function hashRawToken(raw) {
   return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+// Email OTP login — a 6-digit numeric code, the standard/expected format
+// for an emailed sign-in code. crypto.randomInt (not Math.random) for the
+// same reason every other token in this file uses the `crypto` module —
+// this gates real authentication, not a cosmetic feature. Zero-padded so
+// e.g. 42 always reads as "000042", never a variable-length "42" that looks
+// broken in the email/UI.
+export function generateNumericOtp() {
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
 }

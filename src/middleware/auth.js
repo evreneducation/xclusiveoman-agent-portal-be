@@ -83,3 +83,30 @@ export const STAFF_ROLES = [
   'relationship_manager',
   'sales_manager',
 ];
+
+// Access Features (config/accessFeatures.js) — the real, server-side half of
+// the /team Access Feature checkboxes an admin sets on an LM/RM when
+// creating or editing one (Employees.jsx). requireRole(...STAFF_ROLES)
+// alone would let *every* LM/RM through every admin.* route; this narrows
+// that further, per-route, to only the feature that route belongs to.
+//
+// Only ever narrows sales_manager/relationship_manager — every other STAFF_
+// ROLE (ops_admin, super_admin, sales_marketing, support, finance) has no
+// Access Features concept at all and passes straight through, same
+// unrestricted access requireRole(...STAFF_ROLES) already gave them. Must
+// run after requireAuth (needs req.user) — same convention as requireRole.
+export function requireFeature(featureKey) {
+  return (req, res, next) => {
+    const role = req.user?.role;
+    if (role !== 'sales_manager' && role !== 'relationship_manager') {
+      return next();
+    }
+    if (req.user.permissions?.[featureKey] === true) {
+      return next();
+    }
+    return res.status(403).json({
+      error: 'forbidden',
+      message: 'This feature is not enabled on your account. Contact an admin to request access.',
+    });
+  };
+}

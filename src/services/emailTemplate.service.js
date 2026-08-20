@@ -194,6 +194,197 @@ export function resolveTrackedLinks(html, links, resolveUrl) {
   return out;
 }
 
+// Email OTP login (auth.controller.js#requestLoginOtp) — same branded
+// table-based/inline-styles shell buildMarketingEmailHtml uses above (logo
+// header, accent divider, ACCENT_SOFT footer), but its own small template
+// rather than routing a 6-digit code through the marketing template's
+// paragraph/link-tokenizing machinery, which is built for arbitrary
+// admin-authored body text, not a single numeric code.
+export function buildOtpEmailHtml({ otp, expiresInMinutes }) {
+  const digits = escapeHtml(otp);
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0; padding:0; background:#f4f4f2;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f2; padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid ${BORDER};">
+            <tr>
+              <td style="background:${INK}; padding:24px 32px;">
+                <img src="cid:${LOGO_CID}" alt="Xclusive Oman" width="150" style="display:block; height:auto; border:0; max-width:150px;" />
+              </td>
+            </tr>
+            <tr>
+              <td style="height:4px; background:${ACCENT}; line-height:4px; font-size:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding:32px; font-family:Arial, Helvetica, sans-serif; text-align:center;">
+                <h1 style="margin:0 0 8px; font-size:19px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Your sign-in code</h1>
+                <p style="margin:0 0 24px; font-size:13px; line-height:1.6; color:${MUTED};">Enter this code to finish signing in to Xclusive Oman.</p>
+                <div style="margin:0 auto 24px; display:inline-block; padding:16px 28px; background:${ACCENT_SOFT}; border:1px solid ${ACCENT}; border-radius:8px;">
+                  <span style="font-family:'SFMono-Regular', Consolas, monospace; font-size:34px; font-weight:700; letter-spacing:10px; color:${INK};">${digits}</span>
+                </div>
+                <p style="margin:0; font-size:12px; line-height:1.6; color:${MUTED};">This code expires in ${expiresInMinutes} minutes.<br>If you didn't request this, you can safely ignore this email.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 32px; background:${ACCENT_SOFT};">
+                <p style="margin:0; font-size:11px; line-height:1.6; color:${MUTED}; font-family:Arial, Helvetica, sans-serif;">
+                  Xclusive Oman — B2B &amp; MICE Trade Portal. This message was sent to you as a registered Xclusive Oman trade partner.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  const attachments = [
+    {
+      filename: 'xclusive-oman-logo.png',
+      path: LOGO_ATTACHMENT_PATH,
+      cid: LOGO_CID,
+      contentDisposition: 'inline',
+    },
+  ];
+
+  return { html, attachments };
+}
+
+// Shared table-based/inline-styles shell (logo header, accent divider,
+// ACCENT_SOFT footer) for the account-lifecycle emails below (staff
+// welcome, agent registration-received/approved) — the same visual
+// language buildOtpEmailHtml already established, factored out here rather
+// than duplicated three more times. buildOtpEmailHtml/buildMarketingEmailHtml
+// above predate this and are left as their own inline copies rather than
+// migrated onto it, to avoid touching already-shipped, working templates.
+function renderBrandedEmailShell({ bodyHtml, width = 480 }) {
+  return `<!doctype html>
+<html>
+  <body style="margin:0; padding:0; background:#f4f4f2;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f2; padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="${width}" cellpadding="0" cellspacing="0" style="max-width:${width}px; width:100%; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid ${BORDER};">
+            <tr>
+              <td style="background:${INK}; padding:24px 32px;">
+                <img src="cid:${LOGO_CID}" alt="Xclusive Oman" width="150" style="display:block; height:auto; border:0; max-width:150px;" />
+              </td>
+            </tr>
+            <tr>
+              <td style="height:4px; background:${ACCENT}; line-height:4px; font-size:0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding:32px; font-family:Arial, Helvetica, sans-serif;">
+                ${bodyHtml}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 32px; background:${ACCENT_SOFT};">
+                <p style="margin:0; font-size:11px; line-height:1.6; color:${MUTED}; font-family:Arial, Helvetica, sans-serif;">
+                  Xclusive Oman — B2B &amp; MICE Trade Portal. This message was sent to you as a registered Xclusive Oman trade partner.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+function brandedEmailAttachments() {
+  return [
+    {
+      filename: 'xclusive-oman-logo.png',
+      path: LOGO_ATTACHMENT_PATH,
+      cid: LOGO_CID,
+      contentDisposition: 'inline',
+    },
+  ];
+}
+
+// A single, brand-accent CTA button — same ACCENT used for the divider
+// stripe/links throughout these templates, white label text for contrast.
+function renderEmailButton(label, href) {
+  return `<a href="${escapeHtml(href)}" style="display:inline-block; margin-top:4px; padding:12px 28px; background:${ACCENT}; color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:14px; font-weight:700; text-decoration:none; border-radius:6px;">${escapeHtml(label)}</a>`;
+}
+
+// Sent when an admin adds a Relationship Manager or Lead Manager
+// (relationshipManagers.controller.js#create / salesManagers.controller.js
+// #create — the latter role is still `sales_manager` in the DB/API, "Lead
+// Manager" is only the admin UI's display label, Employees.jsx). `roleLabel`
+// is passed in by the caller rather than derived from a role slug here, so
+// this template stays agnostic of any specific role.
+export function buildStaffWelcomeEmailHtml({ fullName, roleLabel, email, loginUrl, ctaLabel = 'Sign in to the Admin Console' }) {
+  const bodyHtml = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Welcome to Xclusive Oman, ${escapeHtml(fullName)}</h1>
+    <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:${INK};">
+      You've been added to the Xclusive Oman B2B &amp; MICE Trade Portal as a <strong>${escapeHtml(roleLabel)}</strong>.
+    </p>
+    <p style="margin:0 0 24px; font-size:14px; line-height:1.6; color:${INK};">
+      Sign in anytime with your work email — <strong>${escapeHtml(email)}</strong> — there's no password to set: we'll email you a fresh one-time code each time you sign in.
+    </p>
+    <p style="margin:0;">${renderEmailButton(ctaLabel, loginUrl)}</p>
+  `;
+  return { html: renderBrandedEmailShell({ bodyHtml }), attachments: brandedEmailAttachments() };
+}
+
+// Sent right after a new agency + owner registers (auth.controller.js
+// #register) — acknowledges the submission landed and sets expectations
+// (pending admin review), distinct from buildAgentApprovedEmailHtml below,
+// which fires later, only once that review actually approves the agency.
+export function buildAgentRegistrationReceivedEmailHtml({ fullName, agencyName }) {
+  const bodyHtml = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Thanks for registering, ${escapeHtml(fullName)}</h1>
+    <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:${INK};">
+      We've received your registration for <strong>${escapeHtml(agencyName)}</strong> on the Xclusive Oman B2B &amp; MICE Trade Portal.
+    </p>
+    <p style="margin:0; font-size:14px; line-height:1.6; color:${INK};">
+      Our team is reviewing your details now. You'll get another email the moment your agency is approved — no action is needed from you in the meantime.
+    </p>
+  `;
+  return { html: renderBrandedEmailShell({ bodyHtml }), attachments: brandedEmailAttachments() };
+}
+
+// Sent once an agency's status flips to 'approved' (admin.controller.js
+// #patchAgency) — replaces that handler's previous plain-text sendEmail
+// call with this same branded shell every other account-lifecycle email
+// here uses. `tier` is optional (an approval doesn't have to set one in the
+// same request) and simply omitted from the sentence when absent, same as
+// the plain-text version it replaces. `rm` (the RM round-robin-assigned in
+// that same approval — REL-1, pickNextRoundRobinRm) is optional too: an
+// approval can go through with no RM pool configured yet
+// (patchAgency's own `if (rmUserId)` guard), in which case this simply
+// omits the card below rather than showing a broken "assigned to nobody".
+export function buildAgentApprovedEmailHtml({ fullName, agencyName, tier, loginUrl, rm }) {
+  const rmCardHtml = rm
+    ? `
+    <div style="margin:0 0 24px; padding:16px 20px; background:${ACCENT_SOFT}; border:1px solid ${ACCENT}; border-radius:8px;">
+      <p style="margin:0 0 6px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Your Relationship Manager</p>
+      <p style="margin:0 0 2px; font-size:14px; line-height:1.5; color:${INK}; font-family:Arial, Helvetica, sans-serif;">${escapeHtml(rm.fullName)}</p>
+      <p style="margin:0; font-size:13px; line-height:1.5; color:${MUTED}; font-family:Arial, Helvetica, sans-serif;">${escapeHtml(rm.email)}${rm.phone ? ` &middot; ${escapeHtml(rm.phone)}` : ''}</p>
+    </div>
+  `
+    : '';
+
+  const bodyHtml = `
+    <h1 style="margin:0 0 12px; font-size:20px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">You're approved, ${escapeHtml(fullName)}</h1>
+    <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:${INK};">
+      Good news — <strong>${escapeHtml(agencyName)}</strong> has been approved${tier ? ` at <strong>${escapeHtml(tier)}</strong> tier` : ''} on the Xclusive Oman B2B &amp; MICE Trade Portal.
+    </p>
+    ${rmCardHtml}
+    <p style="margin:0 0 24px; font-size:14px; line-height:1.6; color:${INK};">
+      You can sign in now and start building FIT itineraries, booking Fixed Group Departures, and requesting MICE proposals.
+    </p>
+    <p style="margin:0;">${renderEmailButton('Sign in to the Agent Portal', loginUrl)}</p>
+  `;
+  return { html: renderBrandedEmailShell({ bodyHtml }), attachments: brandedEmailAttachments() };
+}
+
 // Appends the 1x1 open-tracking pixel just before </body> — kept as its own
 // step (never a placeholder baked into the base template) so a template
 // with no tracking desired (Send Test) simply never calls this, rather
