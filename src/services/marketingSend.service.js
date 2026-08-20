@@ -1,5 +1,5 @@
 import { pool } from '../db/pool.js';
-import { isSmtpConfigured, sendEmail, verifySmtpConnection } from './email.service.js';
+import { isBrevoConfigured, sendEmail, verifyBrevoConnection } from './email.service.js';
 import { buildMarketingEmailHtml, resolveTrackedLinks, appendTrackingPixel } from './emailTemplate.service.js';
 import { buildOpenTrackingUrl, buildClickTrackingUrl } from './marketingTracking.service.js';
 import { listAgencyOwnerEmails } from '../models/users.model.js';
@@ -37,7 +37,7 @@ const PROVIDER_LABELS = {
 // faked "sent" response. Returns null when the provider is actually usable.
 export function unavailableProviderReason(channel, provider) {
   if (channel === 'email' && provider === 'built_in') {
-    return isSmtpConfigured() ? null : `${PROVIDER_LABELS.built_in} is not configured yet (no SMTP credentials set).`;
+    return isBrevoConfigured() ? null : `${PROVIDER_LABELS.built_in} is not configured yet (no Brevo credentials set).`;
   }
   return `${PROVIDER_LABELS[provider] || provider} is not connected yet — configure it in Channel Settings before sending.`;
 }
@@ -73,10 +73,10 @@ export function isKnownMarketingProvider(provider) {
 // The one place that decides a provider's real status — never "connected"
 // merely because credentials exist. built_in is the only provider with any
 // configuration surface at all today (env vars — see email.service.js);
-// verifySmtpConnection() does a real round-trip to the SMTP server, so
-// "connected" here means the server just now accepted the credentials, not
-// just that three env vars are non-empty. Mailchimp, Zoho Campaigns, and
-// WhatsApp Business API are reported 'not_implemented' rather than
+// verifyBrevoConnection() does a real auth check against Brevo's API, so
+// "connected" here means Brevo just now accepted the API key, not just that
+// the two env vars are non-empty. Mailchimp, Zoho Campaigns, and WhatsApp
+// Business API are reported 'not_implemented' rather than
 // 'configuration_required': confirmed by inspection there is no SDK
 // dependency, no credential env var, and no credential storage anywhere in
 // this backend for any of the three — and the project's own documentation
@@ -86,13 +86,13 @@ export function isKnownMarketingProvider(provider) {
 // values.
 async function computeProviderStatus(provider) {
   if (provider === 'built_in') {
-    if (!isSmtpConfigured()) {
+    if (!isBrevoConfigured()) {
       return {
         status: 'configuration_required',
-        message: 'SMTP is configured through the deployment environment (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS) — those variables are not currently set.',
+        message: 'Brevo is configured through the deployment environment (BREVO_API_KEY/BREVO_SENDER_EMAIL/BREVO_SENDER_NAME) — those variables are not currently set.',
       };
     }
-    const result = await verifySmtpConnection();
+    const result = await verifyBrevoConnection();
     return result.verified
       ? { status: 'connected', message: null }
       : { status: 'connection_failed', message: result.reason };
@@ -118,7 +118,7 @@ export async function getChannelStatuses() {
   const results = [];
   for (const [channel, providers] of Object.entries(CHANNEL_PROVIDERS)) {
     for (const provider of providers) {
-      // eslint-disable-next-line no-await-in-loop -- four providers total, one SMTP round-trip at most; a Promise.all here buys nothing worth the extra complexity.
+      // eslint-disable-next-line no-await-in-loop -- four providers total, one Brevo API round-trip at most; a Promise.all here buys nothing worth the extra complexity.
       const { status, message } = await computeProviderStatus(provider);
       results.push({ channel, provider, label: PROVIDER_DISPLAY_LABELS[provider], status, message });
     }

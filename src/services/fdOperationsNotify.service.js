@@ -15,8 +15,8 @@ import { listDepartureAgencyIds } from '../models/fdOperations.model.js';
 //   - notification.service.js#createNotification — the same `notifications`
 //     table + its own `notification:new` (to `user:<id>`) emit + the
 //     NotificationBell UI every other in-app notification already uses.
-//   - email.service.js#sendEmail — the same Nodemailer/SMTP path Marketing
-//     Center's own campaigns use.
+//   - email.service.js#sendEmail — the same Brevo path Marketing Center's
+//     own campaigns use.
 // Recipient = each agency's active owner (listAgencyOwnerEmails — the same
 // "agency-owner lookup" Marketing Center's own send flow already
 // established as this app's one definition of "the agency's contact").

@@ -133,7 +133,7 @@ export async function patchAgency(req, res, next) {
       );
       const owner = rows[0];
       if (owner) {
-        // Best-effort — an SMTP hiccup must never fail the approval itself,
+        // Best-effort — an email-send hiccup must never fail the approval itself,
         // which has already been durably written by updateAgency() above
         // (same posture as auth.controller.js#notifyAdminsOfNewAgent).
         try {

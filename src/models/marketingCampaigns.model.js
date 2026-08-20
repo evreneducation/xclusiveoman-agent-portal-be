@@ -194,7 +194,7 @@ export function toPublicCampaign(campaign) {
     // marketing_campaign_recipients, never a frontend-only counter.
     // openCount/clickCount are *total* events (repeats included);
     // uniqueOpens/uniqueClicks are distinct recipients (requirement 7).
-    // Only meaningful for the built-in SMTP path — see this same file's
+    // Only meaningful for the built-in email path (Brevo) — see this same file's
     // module comment and marketingSend.service.js for why Mailchimp/Zoho/
     // WhatsApp Business API campaigns never accumulate real opens/clicks
     // (they never send at all yet).

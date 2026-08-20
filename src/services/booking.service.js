@@ -82,6 +82,11 @@ export async function createFdBooking({
       loadCatalogPools(),
     ]);
 
+    // ratePerPax (resolveRatePerPax) already folds in meals/visa (Task 4/5 —
+    // both are checkbox-only inclusions priced off the package's own
+    // Duration, never an admin-entered headcount, so they're a real per-pax
+    // figure with nothing left to resolve here) — this only ever multiplies
+    // by the one thing that truly can't be known before now: real pax.
     const ratePerPax = resolveRatePerPax(fdPackage, itinerary.items, pools);
     const addonsPerPax = addons.reduce((sum, a) => sum + Number(a.price_per_pax), 0);
     const computedTotalPrice = (ratePerPax + addonsPerPax) * pax;
