@@ -1,6 +1,6 @@
 import { pool } from '../db/pool.js';
 import { env } from '../config/env.js';
-import { listAgencies, findAgencyById, updateAgency } from '../models/agencies.model.js';
+import { listAgencies, findAgencyById, listAgenciesByRmIds, updateAgency } from '../models/agencies.model.js';
 import { findUserById, listAgencyOwnerEmails } from '../models/users.model.js';
 import { sendEmail } from '../services/email.service.js';
 import { buildAgentApprovedEmailHtml } from '../services/emailTemplate.service.js';
@@ -57,7 +57,20 @@ export async function getAgencies(req, res, next) {
     const { status, tier, country, search } = req.query;
     const inactiveSinceDaysNum = Number(req.query.inactiveSinceDays);
     const inactiveSinceDays = Number.isInteger(inactiveSinceDaysNum) && inactiveSinceDaysNum > 0 ? inactiveSinceDaysNum : undefined;
-    const rows = await listAgencies({ status, tier, country, inactiveSinceDays });
+
+    // Team Portal's Approved Agents page (Access Feature 'approvedAgents',
+    // requireFeature — admin.routes.js) — a Relationship Manager only ever
+    // sees their own book, "by his record" per the feature's own name, never
+    // the full agency directory this same endpoint otherwise serves every
+    // other staff role. Scoped here, server-side, off req.user.id — not a
+    // client-suppliable filter (see listAgencies' own comment on agencyIds).
+    let agencyIds;
+    if (req.user.role === 'relationship_manager') {
+      const own = await listAgenciesByRmIds([req.user.id]);
+      agencyIds = own.map((a) => a.id);
+    }
+
+    const rows = agencyIds && agencyIds.length === 0 ? [] : await listAgencies({ status, tier, country, inactiveSinceDays, agencyIds });
 
     // Task 10 — each agency's real send target (its active owner's
     // name/email — the same account resolveRecipients() would actually

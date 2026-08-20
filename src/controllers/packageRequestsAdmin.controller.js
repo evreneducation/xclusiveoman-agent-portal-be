@@ -18,6 +18,7 @@ import {
   composeItinerary,
 } from '../models/packageRequests.model.js';
 import { listStaffByRole, findUserById, toPublicUser } from '../models/users.model.js';
+import { listAgenciesByRmIds } from '../models/agencies.model.js';
 import { roomsForOccupancy } from '../utils/occupancy.js';
 import { computeMealsCost } from '../utils/meals.js';
 import { mealsModel, visaModel } from '../models/catalog.model.js';
@@ -303,11 +304,33 @@ async function toDetail(row) {
 }
 
 // GET /api/admin/package-requests?status=&destination=&search=&submittedFrom=&submittedTo=&page=&pageSize=
+// Team Portal Quotes & Pricing scoping — an LM (sales_manager) only ever
+// sees the requests actually assigned to them (pr.lead_manager_user_id,
+// same pool leadManagerAssignment.service.js draws from and REL-3's manual
+// (re)assignment writes to); an RM only ever sees their own agencies' — same
+// "by his record" posture as Approved Agents/Bookings & Docs. Neither
+// applies to any other STAFF_ROLE, who keep seeing the full inbox exactly
+// as before.
+async function quotesPricingScope(req) {
+  if (req.user.role === 'sales_manager') {
+    return { leadManagerUserId: req.user.id };
+  }
+  if (req.user.role === 'relationship_manager') {
+    const own = await listAgenciesByRmIds([req.user.id]);
+    return { agencyIds: own.map((a) => a.id) };
+  }
+  return {};
+}
+
 export async function list(req, res, next) {
   try {
     const { status, destination, search, submittedFrom, submittedTo, page, pageSize } = req.query;
+    const scope = await quotesPricingScope(req);
+    if (scope.agencyIds?.length === 0) {
+      return res.json({ packageRequests: [], pagination: { total: 0, page: 1, pageSize: Number(pageSize) || 20, totalPages: 1 } });
+    }
     const { rows, total, page: currentPage, pageSize: limit } = await listPackageRequestsForAdmin({
-      status, destination, search, submittedFrom, submittedTo, page, pageSize,
+      status, destination, search, submittedFrom, submittedTo, page, pageSize, ...scope,
     });
 
     res.json({
@@ -324,11 +347,29 @@ export async function list(req, res, next) {
   }
 }
 
+// Applied to every :id-scoped package-request route below (get, lead
+// manager assignment, costing, itinerary, publish) — an LM may only ever
+// touch a request already assigned to them, an RM only one raised by one of
+// their own agencies; every other STAFF_ROLE is untouched. 404, not 403 —
+// same "don't reveal existence" posture bookingsAdmin.routes.js's
+// scopeToOwnAgencyBooking already uses.
+async function assertQuotesPricingAccess(req, row) {
+  if (req.user.role === 'sales_manager') {
+    return row.lead_manager_user_id === req.user.id;
+  }
+  if (req.user.role === 'relationship_manager') {
+    const own = await listAgenciesByRmIds([req.user.id]);
+    return own.some((a) => a.id === row.agency_id);
+  }
+  return true;
+}
+
 // GET /api/admin/package-requests/:id
 export async function get(req, res, next) {
   try {
     const row = await findPackageRequestForAdmin(req.params.id);
     if (!row) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, row))) return res.status(404).json({ error: 'not_found' });
     res.json({ packageRequest: await toDetail(row) });
   } catch (err) {
     next(err);
@@ -353,11 +394,26 @@ export async function listLeadManagerCandidates(req, res, next) {
   }
 }
 
+// Quotes & Pricing is read-only for a Relationship Manager (their Access
+// Feature is oversight of their own agencies' quotes, not pricing/publishing
+// them — that stays a Lead Manager/ops_admin+ job). Applied to every write
+// endpoint below; the read endpoints (list/get) stay governed by
+// assertQuotesPricingAccess/quotesPricingScope above instead, which do let
+// an RM view.
+function blockReadOnlyRole(req, res) {
+  if (req.user.role === 'relationship_manager') {
+    res.status(403).json({ error: 'forbidden', message: 'Quotes & Pricing is view-only on your account.' });
+    return true;
+  }
+  return false;
+}
+
 // PATCH /api/admin/package-requests/:id/lead-manager — FIT-8/REL-3. Also
 // advances status submitted -> assigned (and back on unassign) per this
 // task's requirement; leaves status untouched once costing has begun.
 export async function assignLeadManager(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const { leadManagerUserId } = req.body;
 
@@ -410,9 +466,11 @@ export async function assignLeadManager(req, res, next) {
 // costing/markup/notes edits.
 export async function saveCosting(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const current = await findPackageRequestForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, current))) return res.status(404).json({ error: 'not_found' });
 
     const [hotels, tours, transfers, activities, itinerary, mealsCatalog, visaCatalog] = await Promise.all([
       listHotelsForRequest(id),
@@ -503,9 +561,11 @@ export async function saveCosting(req, res, next) {
 // there's no separate validate-then-publish step for the itinerary itself.
 export async function saveItinerary(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const current = await findPackageRequestForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, current))) return res.status(404).json({ error: 'not_found' });
 
     await updatePackageRequestItinerary(id, req.body.days);
 
@@ -530,9 +590,11 @@ export async function saveItinerary(req, res, next) {
 // latest edits are persisted either way, pass or fail.
 export async function publish(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const current = await findPackageRequestForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, current))) return res.status(404).json({ error: 'not_found' });
 
     const errors = [];
     if (!current.lead_manager_user_id) errors.push('Assign a Lead Manager before publishing.');

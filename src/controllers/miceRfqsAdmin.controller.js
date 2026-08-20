@@ -17,6 +17,7 @@ import {
   composeItinerary,
 } from '../models/miceRfqs.model.js';
 import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
+import { listAgenciesByRmIds } from '../models/agencies.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { getIo } from '../sockets/index.js';
 import { createNotification } from '../services/notification.service.js';
@@ -185,12 +186,49 @@ async function toDetail(row) {
   };
 }
 
+// Team Portal Quotes & Pricing scoping — mirrors
+// packageRequestsAdmin.controller.js's identical quotesPricingScope/
+// assertQuotesPricingAccess/blockReadOnlyRole trio.
+async function quotesPricingScope(req) {
+  if (req.user.role === 'sales_manager') {
+    return { leadManagerUserId: req.user.id };
+  }
+  if (req.user.role === 'relationship_manager') {
+    const own = await listAgenciesByRmIds([req.user.id]);
+    return { agencyIds: own.map((a) => a.id) };
+  }
+  return {};
+}
+
+async function assertQuotesPricingAccess(req, row) {
+  if (req.user.role === 'sales_manager') {
+    return row.lead_manager_user_id === req.user.id;
+  }
+  if (req.user.role === 'relationship_manager') {
+    const own = await listAgenciesByRmIds([req.user.id]);
+    return own.some((a) => a.id === row.agency_id);
+  }
+  return true;
+}
+
+function blockReadOnlyRole(req, res) {
+  if (req.user.role === 'relationship_manager') {
+    res.status(403).json({ error: 'forbidden', message: 'Quotes & Pricing is view-only on your account.' });
+    return true;
+  }
+  return false;
+}
+
 // GET /api/admin/mice-rfqs?status=&search=&eventFrom=&eventTo=&page=&pageSize=
 export async function list(req, res, next) {
   try {
     const { status, search, eventFrom, eventTo, page, pageSize } = req.query;
+    const scope = await quotesPricingScope(req);
+    if (scope.agencyIds?.length === 0) {
+      return res.json({ miceRfqs: [], pagination: { total: 0, page: 1, pageSize: Number(pageSize) || 20, totalPages: 1 } });
+    }
     const { rows, total, page: currentPage, pageSize: limit } = await listMiceRfqsForAdmin({
-      status, search, eventFrom, eventTo, page, pageSize,
+      status, search, eventFrom, eventTo, page, pageSize, ...scope,
     });
 
     res.json({
@@ -212,6 +250,7 @@ export async function get(req, res, next) {
   try {
     const row = await findMiceRfqForAdmin(req.params.id);
     if (!row) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, row))) return res.status(404).json({ error: 'not_found' });
     res.json({ miceRfq: await toDetail(row) });
   } catch (err) {
     next(err);
@@ -235,6 +274,7 @@ export async function listLeadManagerCandidates(req, res, next) {
 // no status transition.
 export async function assignLeadManager(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const { leadManagerUserId } = req.body;
 
@@ -301,9 +341,11 @@ export async function assignLeadManager(req, res, next) {
 // costing/markup/notes edits.
 export async function saveCosting(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const current = await findMiceRfqForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, current))) return res.status(404).json({ error: 'not_found' });
 
     const [hotels, tours, transfers, activities] = await Promise.all([
       listHotelsForRfq(id),
@@ -386,9 +428,11 @@ export async function saveCosting(req, res, next) {
 // packageRequestsAdmin.controller.js's saveItinerary.
 export async function saveItinerary(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const current = await findMiceRfqForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, current))) return res.status(404).json({ error: 'not_found' });
 
     await updateMiceRfqItinerary(id, req.body.days);
 
@@ -413,9 +457,11 @@ export async function saveItinerary(req, res, next) {
 // edits are persisted either way, pass or fail.
 export async function publish(req, res, next) {
   try {
+    if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
     const current = await findMiceRfqForAdmin(id);
     if (!current) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertQuotesPricingAccess(req, current))) return res.status(404).json({ error: 'not_found' });
 
     const errors = [];
     if (!current.lead_manager_user_id) errors.push('Assign a Lead Manager before publishing.');

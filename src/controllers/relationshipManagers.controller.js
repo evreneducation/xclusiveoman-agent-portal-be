@@ -1,5 +1,6 @@
 import { pool } from '../db/pool.js';
 import { env } from '../config/env.js';
+import { normalizeRmPermissions } from '../config/accessFeatures.js';
 import { listAgenciesByRmIds } from '../models/agencies.model.js';
 import {
   createUser,
@@ -51,22 +52,28 @@ export async function create(req, res, next) {
       email,
       phone,
       whatsappNumber,
+      // Access Features (config/accessFeatures.js) — see
+      // salesManagers.controller.js#create's identical comment; same
+      // normalize-on-write posture, just RM's own fixed key set.
+      permissions: normalizeRmPermissions(req.body.permissions),
     });
 
     // Best-effort — a flaky SMTP server must never fail account creation,
     // which has already succeeded by this point (same posture as
-    // auth.controller.js#notifyAdminsOfNewAgent).
+    // auth.controller.js#notifyAdminsOfNewAgent). Links to the dedicated
+    // /team portal (env.teamLoginUrl), not the Admin Console.
     try {
       const { html, attachments } = buildStaffWelcomeEmailHtml({
         fullName: user.full_name,
         roleLabel: 'Relationship Manager',
         email: user.email,
-        loginUrl: env.adminLoginUrl,
+        loginUrl: env.teamLoginUrl,
+        ctaLabel: 'Sign in to the Team Portal',
       });
       await sendEmail({
         to: user.email,
         subject: 'Welcome to the Xclusive Oman team',
-        text: `You've been added as a Relationship Manager on the Xclusive Oman B2B & MICE Trade Portal. Sign in at ${env.adminLoginUrl} with your work email (${user.email}) — we'll email you a one-time code.`,
+        text: `You've been added as a Relationship Manager on the Xclusive Oman B2B & MICE Trade Portal. Sign in at ${env.teamLoginUrl} with your work email (${user.email}) — we'll email you a one-time code.`,
         html,
         attachments,
       });
@@ -91,7 +98,14 @@ export async function update(req, res, next) {
       return res.status(404).json({ error: 'not_found' });
     }
 
-    const user = await updateUser(id, req.body);
+    // Access Features stay the fixed RM_FEATURE_KEYS shape even on a partial
+    // PATCH — see salesManagers.controller.js#update's identical comment.
+    const fields = { ...req.body };
+    if (fields.permissions !== undefined) {
+      fields.permissions = normalizeRmPermissions({ ...target.permissions, ...fields.permissions });
+    }
+
+    const user = await updateUser(id, fields);
     res.json({ user: toPublicUser(user) });
   } catch (err) {
     next(err);

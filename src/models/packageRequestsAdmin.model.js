@@ -27,7 +27,12 @@ const SELECT_COLUMNS = `
 // Item 1: the inbox only ever shows requests the agent has actually
 // submitted — draft rows (unused by the current agent flow, which always
 // submits directly, but kept in the schema for fidelity) are excluded.
-function buildFilters({ status, destination, search, submittedFrom, submittedTo }) {
+// `leadManagerUserId` (Team Portal's Quotes & Pricing page, LM scoping —
+// packageRequestsAdmin.controller.js#list) and `agencyIds` (same page, RM
+// scoping) are both server-set from the requesting user's own id/assigned
+// agencies, never a client-suppliable filter — same posture as
+// agencies.model.js#listAgencies' own agencyIds param.
+function buildFilters({ status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds }) {
   const clauses = [`pr.status <> 'draft'`];
   const values = [];
   let i = 1;
@@ -35,6 +40,16 @@ function buildFilters({ status, destination, search, submittedFrom, submittedTo 
   if (status) {
     clauses.push(`pr.status = $${i}`);
     values.push(status);
+    i += 1;
+  }
+  if (leadManagerUserId) {
+    clauses.push(`pr.lead_manager_user_id = $${i}`);
+    values.push(leadManagerUserId);
+    i += 1;
+  }
+  if (agencyIds) {
+    clauses.push(`pr.agency_id = ANY($${i}::uuid[])`);
+    values.push(agencyIds);
     i += 1;
   }
   if (destination) {
@@ -62,9 +77,9 @@ function buildFilters({ status, destination, search, submittedFrom, submittedTo 
 }
 
 export async function listPackageRequestsForAdmin({
-  status, destination, search, submittedFrom, submittedTo, page, pageSize,
+  status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds, page, pageSize,
 } = {}) {
-  const { where, values, next } = buildFilters({ status, destination, search, submittedFrom, submittedTo });
+  const { where, values, next } = buildFilters({ status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds });
 
   const { rows: countRows } = await pool.query(
     `SELECT COUNT(*) ${JOINS} ${where}`,

@@ -6,6 +6,7 @@ import {
   listMessagesForTicket,
 } from '../models/supportTickets.model.js';
 import { listStaffByRole, toPublicUser, findUserById } from '../models/users.model.js';
+import { listAgenciesByRmIds } from '../models/agencies.model.js';
 import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
 import { notifyAgencyOfReply } from '../services/supportTicketNotify.service.js';
 
@@ -84,14 +85,40 @@ export async function listAssignmentCandidates(req, res, next) {
   }
 }
 
+// Team Portal Support Tickets scoping (Access Feature 'supportTickets',
+// relationship_manager only — sales_manager has no such key in
+// LM_FEATURE_KEYS). Applied to list below and to get/update/reply via
+// assertOwnAgencyTicket. Never applies to support/super_admin, who keep
+// seeing every ticket exactly as before.
+async function ownAgencyIds(req) {
+  const own = await listAgenciesByRmIds([req.user.id]);
+  return own.map((a) => a.id);
+}
+
+async function assertOwnAgencyTicket(req, ticket) {
+  if (req.user.role !== 'relationship_manager') return true;
+  const ids = await ownAgencyIds(req);
+  return ids.includes(ticket.agency_id);
+}
+
 // GET /api/admin/support/tickets?status=&priority=&assignedToUserId=&search=&page=&pageSize=
 export async function listTickets(req, res, next) {
   try {
     const { status, priority, assignedToUserId, search, page, pageSize } = req.query;
+
+    let agencyIds;
+    if (req.user.role === 'relationship_manager') {
+      agencyIds = await ownAgencyIds(req);
+      if (agencyIds.length === 0) {
+        return res.json({ tickets: [], pagination: { total: 0, page: 1, pageSize: Number(pageSize) || 20, totalPages: 1 } });
+      }
+    }
+
     const { rows, total, page: currentPage, pageSize: limit } = await listTicketsForAdmin({
       status,
       priority,
       assignedToUserId,
+      agencyIds,
       search,
       page,
       pageSize,
@@ -111,6 +138,7 @@ export async function getTicket(req, res, next) {
   try {
     const ticket = await findTicketForAdmin(req.params.id);
     if (!ticket) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertOwnAgencyTicket(req, ticket))) return res.status(404).json({ error: 'not_found' });
 
     const [messages, auditLogs] = await Promise.all([
       listMessagesForTicket(ticket.id),
@@ -135,6 +163,7 @@ export async function updateTicket(req, res, next) {
   try {
     const existing = await findTicketForAdmin(req.params.id);
     if (!existing) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertOwnAgencyTicket(req, existing))) return res.status(404).json({ error: 'not_found' });
 
     const { status, assignedToUserId } = req.body;
 
@@ -189,6 +218,7 @@ export async function replyToTicket(req, res, next) {
   try {
     const ticket = await findTicketForAdmin(req.params.id);
     if (!ticket) return res.status(404).json({ error: 'not_found' });
+    if (!(await assertOwnAgencyTicket(req, ticket))) return res.status(404).json({ error: 'not_found' });
 
     const message = await insertTicketMessage({ ticketId: ticket.id, senderUserId: req.user.id, message: req.body.message });
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as fdAdmin from '../controllers/fdPackagesAdmin.controller.js';
-import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
+import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import {
   validateBody,
@@ -13,7 +13,10 @@ import { z } from 'zod';
 
 const router = Router();
 
-router.use(requireAuth, requireRole(...STAFF_ROLES));
+// FD Packages are part of the Product Catalog (admin/pages/ProductCatalog.jsx
+// groups them together) — same requireFeature('catalog') gate as
+// catalog.routes.js's adminCatalogRouter, its own doc comment.
+router.use(requireAuth, requireRole(...STAFF_ROLES), requireFeature('catalog'));
 
 router.get('/', fdAdmin.list);
 router.get('/:id', fdAdmin.get);

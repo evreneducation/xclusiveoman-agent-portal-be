@@ -51,11 +51,28 @@ export const patchAdminAgencySchema = z.object({
 
 // --- Relationship Managers (doc §4 role table, REL-1/REL-2) ---
 
+// Access Features — the checkbox set an admin picks for this RM (config/
+// accessFeatures.js#RM_FEATURE_KEYS is the single source of truth for which
+// keys exist; kept in sync here by hand since zod has no way to import that
+// array into a static object shape). Every key is optional on its own —
+// relationshipManagers.controller.js#normalizeRmPermissions fills in
+// whichever keys are omitted from RM_DEFAULT_PERMISSIONS, so a caller only
+// has to send the ones it's actually changing.
+export const rmPermissionsSchema = z
+  .object({
+    approvedAgents: z.boolean().optional(),
+    quotesPricing: z.boolean().optional(),
+    supportTickets: z.boolean().optional(),
+    bookingsDocs: z.boolean().optional(),
+  })
+  .partial();
+
 export const createRelationshipManagerSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
+  permissions: rmPermissionsSchema.optional(),
 });
 
 export const patchRelationshipManagerSchema = z.object({
@@ -63,6 +80,7 @@ export const patchRelationshipManagerSchema = z.object({
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
   status: z.enum(['active', 'disabled']).optional(),
+  permissions: rmPermissionsSchema.optional(),
 });
 
 // --- Sales Managers ---
@@ -71,11 +89,23 @@ export const patchRelationshipManagerSchema = z.object({
 // generic /admin/team CRUD (any staff role, including super_admin) was
 // removed in favor of these two dedicated, narrowly-scoped flows.
 
+// Access Features — mirrors rmPermissionsSchema above, keyed off config/
+// accessFeatures.js#LM_FEATURE_KEYS instead.
+export const lmPermissionsSchema = z
+  .object({
+    catalog: z.boolean().optional(),
+    quotesPricing: z.boolean().optional(),
+    bookingsDocs: z.boolean().optional(),
+    fdOperations: z.boolean().optional(),
+  })
+  .partial();
+
 export const createSalesManagerSchema = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
+  permissions: lmPermissionsSchema.optional(),
 });
 
 export const patchSalesManagerSchema = z.object({
@@ -83,6 +113,7 @@ export const patchSalesManagerSchema = z.object({
   phone: z.string().max(30).optional(),
   whatsappNumber: z.string().max(30).optional(),
   status: z.enum(['active', 'disabled']).optional(),
+  permissions: lmPermissionsSchema.optional(),
 });
 
 // --- Catalog (doc §11.2 / §12.3) ---

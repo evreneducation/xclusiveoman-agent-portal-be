@@ -319,7 +319,7 @@ function renderEmailButton(label, href) {
 // Manager" is only the admin UI's display label, Employees.jsx). `roleLabel`
 // is passed in by the caller rather than derived from a role slug here, so
 // this template stays agnostic of any specific role.
-export function buildStaffWelcomeEmailHtml({ fullName, roleLabel, email, loginUrl }) {
+export function buildStaffWelcomeEmailHtml({ fullName, roleLabel, email, loginUrl, ctaLabel = 'Sign in to the Admin Console' }) {
   const bodyHtml = `
     <h1 style="margin:0 0 12px; font-size:20px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Welcome to Xclusive Oman, ${escapeHtml(fullName)}</h1>
     <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:${INK};">
@@ -328,7 +328,7 @@ export function buildStaffWelcomeEmailHtml({ fullName, roleLabel, email, loginUr
     <p style="margin:0 0 24px; font-size:14px; line-height:1.6; color:${INK};">
       Sign in anytime with your work email — <strong>${escapeHtml(email)}</strong> — there's no password to set: we'll email you a fresh one-time code each time you sign in.
     </p>
-    <p style="margin:0;">${renderEmailButton('Sign in to the Admin Console', loginUrl)}</p>
+    <p style="margin:0;">${renderEmailButton(ctaLabel, loginUrl)}</p>
   `;
   return { html: renderBrandedEmailShell({ bodyHtml }), attachments: brandedEmailAttachments() };
 }

@@ -39,6 +39,14 @@ export const env = {
   get agentLoginUrl() {
     return `${this.agentPortalUrl.replace(/\/agent\/?$/, "")}/agent/login`;
   },
+  // Lead Managers (sales_manager) and Relationship Managers
+  // (relationship_manager) sign in at their own /team route, not
+  // /admin/login — a distinctly-themed portal (frontend) scoped to just the
+  // Access Features an admin checked for them, rather than the full Admin
+  // Console. Same derivation as adminLoginUrl/agentLoginUrl above.
+  get teamLoginUrl() {
+    return `${this.agentPortalUrl.replace(/\/agent\/?$/, "")}/team/login`;
+  },
   // Task 11 (Marketing Center — Open & Click Tracking) — the backend's own
   // publicly-reachable base URL, needed to build absolute tracking-pixel/
   // click-redirect URLs embedded in an outbound email (unlike agentPortalUrl

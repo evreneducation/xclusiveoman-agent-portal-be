@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { catalogHandlersFor, uploadImagesHandlerFor } from '../controllers/catalog.controller.js';
-import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
+import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import {
   validateBody,
@@ -43,7 +43,10 @@ for (const { path } of ENTITIES) {
 
 // Admin CRUD, mounted under /admin/<entity> from routes/index.js.
 export const adminCatalogRouter = Router();
-adminCatalogRouter.use(requireAuth, requireRole(...STAFF_ROLES));
+// requireFeature('catalog') — the Team Portal's Catalog Access Feature; only
+// ever narrows sales_manager (relationship_manager has no 'catalog' key in
+// RM_FEATURE_KEYS, so is 403'd here regardless of its other checkboxes).
+adminCatalogRouter.use(requireAuth, requireRole(...STAFF_ROLES), requireFeature('catalog'));
 
 for (const { path, schema } of ENTITIES) {
   const handlers = catalogHandlersFor(path);
