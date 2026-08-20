@@ -24,7 +24,10 @@ const SELECT_COLUMNS = `
   pub.full_name AS published_by_full_name
 `;
 
-function buildFilters({ status, search, eventFrom, eventTo }) {
+// leadManagerUserId/agencyIds — see packageRequestsAdmin.model.js's
+// identical comment on its own buildFilters; same Team Portal LM/RM scoping,
+// mirrored here for MICE RFQs.
+function buildFilters({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds }) {
   const clauses = [];
   const values = [];
   let i = 1;
@@ -32,6 +35,16 @@ function buildFilters({ status, search, eventFrom, eventTo }) {
   if (status) {
     clauses.push(`mr.status = $${i}`);
     values.push(status);
+    i += 1;
+  }
+  if (leadManagerUserId) {
+    clauses.push(`mr.lead_manager_user_id = $${i}`);
+    values.push(leadManagerUserId);
+    i += 1;
+  }
+  if (agencyIds) {
+    clauses.push(`mr.agency_id = ANY($${i}::uuid[])`);
+    values.push(agencyIds);
     i += 1;
   }
   if (eventFrom) {
@@ -53,8 +66,8 @@ function buildFilters({ status, search, eventFrom, eventTo }) {
   return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values, next: i };
 }
 
-export async function listMiceRfqsForAdmin({ status, search, eventFrom, eventTo, page, pageSize } = {}) {
-  const { where, values, next } = buildFilters({ status, search, eventFrom, eventTo });
+export async function listMiceRfqsForAdmin({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds, page, pageSize } = {}) {
+  const { where, values, next } = buildFilters({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) ${JOINS} ${where}`, values);
   const total = Number(countRows[0].count);

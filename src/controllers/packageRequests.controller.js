@@ -1,6 +1,7 @@
 import { pool } from '../db/pool.js';
 import { getIo } from '../sockets/index.js';
 import { generateItineraryPdf } from '../services/itineraryPdf.service.js';
+import { createBookingFromPackageRequest } from '../services/booking.service.js';
 import {
   createPackageRequest,
   addHotelSelections,
@@ -640,6 +641,21 @@ export async function respond(req, res, next) {
     const nextStatus = action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'revision_requested';
     const updated = await respondToPackageRequest(id, nextStatus);
     if (!updated) return res.status(409).json({ error: 'conflict', message: 'This quote was just updated — please reload and try again.' });
+
+    // FIT-13: an accepted quote converts to a booking — creates the
+    // bookings row this quote never got one before (see
+    // booking.service.js#createBookingFromPackageRequest for the
+    // check-first-then-create idempotency). Best-effort: a hiccup here must
+    // never undo the agent's already-committed acceptance above — worst
+    // case the booking is simply missing until this is retried/fixed, same
+    // posture as this file's own autoAssignLeadManager.
+    if (nextStatus === 'accepted') {
+      try {
+        await createBookingFromPackageRequest(updated);
+      } catch (err) {
+        console.error('Failed to create booking for accepted package request', id, err);
+      }
+    }
 
     await insertAuditLog({
       actorUserId: req.user.id,

@@ -1,7 +1,9 @@
 import { pool } from '../db/pool.js';
-import { listAgencies, findAgencyById, updateAgency } from '../models/agencies.model.js';
+import { env } from '../config/env.js';
+import { listAgencies, findAgencyById, listAgenciesByRmIds, updateAgency } from '../models/agencies.model.js';
 import { findUserById, listAgencyOwnerEmails } from '../models/users.model.js';
 import { sendEmail } from '../services/email.service.js';
+import { buildAgentApprovedEmailHtml } from '../services/emailTemplate.service.js';
 import { pickNextRoundRobinRm } from '../services/rmAssignment.service.js';
 import { getIo } from '../sockets/index.js';
 
@@ -55,7 +57,20 @@ export async function getAgencies(req, res, next) {
     const { status, tier, country, search } = req.query;
     const inactiveSinceDaysNum = Number(req.query.inactiveSinceDays);
     const inactiveSinceDays = Number.isInteger(inactiveSinceDaysNum) && inactiveSinceDaysNum > 0 ? inactiveSinceDaysNum : undefined;
-    const rows = await listAgencies({ status, tier, country, inactiveSinceDays });
+
+    // Team Portal's Approved Agents page (Access Feature 'approvedAgents',
+    // requireFeature — admin.routes.js) — a Relationship Manager only ever
+    // sees their own book, "by his record" per the feature's own name, never
+    // the full agency directory this same endpoint otherwise serves every
+    // other staff role. Scoped here, server-side, off req.user.id — not a
+    // client-suppliable filter (see listAgencies' own comment on agencyIds).
+    let agencyIds;
+    if (req.user.role === 'relationship_manager') {
+      const own = await listAgenciesByRmIds([req.user.id]);
+      agencyIds = own.map((a) => a.id);
+    }
+
+    const rows = agencyIds && agencyIds.length === 0 ? [] : await listAgencies({ status, tier, country, inactiveSinceDays, agencyIds });
 
     // Task 10 — each agency's real send target (its active owner's
     // name/email — the same account resolveRecipients() would actually
@@ -118,11 +133,34 @@ export async function patchAgency(req, res, next) {
       );
       const owner = rows[0];
       if (owner) {
-        await sendEmail({
-          to: owner.email,
-          subject: 'Your Xclusive Oman agency has been approved',
-          text: `Good news — ${agency.name} has been approved${agency.tier ? ` at ${agency.tier} tier` : ''}. You can now log in.`,
-        });
+        // Best-effort — an SMTP hiccup must never fail the approval itself,
+        // which has already been durably written by updateAgency() above
+        // (same posture as auth.controller.js#notifyAdminsOfNewAgent).
+        try {
+          // The RM this same approval just assigned (either the round-robin
+          // pick above or an explicit rmUserId override) — looked up fresh
+          // off the just-updated agency row rather than patch.rmUserId, so
+          // this is always the RM that actually landed in the DB.
+          const rm = agency.rm_user_id ? await findUserById(agency.rm_user_id) : null;
+          const rmDetails = rm ? { fullName: rm.full_name, email: rm.email, phone: rm.phone } : null;
+
+          const { html, attachments } = buildAgentApprovedEmailHtml({
+            fullName: owner.full_name,
+            agencyName: agency.name,
+            tier: agency.tier,
+            loginUrl: env.agentLoginUrl,
+            rm: rmDetails,
+          });
+          await sendEmail({
+            to: owner.email,
+            subject: 'Your Xclusive Oman agency has been approved',
+            text: `Good news — ${agency.name} has been approved${agency.tier ? ` at ${agency.tier} tier` : ''}. Sign in at ${env.agentLoginUrl}.${rmDetails ? ` Your Relationship Manager: ${rmDetails.fullName} (${rmDetails.email}).` : ''}`,
+            html,
+            attachments,
+          });
+        } catch (err) {
+          console.error('Failed to send agency-approved email', agency.id, err);
+        }
         getIo()?.to(`user:${owner.id}`).emit('notification:new', {
           type: 'agency_approved',
           title: 'Agency approved',

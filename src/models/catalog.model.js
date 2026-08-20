@@ -81,7 +81,12 @@ function createCrudModel(table, columns) {
 export const hotelsModel = createCrudModel('hotels', [
   'name', 'city', 'state', 'address', 'email', 'category', 'board_basis_options',
   'mice_ballroom_capacity', 'mice_breakout_rooms', 'images', 'description',
-  'price_per_night', 'is_mice_enabled',
+  // price_per_night is no longer admin-entered directly (HotelEditor.jsx now
+  // collects single_price/double_price/triple_price instead) but stays a
+  // writable column here — catalog.routes.js's deriveHotelPricePerNight
+  // middleware computes it from those three before this model ever sees the
+  // request, so it's still populated for MICE quote costing, unchanged.
+  'price_per_night', 'single_price', 'double_price', 'triple_price', 'is_mice_enabled',
 ]);
 
 export const toursModel = createCrudModel('tours', [

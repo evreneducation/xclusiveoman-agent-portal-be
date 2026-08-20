@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import * as controller from '../controllers/packageRequestsAdmin.controller.js';
-import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
+import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import {
   validateBody,
   assignPackageRequestLeadManagerSchema,
@@ -11,7 +11,11 @@ import {
 
 const router = Router();
 
-router.use(requireAuth, requireRole(...STAFF_ROLES));
+// requireFeature('quotesPricing') — Team Portal Access Feature shared by
+// both LM and RM (config/accessFeatures.js); the controller itself further
+// scopes what each of them actually sees/can write (list/get/write-endpoint
+// scoping — see packageRequestsAdmin.controller.js's own comments).
+router.use(requireAuth, requireRole(...STAFF_ROLES), requireFeature('quotesPricing'));
 
 // Registered before '/:id' so it isn't swallowed by the param route.
 router.get('/lead-manager-candidates', controller.listLeadManagerCandidates);

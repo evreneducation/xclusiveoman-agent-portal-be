@@ -32,12 +32,22 @@ export async function findAgencyById(id) {
 // endpoint, matching how `status` already narrows this list and how the
 // Product/MICE catalog list endpoints take extra filter query params
 // instead of growing new single-purpose routes.
-export async function listAgencies({ status, tier, country, inactiveSinceDays } = {}) {
+// `agencyIds` (Team Portal's Approved Agents page, relationshipManagers
+// scoping — admin.controller.js#getAgencies) restricts the list to a
+// specific RM's own assigned agencies (agencies.rm_user_id) — set
+// server-side from the requesting RM's own id, never a client-supplied
+// filter, so one RM can never page through another RM's book by tampering
+// with a query param.
+export async function listAgencies({ status, tier, country, inactiveSinceDays, agencyIds } = {}) {
   const params = [];
   const conditions = [];
   if (status) {
     params.push(status);
     conditions.push(`a.status = $${params.length}`);
+  }
+  if (agencyIds) {
+    params.push(agencyIds);
+    conditions.push(`a.id = ANY($${params.length}::uuid[])`);
   }
   if (tier) {
     params.push(tier);
