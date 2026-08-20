@@ -17,11 +17,22 @@ import { createNotification } from '../services/notification.service.js';
 // anywhere — users.password_hash was dropped, 0060_drop_password.sql).
 // 6-digit code, 5-minute expiry, max 5 verification attempts per code
 // (login_otps.attempt_count) before it's rejected outright and a fresh one
-// has to be requested. No new rate-limiting dependency: the attempt cap +
-// short expiry is this codebase's existing posture for time-boxed one-time
-// codes.
+// has to be requested.
 const OTP_EXPIRY_MINUTES = 5;
 const OTP_MAX_ATTEMPTS = 5;
+
+// Rate limiting on *sending* a code (as opposed to OTP_MAX_ATTEMPTS above,
+// which limits *guessing* one already sent). Two layers:
+//  - middleware/rateLimiter.js's otpRequestLimiter, applied in
+//    auth.routes.js, throttles by IP regardless of which email is targeted
+//    — the thing that matters most now that this endpoint reports whether
+//    an email is registered (see requestLoginOtp below).
+//  - OTP_RESEND_COOLDOWN_SECONDS/OTP_MAX_PER_WINDOW below throttle by
+//    *account* instead, off the existing login_otps rows — no new table or
+//    dependency needed, since every send already inserts one row here.
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
+const OTP_MAX_PER_WINDOW = 5;
+const OTP_RATE_WINDOW_MINUTES = 15;
 
 const REFRESH_COOKIE_NAME = 'xo_refresh';
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -140,41 +151,81 @@ export async function register(req, res, next) {
   }
 }
 
-// POST /api/auth/request-otp — Email OTP login, step 1. Always responds the
-// same way whether or not the account exists/is active, to avoid leaking
-// which emails are registered — only a real, active user actually gets a
-// code generated + emailed.
+// POST /api/auth/request-otp — Email OTP login, step 1. Explicitly reports
+// whether the email is registered/active (product decision, requested by
+// the team — trades the usual anti-enumeration posture for a clearer
+// sign-in error message on the login form). Only a real, active user ever
+// gets a code generated + emailed.
 export async function requestLoginOtp(req, res, next) {
   try {
     const { email } = req.body;
     const user = await findUserByEmail(email);
 
-    if (user && user.status === 'active') {
-      const otp = generateNumericOtp();
-      const otpHash = hashRawToken(otp);
-      const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
-
-      // Supersede any earlier, still-unused code for this user first, so at
-      // most one OTP is ever valid at a time — clicking "Resend code" (or
-      // re-submitting the email step) can't leave several different codes
-      // simultaneously accepted.
-      await pool.query('UPDATE login_otps SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [user.id]);
-      await pool.query(
-        `INSERT INTO login_otps (user_id, otp_hash, expires_at) VALUES ($1, $2, $3)`,
-        [user.id, otpHash, expiresAt]
-      );
-
-      const { html, attachments } = buildOtpEmailHtml({ otp, expiresInMinutes: OTP_EXPIRY_MINUTES });
-      await sendEmail({
-        to: user.email,
-        subject: 'Your Xclusive Oman sign-in code',
-        text: `Your Xclusive Oman sign-in code is ${otp}. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
-        html,
-        attachments,
+    if (!user) {
+      return res.status(404).json({
+        error: 'not_registered',
+        message: 'This email is not registered. Please sign up first.',
       });
     }
 
-    res.json({ message: 'If that email is registered, a sign-in code has been sent.' });
+    if (user.status !== 'active') {
+      return res.status(403).json({
+        error: 'account_inactive',
+        message: 'This account is inactive. Please contact support.',
+      });
+    }
+
+    // Per-account send throttle (see the constants' own comment above) —
+    // checked against every past send for this user, used or not, so a
+    // rapid string of "Resend code" clicks can't outrun it.
+    const { rows: recentSends } = await pool.query(
+      `SELECT created_at FROM login_otps WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [user.id, OTP_MAX_PER_WINDOW]
+    );
+    const now = Date.now();
+    const lastSend = recentSends[0];
+    if (lastSend) {
+      const secondsSinceLastSend = (now - new Date(lastSend.created_at).getTime()) / 1000;
+      if (secondsSinceLastSend < OTP_RESEND_COOLDOWN_SECONDS) {
+        return res.status(429).json({
+          error: 'rate_limited',
+          message: `Please wait ${Math.ceil(OTP_RESEND_COOLDOWN_SECONDS - secondsSinceLastSend)}s before requesting another code.`,
+        });
+      }
+    }
+    const windowStart = now - OTP_RATE_WINDOW_MINUTES * 60 * 1000;
+    const sentWithinWindow = recentSends.filter((row) => new Date(row.created_at).getTime() > windowStart).length;
+    if (sentWithinWindow >= OTP_MAX_PER_WINDOW) {
+      return res.status(429).json({
+        error: 'rate_limited',
+        message: 'Too many code requests for this account. Please try again later.',
+      });
+    }
+
+    const otp = generateNumericOtp();
+    const otpHash = hashRawToken(otp);
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+
+    // Supersede any earlier, still-unused code for this user first, so at
+    // most one OTP is ever valid at a time — clicking "Resend code" (or
+    // re-submitting the email step) can't leave several different codes
+    // simultaneously accepted.
+    await pool.query('UPDATE login_otps SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [user.id]);
+    await pool.query(
+      `INSERT INTO login_otps (user_id, otp_hash, expires_at) VALUES ($1, $2, $3)`,
+      [user.id, otpHash, expiresAt]
+    );
+
+    const { html, attachments } = buildOtpEmailHtml({ otp, expiresInMinutes: OTP_EXPIRY_MINUTES });
+    await sendEmail({
+      to: user.email,
+      subject: 'Your Xclusive Oman sign-in code',
+      text: `Your Xclusive Oman sign-in code is ${otp}. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
+      html,
+      attachments,
+    });
+
+    res.json({ message: `A sign-in code has been sent to ${user.email}.` });
   } catch (err) {
     next(err);
   }

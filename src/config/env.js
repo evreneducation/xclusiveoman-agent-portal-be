@@ -49,6 +49,12 @@ export const env = {
     from: process.env.SMTP_FROM || "Xclusive Oman <no-reply@xclusiveoman.com>",
   },
   whatsappSalesNumber: process.env.WHATSAPP_SALES_NUMBER || "",
+  // scripts/seed.js's default super_admin account — set per-environment in
+  // .env (see .env.example), no built-in fallback: an unset SEED_ADMIN_EMAIL
+  // just means seed.js logs that nothing is configured and skips (see its
+  // own DEFAULT_EMAIL check), rather than silently seeding someone's actual
+  // inbox as super_admin.
+  seedAdminEmail: process.env.SEED_ADMIN_EMAIL || "",
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
     apiKey: process.env.CLOUDINARY_API_KEY,
