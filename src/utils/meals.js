@@ -41,3 +41,36 @@ export function resolveMealsSummary(row, meals) {
     resolveMealTypeSummary(row, meals, 'dinner', 'Dinner'),
   ].filter(Boolean);
 }
+
+// FD Packages only (Task 5) — dayCount for meal/visa pricing at booking
+// time comes from the package's own Duration field (FdPackageEditor.jsx's
+// Basics form, a plain number-of-days input), not an admin-typed people/day
+// count the way computeMealsCost above still works for Custom FIT. Mirrors
+// the frontend's own parseDurationDays (shared/fdPackage/index.js) exactly,
+// so the two never disagree about what a given Duration string means.
+export function parseDurationDays(duration) {
+  if (!duration) return null;
+  const match = String(duration).match(/(\d+)\s*d(?:ay)?s?\b/i);
+  const days = Number(match ? match[1] : duration);
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
+// FD Packages' own meal pricing (Task 4/5) — no admin-entered headcount or
+// day count anymore (unlike computeMealsCost above, still used by Custom
+// FIT's own lunch_people/lunch_days): a meal type is simply included or not
+// (fd_packages.lunch_meal_id/dinner_meal_id non-null — the same "included"
+// signal MealsManager's checkbox already set, no new column needed),
+// priced at price_per_day × the package's own Duration in days. Multiplied
+// by the agent's real pax only once a booking is actually made
+// (booking.service.js#createFdBooking) — headcount is never known before
+// that, so this can only ever return a *per-pax* figure, not a total.
+function fdMealTypePerPax(row, meals, prefix, dayCount) {
+  const mealId = row[`${prefix}_meal_id`];
+  if (!mealId || !dayCount) return 0;
+  const meal = (meals || []).find((m) => m.id === mealId);
+  return meal ? Number(meal.price_per_day || 0) * dayCount : 0;
+}
+
+export function computeFdMealsPerPax(fdPackage, meals, dayCount) {
+  return fdMealTypePerPax(fdPackage, meals, 'lunch', dayCount) + fdMealTypePerPax(fdPackage, meals, 'dinner', dayCount);
+}

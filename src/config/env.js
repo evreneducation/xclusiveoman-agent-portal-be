@@ -61,12 +61,19 @@ export const env = {
   // configuration — a dedicated MARKETING_TRACKING_SECRET is optional, for
   // stricter isolation between the two token purposes.
   marketingTrackingSecret: process.env.MARKETING_TRACKING_SECRET || process.env.JWT_REFRESH_SECRET,
-  smtp: {
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 465),
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-    from: process.env.SMTP_FROM || "Xclusive Oman <no-reply@xclusiveoman.com>",
+  // Brevo (formerly Sendinblue) transactional email HTTP API —
+  // services/email.service.js#sendEmail, the sole email transport in this
+  // app (SMTP/Nodemailer removed — it isn't usable on Render for outbound
+  // mail, and every email here already went through this one shared
+  // function, so migrating it centrally covers OTP, registration/approval,
+  // staff welcome, Marketing Center, payment confirmations, support
+  // tickets, and FD operations in one place). BREVO_SENDER_EMAIL must be a
+  // sender verified in Brevo's own dashboard, or sends are rejected
+  // regardless of API key validity.
+  brevo: {
+    apiKey: process.env.BREVO_API_KEY,
+    senderEmail: process.env.BREVO_SENDER_EMAIL,
+    senderName: process.env.BREVO_SENDER_NAME || "Xclusive Oman",
   },
   whatsappSalesNumber: process.env.WHATSAPP_SALES_NUMBER || "",
   // scripts/seed.js's default super_admin account — set per-environment in

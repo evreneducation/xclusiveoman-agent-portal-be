@@ -16,6 +16,7 @@ import {
   addAddon,
   removeAddon,
 } from '../models/fdPackages.model.js';
+import { activitiesModel, toursModel, transfersModel } from '../models/catalog.model.js';
 import { toSnakeCaseColumns } from '../validation/schemas.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -66,6 +67,8 @@ function toPublicPackage(fdPackage, ratePerPax) {
     dinnerMealId: fdPackage.dinner_meal_id ?? null,
     dinnerPeople: toNumOrNull(fdPackage.dinner_people),
     dinnerDays: toNumOrNull(fdPackage.dinner_days),
+    // Task 5 — "included or not" checkbox (0062_fd_addons_transfer_visa.sql).
+    visaEnabled: !!fdPackage.visa_enabled,
     // Client-facing Inclusions/Exclusions — see
     // 0050_fd_packages_inclusions_exclusions.sql.
     inclusions: fdPackage.inclusions || '',
@@ -123,8 +126,8 @@ export async function get(req, res, next) {
           id: a.id,
           activityId: a.activity_id,
           tourId: a.tour_id,
-          name: a.activity_name || a.tour_name,
-          location: a.location,
+          transferId: a.transfer_id,
+          name: a.activity_name || a.tour_name || a.transfer_name,
           pricePerPax: Number(a.price_per_pax),
         })),
       },
@@ -258,19 +261,45 @@ export async function deleteDepartureDate(req, res, next) {
   }
 }
 
+// Task 5 — admin picks a real catalog item by checkbox; its price is read
+// straight off that catalog entry here (never admin-typed) so it can never
+// drift from what the Product Catalog actually charges elsewhere.
+async function resolveAddonPriceAndName({ activityId, tourId, transferId }) {
+  if (activityId) {
+    const row = await activitiesModel.findById(activityId);
+    if (!row) return null;
+    return { pricePerPax: Number(row.price_per_pax || 0), name: row.name };
+  }
+  if (tourId) {
+    const row = await toursModel.findById(tourId);
+    if (!row) return null;
+    return { pricePerPax: Number(row.price || 0), name: row.name };
+  }
+  const row = await transfersModel.findById(transferId);
+  if (!row) return null;
+  return { pricePerPax: Number(row.price || 0), name: row.name };
+}
+
 export async function postAddon(req, res, next) {
   try {
-    const addon = await addAddon(req.params.id, req.body);
-    // Mirrors the get() addons mapping below — postAddon previously returned
+    const { activityId, tourId, transferId } = req.body;
+    const resolved = await resolveAddonPriceAndName({ activityId, tourId, transferId });
+    if (!resolved) {
+      return res.status(400).json({ error: 'invalid_item', message: 'That catalog item no longer exists.' });
+    }
+
+    const addon = await addAddon(req.params.id, { activityId, tourId, transferId, pricePerPax: resolved.pricePerPax });
+    // Mirrors the get() addons mapping above — postAddon previously returned
     // the raw snake_case DB row, so a freshly-added addon showed a blank
-    // price/location in the UI until the page was reloaded via get().
+    // price in the UI until the page was reloaded via get().
     res.status(201).json({
       addon: {
         id: addon.id,
         activityId: addon.activity_id,
         tourId: addon.tour_id,
-        location: addon.location,
-        pricePerPax: Number(addon.price_per_pax),
+        transferId: addon.transfer_id,
+        name: resolved.name,
+        pricePerPax: resolved.pricePerPax,
       },
     });
   } catch (err) {

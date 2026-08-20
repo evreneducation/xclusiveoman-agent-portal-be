@@ -194,12 +194,14 @@ export function resolveTrackedLinks(html, links, resolveUrl) {
   return out;
 }
 
-// Email OTP login (auth.controller.js#requestLoginOtp) — same branded
-// table-based/inline-styles shell buildMarketingEmailHtml uses above (logo
-// header, accent divider, ACCENT_SOFT footer), but its own small template
-// rather than routing a 6-digit code through the marketing template's
-// paragraph/link-tokenizing machinery, which is built for arbitrary
-// admin-authored body text, not a single numeric code.
+// Email OTP login (auth.controller.js#requestLoginOtp) — intentionally
+// logo-free for now (temporary/simple, not the branded shell every other
+// template here uses): the header band is a plain text wordmark instead of
+// the `cid:`-referenced logo image, so this sends no attachment at all and
+// references no logo file/URL/data-URI anywhere. Every other template in
+// this file (buildMarketingEmailHtml, buildStaffWelcomeEmailHtml, etc.)
+// still uses the real logo, untouched — branded OTP rendering is a
+// separate, later piece of work.
 export function buildOtpEmailHtml({ otp, expiresInMinutes }) {
   const digits = escapeHtml(otp);
   const html = `<!doctype html>
@@ -210,8 +212,8 @@ export function buildOtpEmailHtml({ otp, expiresInMinutes }) {
         <td align="center">
           <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid ${BORDER};">
             <tr>
-              <td style="background:${INK}; padding:24px 32px;">
-                <img src="cid:${LOGO_CID}" alt="Xclusive Oman" width="150" style="display:block; height:auto; border:0; max-width:150px;" />
+              <td style="background:${INK}; padding:20px 32px;">
+                <span style="font-family:Arial, Helvetica, sans-serif; font-size:18px; font-weight:700; color:#ffffff; letter-spacing:0.02em;">Xclusive Oman</span>
               </td>
             </tr>
             <tr>
@@ -241,16 +243,7 @@ export function buildOtpEmailHtml({ otp, expiresInMinutes }) {
   </body>
 </html>`;
 
-  const attachments = [
-    {
-      filename: 'xclusive-oman-logo.png',
-      path: LOGO_ATTACHMENT_PATH,
-      cid: LOGO_CID,
-      contentDisposition: 'inline',
-    },
-  ];
-
-  return { html, attachments };
+  return { html, attachments: [] };
 }
 
 // Shared table-based/inline-styles shell (logo header, accent divider,

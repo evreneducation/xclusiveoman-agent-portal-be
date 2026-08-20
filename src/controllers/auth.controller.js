@@ -9,8 +9,8 @@ import {
   hashRawToken,
   generateNumericOtp,
 } from '../services/auth.service.js';
-import { sendEmail } from '../services/email.service.js';
-import { buildOtpEmailHtml, buildAgentRegistrationReceivedEmailHtml } from '../services/emailTemplate.service.js';
+import { sendEmail, sendOtpEmail } from '../services/email.service.js';
+import { buildAgentRegistrationReceivedEmailHtml } from '../services/emailTemplate.service.js';
 import { createNotification } from '../services/notification.service.js';
 
 // Email OTP login — the sole authentication mechanism now (no password
@@ -106,7 +106,7 @@ async function notifyAdminsOfNewAgent({ agency, user }) {
 
 // Acknowledges the new owner's own registration (as opposed to
 // notifyAdminsOfNewAgent above, which tells admins about it) — same
-// best-effort, post-COMMIT posture: an SMTP hiccup here must never fail (or
+// best-effort, post-COMMIT posture: an email-send hiccup here must never fail (or
 // even delay) the registration response.
 async function sendAgentRegistrationReceivedEmail({ agency, user }) {
   try {
@@ -239,14 +239,12 @@ export async function requestLoginOtp(req, res, next) {
       [user.id, otpHash, expiresAt]
     );
 
-    const { html, attachments } = buildOtpEmailHtml({ otp, expiresInMinutes: OTP_EXPIRY_MINUTES });
-    await sendEmail({
-      to: user.email,
-      subject: 'Your Xclusive Oman sign-in code',
-      text: `Your Xclusive Oman sign-in code is ${otp}. It expires in ${OTP_EXPIRY_MINUTES} minutes.`,
-      html,
-      attachments,
-    });
+    // Sent via Brevo's HTTP API — same transport every email in this app
+    // uses now (sendEmail above, email.service.js), SMTP/Nodemailer having
+    // been removed entirely (it wasn't usable on Render). sendOtpEmail is
+    // just a thin wrapper that builds this one template and calls sendEmail;
+    // OTP generation/storage/expiry above this line is untouched.
+    await sendOtpEmail(user.email, otp, OTP_EXPIRY_MINUTES);
 
     res.json({ message: `A sign-in code has been sent to ${user.email}.` });
   } catch (err) {

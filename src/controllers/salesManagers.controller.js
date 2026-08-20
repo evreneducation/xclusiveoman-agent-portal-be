@@ -51,7 +51,7 @@ export async function create(req, res, next) {
       permissions: normalizeLmPermissions(req.body.permissions),
     });
 
-    // Best-effort — a flaky SMTP server must never fail account creation,
+    // Best-effort — a flaky Brevo send must never fail account creation,
     // which has already succeeded by this point (same posture as
     // auth.controller.js#notifyAdminsOfNewAgent). "Lead Manager" is the
     // admin UI's display label for this role (Employees.jsx) — the role

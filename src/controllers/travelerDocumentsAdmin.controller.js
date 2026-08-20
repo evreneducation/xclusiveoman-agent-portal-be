@@ -200,7 +200,7 @@ export async function downloadAllZip(req, res, next) {
 // {to, message, documentRefs: [{type, travelerId?}]} where type is one of
 // passport_scan/passport_photo/visa_copy (with travelerId) or voucher
 // (booking-level, no travelerId). Reuses email.service.js#sendEmail's
-// existing `attachments` support — no second SMTP/email implementation.
+// existing `attachments` support — no second email implementation.
 export async function emailToSupplier(req, res, next) {
   try {
     const booking = await loadBookingOr404(req, res);

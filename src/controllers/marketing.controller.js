@@ -263,7 +263,7 @@ export async function listCampaignRecipients(req, res, next) {
 // show for every provider regardless of actual state. Never includes a
 // credential/secret: this response is built entirely from
 // getChannelStatuses()'s { channel, provider, label, status, message }
-// shape, which never reads (let alone echoes back) an SMTP password or any
+// shape, which never reads (let alone echoes back) the Brevo API key or any
 // other credential value.
 export async function getChannels(req, res, next) {
   try {
