@@ -1,7 +1,7 @@
 import { pool } from '../db/pool.js';
 import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel, visaModel } from './catalog.model.js';
 import { roomsForAdults } from '../utils/occupancy.js';
-import { computeMealsCost } from '../utils/meals.js';
+import { parseDurationDays, computeFdMealsPerPax } from '../utils/meals.js';
 
 const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
@@ -254,13 +254,21 @@ export function computeNetRatePerPax(items, pools) {
 }
 
 // The effective net rate: fdPackage.rate_per_pax when the admin has set an
-// override, else the itinerary total plus any selected meals (see
-// computeMealsCost, src/utils/meals.js — shared with the Custom FIT Package
-// Builder's costing). Shared by every reader (admin catalog, agent
-// listing/detail, booking) so they never disagree about which price applies.
+// override, else the itinerary total plus any included meals/visa (Task
+// 4/5 — both are checkbox-only inclusions, priced off the package's own
+// Duration/the visa catalog's flat per-person rate, not an admin-entered
+// headcount — see computeFdMealsPerPax, utils/meals.js — so unlike Custom
+// FIT's own computeMealsCost, which needs a real headcount that only exists
+// once a request is submitted, this is already a genuine per-pax figure
+// with nothing left to resolve at booking time). Shared by every reader
+// (admin catalog, agent listing/detail, booking) so they never disagree
+// about which price applies.
 export function resolveRatePerPax(fdPackage, items, pools) {
   if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
-  return computeNetRatePerPax(items, pools) + computeMealsCost(fdPackage, pools.meal);
+  const dayCount = parseDurationDays(fdPackage.duration);
+  const mealsPerPax = computeFdMealsPerPax(fdPackage, pools.meal, dayCount);
+  const visaPerPax = fdPackage.visa_enabled ? Number(pools.visa?.[0]?.price_per_person || 0) : 0;
+  return computeNetRatePerPax(items, pools) + mealsPerPax + visaPerPax;
 }
 
 // Composes the persisted days/items rows into the [{dayNumber, notes, items:
