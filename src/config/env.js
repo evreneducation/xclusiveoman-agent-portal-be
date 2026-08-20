@@ -27,6 +27,18 @@ export const env = {
     .map((s) => s.trim())
     .filter(Boolean),
   agentPortalUrl: process.env.AGENT_PORTAL_URL || "http://localhost:5173/agent",
+  // Transactional emails (staff welcome, agent registration/approval —
+  // services/emailTemplate.service.js) link straight to each portal's own
+  // login page. Both portals are one frontend deployment (AGENT_PORTAL_URL
+  // above already documents this), so these are derived from it — stripping
+  // its trailing "/agent" gets back to that shared origin — rather than
+  // needing a second required env var just for the /admin half.
+  get adminLoginUrl() {
+    return `${this.agentPortalUrl.replace(/\/agent\/?$/, "")}/admin/login`;
+  },
+  get agentLoginUrl() {
+    return `${this.agentPortalUrl.replace(/\/agent\/?$/, "")}/agent/login`;
+  },
   // Task 11 (Marketing Center — Open & Click Tracking) — the backend's own
   // publicly-reachable base URL, needed to build absolute tracking-pixel/
   // click-redirect URLs embedded in an outbound email (unlike agentPortalUrl

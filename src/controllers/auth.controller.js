@@ -10,7 +10,7 @@ import {
   generateNumericOtp,
 } from '../services/auth.service.js';
 import { sendEmail } from '../services/email.service.js';
-import { buildOtpEmailHtml } from '../services/emailTemplate.service.js';
+import { buildOtpEmailHtml, buildAgentRegistrationReceivedEmailHtml } from '../services/emailTemplate.service.js';
 import { createNotification } from '../services/notification.service.js';
 
 // Email OTP login — the sole authentication mechanism now (no password
@@ -104,6 +104,28 @@ async function notifyAdminsOfNewAgent({ agency, user }) {
   }
 }
 
+// Acknowledges the new owner's own registration (as opposed to
+// notifyAdminsOfNewAgent above, which tells admins about it) — same
+// best-effort, post-COMMIT posture: an SMTP hiccup here must never fail (or
+// even delay) the registration response.
+async function sendAgentRegistrationReceivedEmail({ agency, user }) {
+  try {
+    const { html, attachments } = buildAgentRegistrationReceivedEmailHtml({
+      fullName: user.full_name,
+      agencyName: agency.name,
+    });
+    await sendEmail({
+      to: user.email,
+      subject: "We've received your Xclusive Oman registration",
+      text: `Thanks for registering ${agency.name} with Xclusive Oman. Our team is reviewing your details now — you'll get another email the moment you're approved.`,
+      html,
+      attachments,
+    });
+  } catch (err) {
+    console.error('Failed to send registration-received email', agency.id, err);
+  }
+}
+
 // POST /api/auth/register — AUTH-1: public agency + owner signup, status=pending.
 // No password collected — the new owner signs in afterward (once approved)
 // the same way everyone else does now: email OTP.
@@ -138,6 +160,7 @@ export async function register(req, res, next) {
     // never fires on a failed/rolled-back registration (see the catch block
     // below, which never calls this).
     await notifyAdminsOfNewAgent({ agency, user });
+    await sendAgentRegistrationReceivedEmail({ agency, user });
 
     res.status(201).json({
       agency: { id: agency.id, name: agency.name, status: agency.status },

@@ -1,7 +1,9 @@
 import { pool } from '../db/pool.js';
+import { env } from '../config/env.js';
 import { listAgencies, findAgencyById, updateAgency } from '../models/agencies.model.js';
 import { findUserById, listAgencyOwnerEmails } from '../models/users.model.js';
 import { sendEmail } from '../services/email.service.js';
+import { buildAgentApprovedEmailHtml } from '../services/emailTemplate.service.js';
 import { pickNextRoundRobinRm } from '../services/rmAssignment.service.js';
 import { getIo } from '../sockets/index.js';
 
@@ -118,11 +120,26 @@ export async function patchAgency(req, res, next) {
       );
       const owner = rows[0];
       if (owner) {
-        await sendEmail({
-          to: owner.email,
-          subject: 'Your Xclusive Oman agency has been approved',
-          text: `Good news — ${agency.name} has been approved${agency.tier ? ` at ${agency.tier} tier` : ''}. You can now log in.`,
-        });
+        // Best-effort — an SMTP hiccup must never fail the approval itself,
+        // which has already been durably written by updateAgency() above
+        // (same posture as auth.controller.js#notifyAdminsOfNewAgent).
+        try {
+          const { html, attachments } = buildAgentApprovedEmailHtml({
+            fullName: owner.full_name,
+            agencyName: agency.name,
+            tier: agency.tier,
+            loginUrl: env.agentLoginUrl,
+          });
+          await sendEmail({
+            to: owner.email,
+            subject: 'Your Xclusive Oman agency has been approved',
+            text: `Good news — ${agency.name} has been approved${agency.tier ? ` at ${agency.tier} tier` : ''}. Sign in at ${env.agentLoginUrl}.`,
+            html,
+            attachments,
+          });
+        } catch (err) {
+          console.error('Failed to send agency-approved email', agency.id, err);
+        }
         getIo()?.to(`user:${owner.id}`).emit('notification:new', {
           type: 'agency_approved',
           title: 'Agency approved',

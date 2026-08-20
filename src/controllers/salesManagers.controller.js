@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { env } from '../config/env.js';
 import {
   createUser,
   findUserByEmail,
@@ -7,6 +8,8 @@ import {
   toPublicUser,
   updateUser,
 } from '../models/users.model.js';
+import { sendEmail } from '../services/email.service.js';
+import { buildStaffWelcomeEmailHtml } from '../services/emailTemplate.service.js';
 
 // GET /api/admin/sales-managers
 // Lists the sales_manager staff pool. Unlike relationship managers, sales
@@ -39,6 +42,29 @@ export async function create(req, res, next) {
       phone,
       whatsappNumber,
     });
+
+    // Best-effort — a flaky SMTP server must never fail account creation,
+    // which has already succeeded by this point (same posture as
+    // auth.controller.js#notifyAdminsOfNewAgent). "Lead Manager" is the
+    // admin UI's display label for this role (Employees.jsx) — the role
+    // slug itself stays `sales_manager` in the DB/API.
+    try {
+      const { html, attachments } = buildStaffWelcomeEmailHtml({
+        fullName: user.full_name,
+        roleLabel: 'Lead Manager',
+        email: user.email,
+        loginUrl: env.adminLoginUrl,
+      });
+      await sendEmail({
+        to: user.email,
+        subject: 'Welcome to the Xclusive Oman team',
+        text: `You've been added as a Lead Manager on the Xclusive Oman B2B & MICE Trade Portal. Sign in at ${env.adminLoginUrl} with your work email (${user.email}) — we'll email you a one-time code.`,
+        html,
+        attachments,
+      });
+    } catch (err) {
+      console.error('Failed to send Lead Manager welcome email', user.id, err);
+    }
 
     res.status(201).json({ user: toPublicUser(user) });
   } catch (err) {
