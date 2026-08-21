@@ -288,6 +288,44 @@ function resolveFlightsPerPax(fdPackage, pools) {
   return Number(onward?.price || 0) + Number(ret?.price || 0);
 }
 
+// Public "Flight Details" section on the departure detail page
+// (agent/pages/DepartureDetail.jsx's collapsible Flight Details card) —
+// only present when flights are included directly on the package
+// (flights_enabled) and both the onward/return flight still resolve in the
+// catalog pool (same guard resolveFlightsPerPax above uses). Returns null
+// otherwise so the frontend can key "show this section" off whether
+// departure.flights came back at all, rather than re-deriving the same
+// enabled/resolved checks itself.
+export function resolveFlightDetails(fdPackage, pools) {
+  if (!fdPackage.flights_enabled) return null;
+  const flights = pools.flight || [];
+  const onward = flights.find((f) => f.id === fdPackage.onward_flight_id);
+  const ret = flights.find((f) => f.id === fdPackage.return_flight_id);
+  if (!onward || !ret) return null;
+  const toPublicFlight = (f) => ({
+    name: f.name,
+    source: f.source,
+    destination: f.destination,
+    departureDate: f.departure_date,
+  });
+  return { onward: toPublicFlight(onward), return: toPublicFlight(ret) };
+}
+
+// fd_packages.hotel_id is a legacy column from before hotels were placed
+// directly on the day-by-day itinerary (like tours/transfers/activities
+// already are) — FdPackageEditor.jsx has no "select the package's hotel"
+// field any more, only per-day hotel placement (setHotelForDay), so
+// hotel_id is never set for a package built in the current admin UI and
+// anything keyed off it alone (destination, hotel details) would be null
+// forever. This resolves the first hotel actually placed on the itinerary
+// instead (`items` here is listItineraryForPackage's raw rows, already
+// ordered by day_number, position), falling back to the legacy column only
+// for an older package that set it and has no itinerary hotel of its own.
+export function resolvePrimaryHotelId(fdPackage, items) {
+  const firstHotelItem = (items || []).find((it) => it.item_type === 'hotel');
+  return firstHotelItem?.item_id || fdPackage.hotel_id || null;
+}
+
 export function resolveRatePerPax(fdPackage, items, pools) {
   if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
   const dayCount = parseDurationDays(fdPackage.duration);
