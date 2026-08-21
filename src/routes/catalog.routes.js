@@ -12,6 +12,7 @@ import {
   mealSchema,
   nameOnlyCatalogSchema,
   visaSchema,
+  flightSchema,
   toSnakeCaseColumns,
 } from '../validation/schemas.js';
 
@@ -50,6 +51,7 @@ const ENTITIES = [
   { path: 'inclusions', schema: nameOnlyCatalogSchema },
   { path: 'exclusions', schema: nameOnlyCatalogSchema },
   { path: 'visas', schema: visaSchema },
+  { path: 'flights', schema: flightSchema },
 ];
 
 // Public-to-agents listing/detail (doc §12.3) — any authenticated user, agent or staff.

@@ -32,6 +32,11 @@ function createCrudModel(table, columns) {
         values.push(filters.mealType);
         i += 1;
       }
+      if (filters.isFlightOnward !== undefined && columns.includes('is_flight_onward')) {
+        clauses.push(`is_flight_onward = $${i}`);
+        values.push(filters.isFlightOnward);
+        i += 1;
+      }
 
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const { rows } = await pool.query(
@@ -130,3 +135,12 @@ export const exclusionsModel = createCrudModel('exclusions', ['name']);
 // VisaTab) only ever edits the one row in place, same "one entry" convention
 // Meals already uses per meal_type.
 export const visaModel = createCrudModel('visa', ['price_per_person']);
+
+// Product Catalog "Flights" tab (see 0063_flights_catalog.sql) — any number
+// of onward and return flights, distinguished by is_flight_onward (true for
+// an entry added under the Onward sub-tab, false for Return), the same
+// "one table, a column tells the sub-type apart" convention meals.meal_type
+// already uses for Lunch/Dinner.
+export const flightsModel = createCrudModel('flights', [
+  'name', 'source', 'destination', 'departure_date', 'is_flight_onward',
+]);

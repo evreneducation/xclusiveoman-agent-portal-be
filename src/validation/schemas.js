@@ -231,6 +231,19 @@ export const visaSchema = z.object({
   pricePerPerson: z.number().nonnegative(),
 });
 
+// Product Catalog "Flights" tab (see 0063_flights_catalog.sql) — a plain
+// growable list (unlike Visa above), any number of onward and return
+// entries. isFlightOnward is set by which of the two Add Flight sub-tab
+// forms submitted it (ProductCatalog.jsx's FlightsTab), not admin-picked
+// from a dropdown.
+export const flightSchema = z.object({
+  name: z.string().min(1, 'Flight name is required').max(200),
+  source: z.string().min(1, 'Source is required').max(200),
+  destination: z.string().min(1, 'Destination is required').max(200),
+  departureDate: z.string().min(1, 'Departure date is required'),
+  isFlightOnward: z.boolean(),
+});
+
 // camelCase request bodies -> snake_case DB columns for the catalog CRUD models.
 const CATALOG_KEY_MAP = {
   boardBasisOptions: 'board_basis_options',
@@ -251,6 +264,8 @@ const CATALOG_KEY_MAP = {
   mealType: 'meal_type',
   pricePerPerson: 'price_per_person',
   pricePerDay: 'price_per_day',
+  departureDate: 'departure_date',
+  isFlightOnward: 'is_flight_onward',
   // FD packages (fdPackageSchema) — these were missing, which silently dropped
   // them from every create/update since FD_COLUMNS looks up the snake_case key.
   heroImageUrl: 'hero_image_url',
