@@ -8,6 +8,7 @@ import {
   inclusionsModel,
   exclusionsModel,
   visaModel,
+  flightsModel,
 } from '../models/catalog.model.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -25,6 +26,7 @@ const MODELS = {
   // singleton row, the route/response shape otherwise matches every other
   // list-style catalog entity.
   visas: visaModel,
+  flights: flightsModel,
 };
 
 // Naive `entity.slice(0, -1)` mis-singularizes "activities" -> "activitie"
@@ -48,9 +50,10 @@ export function catalogHandlersFor(entity) {
   return {
     async list(req, res, next) {
       try {
-        const { city, search, mice, mealType } = req.query;
+        const { city, search, mice, mealType, isFlightOnward } = req.query;
         const isMiceEnabled = mice === undefined ? undefined : mice === 'true';
-        const rows = await model.list({ city, search, isMiceEnabled, mealType });
+        const isFlightOnwardBool = isFlightOnward === undefined ? undefined : isFlightOnward === 'true';
+        const rows = await model.list({ city, search, isMiceEnabled, mealType, isFlightOnward: isFlightOnwardBool });
         res.json({ [entity]: rows });
       } catch (err) {
         next(err);

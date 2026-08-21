@@ -64,19 +64,32 @@ router.use('/admin/cms', cmsRoutes);
 // reviewsAdmin.routes.js), registered before the bare-/admin routers for
 // the same reason as Support/Analytics/CMS above.
 router.use('/admin/reviews', reviewsAdminRoutes);
-router.use('/admin', adminRoutes);
-router.use('/admin', adminCatalogRouter);
-router.use('/admin', adminPaymentsRouter);
+// Every other router with its own more-specific /admin/<x> prefix and its
+// own RBAC/Access-Feature gate — same "register before the bare-/admin
+// trio" reasoning as Support/Analytics/CMS/Reviews above, just not yet
+// applied here until this was traced as the actual cause of a live bug: a
+// Relationship Manager/Lead Manager hitting e.g. /admin/bookings or
+// /admin/package-requests was getting a 403 for the *wrong* Access Feature
+// ("catalog" instead of "bookingsDocs"/"quotesPricing") because
+// adminCatalogRouter below — mounted at the bare /admin prefix, with its
+// own blanket requireFeature('catalog') — intercepted the request first
+// and rejected it before Express ever reached these routers, exactly the
+// failure mode the comment above already warned about for Support.
+// FD Operations Tracker (Task 12) has its own RBAC gate
+// (requireFeature('fdOperations')) — see fdOperationsAdmin.routes.js.
+// Admin Bookings & Documents (Task 13) has its own RBAC gate
+// (requireFeature('bookingsDocs')) — see bookingsAdmin.routes.js.
 router.use('/admin/fd-packages', fdPackagesAdminRoutes);
 router.use('/admin/relationship-managers', relationshipManagersRoutes);
 router.use('/admin/sales-managers', salesManagersRoutes);
 router.use('/admin/marketing', marketingRoutes);
-// FD Operations Tracker (Task 12) — its own RBAC gate (ops_admin/super_admin),
-// separate from Marketing's above; see fdOperationsAdmin.routes.js.
 router.use('/admin/operations', fdOperationsAdminRoutes);
-// Admin Bookings & Documents — Manual Booking Flow (Task 13) — its own RBAC
-// gate too (ops_admin/super_admin); see bookingsAdmin.routes.js.
 router.use('/admin/bookings', bookingsAdminRoutes);
+router.use('/admin/package-requests', packageRequestsAdminRoutes);
+router.use('/admin/mice-rfqs', miceRfqsAdminRoutes);
+router.use('/admin', adminRoutes);
+router.use('/admin', adminCatalogRouter);
+router.use('/admin', adminPaymentsRouter);
 router.use('/support/tickets', supportTicketsRoutes);
 // Public, no requireAuth — Task 11 (Open & Click Tracking). See
 // marketingTracking.routes.js's own comment for why this is the one
@@ -91,11 +104,12 @@ router.use('/cms', cmsPublicRoutes);
 router.use('/', catalogRoutes);
 router.use('/departures', departuresRoutes);
 router.use('/package-requests', packageRequestsRoutes);
-router.use('/admin/package-requests', packageRequestsAdminRoutes);
+// /admin/package-requests and /admin/mice-rfqs themselves are registered
+// earlier, alongside the other specific-prefix /admin/* routers (see the
+// comment up there) — moved up from here to fix the same shadowing bug.
 // pdfToken-authenticated (not requireAuth) — see itineraryPdfData.routes.js.
 router.use('/itinerary-pdf', itineraryPdfDataRoutes);
 router.use('/mice/rfqs', miceRfqsRoutes);
-router.use('/admin/mice-rfqs', miceRfqsAdminRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/bookings', bookingsRoutes);
 router.use('/reviews', reviewsRoutes);
