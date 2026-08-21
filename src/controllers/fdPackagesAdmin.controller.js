@@ -31,6 +31,21 @@ function toNumOrNull(v) {
   return v === null || v === undefined ? null : Number(v);
 }
 
+// Mirrors the admin UI's own pre-Publish gate (FdPackageEditor.jsx's
+// findCarouselImagesError) — enforced here too so a package can never be
+// published with a thin gallery via a direct API call that skips the UI.
+// Only blocks the transition *into* (or staying) 'published'; a package
+// still being drafted/autosaved can hold any number of images, same as the
+// day-by-day itinerary, which has no equivalent server-side check either.
+const MIN_CAROUSEL_IMAGES = 4;
+
+function carouselImagesError(images, status) {
+  if (status === 'published' && (images || []).length < MIN_CAROUSEL_IMAGES) {
+    return `Add at least ${MIN_CAROUSEL_IMAGES} carousel images before publishing.`;
+  }
+  return null;
+}
+
 // `ratePerPax` is the already-resolved rate (see resolveRatePerPax —
 // fdPackage.rate_per_pax when the admin set an override, else the itinerary
 // total). Callers that haven't loaded the itinerary/catalog pools
@@ -139,6 +154,10 @@ export async function get(req, res, next) {
 
 export async function create(req, res, next) {
   try {
+    const message = carouselImagesError(req.body.images, req.body.status);
+    if (message) {
+      return res.status(400).json({ error: 'validation_error', message });
+    }
     const fdPackage = await createFdPackage(toSnakeCaseColumns(req.body));
     res.status(201).json({ fdPackage: toPublicPackage(fdPackage) });
   } catch (err) {
@@ -148,6 +167,19 @@ export async function create(req, res, next) {
 
 export async function update(req, res, next) {
   try {
+    const existing = await findFdPackageById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not_found' });
+
+    // PATCH bodies are partial — a `status: 'published'` PATCH sent without
+    // `images` (or vice versa) still needs checking against whichever of the
+    // two the request isn't touching, so fall back to what's already saved.
+    const finalStatus = req.body.status !== undefined ? req.body.status : existing.status;
+    const finalImages = req.body.images !== undefined ? req.body.images : existing.images;
+    const message = carouselImagesError(finalImages, finalStatus);
+    if (message) {
+      return res.status(400).json({ error: 'validation_error', message });
+    }
+
     const fdPackage = await updateFdPackage(req.params.id, toSnakeCaseColumns(req.body));
     if (!fdPackage) return res.status(404).json({ error: 'not_found' });
     res.json({ fdPackage: toPublicPackage(fdPackage) });
