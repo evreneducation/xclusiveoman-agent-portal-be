@@ -5,13 +5,14 @@ import {
   listItineraryForPackage,
   composeItinerary,
   resolveRatePerPax,
+  resolveFlightDetails,
+  resolvePrimaryHotelId,
   loadCatalogPools,
   listDepartureDates,
   findDepartureDateById,
   listAddons,
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
-import { hotelsModel } from '../models/catalog.model.js';
 import { resolveMealsSummary } from '../utils/meals.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
@@ -21,8 +22,12 @@ import { createFdBooking } from '../services/booking.service.js';
 // sum of the package's day-by-day itinerary (see resolveRatePerPax) — the
 // same price for every agency, regardless of tier. Agency tier still exists
 // for other purposes (approvals, marketing), it just no longer drives FD
-// package pricing.
-function toPublicPackage(fdPackage, ratePerPax) {
+// package pricing. `hotel` is the resolved primary hotel's own catalog row
+// (resolvePrimaryHotelId + a pools.hotel lookup — see both call sites below),
+// not fdPackage.hotel_city/hotel_name off the now-legacy hotel_id join,
+// which stays null forever for a package whose hotel was placed on the
+// itinerary instead (the only way FdPackageEditor.jsx sets a hotel today).
+function toPublicPackage(fdPackage, ratePerPax, hotel) {
   return {
     id: fdPackage.id,
     title: fdPackage.title,
@@ -30,10 +35,10 @@ function toPublicPackage(fdPackage, ratePerPax) {
     duration: fdPackage.duration,
     heroImageUrl: fdPackage.hero_image_url,
     images: fdPackage.images || [],
-    // fd_packages has no dedicated destination column — the linked hotel's
-    // city is the closest real-data stand-in (see listFdPackages' join).
-    destination: fdPackage.hotel_city || null,
-    hotelName: fdPackage.hotel_name || null,
+    // fd_packages has no dedicated destination column — the resolved
+    // primary hotel's city is the closest real-data stand-in.
+    destination: hotel?.city || null,
+    hotelName: hotel?.name || null,
     shortDescription: fdPackage.short_description,
     suitableAgeMin: fdPackage.suitable_age_min,
     rating: fdPackage.rating,
@@ -65,8 +70,10 @@ export async function listDepartures(req, res, next) {
     const withDates = await Promise.all(
       packages.map(async (p) => {
         const [dates, itinerary] = await Promise.all([listDepartureDates(p.id), listItineraryForPackage(p.id)]);
+        const hotelId = resolvePrimaryHotelId(p, itinerary.items);
+        const hotel = hotelId ? pools.hotel.find((h) => h.id === hotelId) : null;
         return {
-          ...toPublicPackage(p, resolveRatePerPax(p, itinerary.items, pools)),
+          ...toPublicPackage(p, resolveRatePerPax(p, itinerary.items, pools), hotel),
           nextDepartures: dates.map((d) => ({
             id: d.id,
             date: d.date,
@@ -91,31 +98,51 @@ export async function getDeparture(req, res, next) {
       return res.status(404).json({ error: 'not_found' });
     }
 
-    const [itinerary, dates, addons, hotel, pools] = await Promise.all([
+    const [itinerary, dates, addons, pools] = await Promise.all([
       listItineraryForPackage(fdPackage.id),
       listDepartureDates(fdPackage.id),
       listAddons(fdPackage.id),
-      fdPackage.hotel_id ? hotelsModel.findById(fdPackage.hotel_id) : null,
       loadCatalogPools(),
     ]);
 
+    // pools.hotel already holds every hotel's full row (loadCatalogPools) —
+    // resolving here off the itinerary's own hotel item instead of a second
+    // hotelsModel.findById(fdPackage.hotel_id) call both fixes the
+    // legacy-hotel_id bug (see resolvePrimaryHotelId) and avoids a redundant
+    // DB round trip.
+    const hotelId = resolvePrimaryHotelId(fdPackage, itinerary.items);
+    const hotel = hotelId ? pools.hotel.find((h) => h.id === hotelId) : null;
+
     res.json({
       departure: {
-        ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools)),
+        ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools), hotel),
         itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
         // Read-only breakdown for the "Meals" section below the itinerary
         // (DepartureDetail.jsx) — already folded into ratePerPax above via
         // resolveRatePerPax, this is purely informational.
         meals: resolveMealsSummary(fdPackage, pools.meal),
+        // null unless flights are included directly on the package — the
+        // "Flight Details" collapsible section (DepartureDetail.jsx) only
+        // renders when this comes back non-null.
+        flights: resolveFlightDetails(fdPackage, pools),
         departureDates: dates.map((d) => ({
           id: d.id,
           date: d.date,
           seatsLeft: d.seats_total - d.seats_booked,
           location: d.location,
         })),
+        // `type` tells the agent-facing UI (DepartureDetail.jsx) which
+        // category heading an add-on belongs under (Activities/Tours/
+        // Transfers/Flights) — derived from whichever of the 4 mutually
+        // exclusive *_id columns is set (fd_addons_exactly_one_item CHECK
+        // constraint guarantees exactly one). `name` now falls back through
+        // all 4 joined name columns (listAddons), not just
+        // activity_name/tour_name — a transfer or flight add-on used to come
+        // back with name: null because of that.
         addons: addons.map((a) => ({
           id: a.id,
-          name: a.activity_name || a.tour_name,
+          type: a.activity_id ? 'activity' : a.tour_id ? 'tour' : a.transfer_id ? 'transfer' : 'flight',
+          name: a.activity_name || a.tour_name || a.transfer_name || a.flight_name,
           pricePerPax: Number(a.price_per_pax),
         })),
         // Richer hotel detail for the "Hotel Information" section — the

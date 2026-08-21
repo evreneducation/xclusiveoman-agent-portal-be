@@ -1,0 +1,11 @@
+-- Adds a price to each flight (0063_flights_catalog.sql didn't have one) —
+-- a new migration rather than editing 0063 in place: schema_migrations
+-- tracks "already applied" purely by filename (src/db/migrate.js), so
+-- editing an already-applied migration's contents would silently do nothing
+-- on any environment that ran it before this change, same reason every
+-- other post-launch column addition in this app (e.g.
+-- 0029_transfer_images.sql, 0061_hotel_occupancy_pricing.sql) is its own
+-- ALTER rather than a rewrite of the original CREATE TABLE.
+-- Nullable/optional, same as transfers.price (0006_catalog.sql) — an
+-- existing flight predates this column.
+ALTER TABLE flights ADD COLUMN price NUMERIC;
