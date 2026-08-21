@@ -1,5 +1,5 @@
 import { pool } from '../db/pool.js';
-import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel, visaModel } from './catalog.model.js';
+import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel, visaModel, flightsModel } from './catalog.model.js';
 import { roomsForAdults } from '../utils/occupancy.js';
 import { parseDurationDays, computeFdMealsPerPax } from '../utils/meals.js';
 
@@ -11,6 +11,10 @@ const FD_COLUMNS = [
   'dinner_meal_id', 'dinner_people', 'dinner_days',
   // Task 5 — "included or not" (0062_fd_addons_transfer_visa.sql).
   'visa_enabled',
+  // Flights section (0064_fd_package_flights.sql) — at most one Onward +
+  // one Return flight included directly, mutually exclusive in the editor
+  // with offering flights as a fd_addons checkbox add-on instead.
+  'flights_enabled', 'onward_flight_id', 'return_flight_id',
   // Client-facing Inclusions/Exclusions — see
   // 0050_fd_packages_inclusions_exclusions.sql.
   'inclusions', 'exclusions',
@@ -194,15 +198,20 @@ export async function replaceItinerary(fdPackageId, days) {
 // departures endpoints so both resolve itinerary items and price the
 // package identically.
 export async function loadCatalogPools() {
-  const [hotels, tours, transfers, activities, meals, visa] = await Promise.all([
+  const [hotels, tours, transfers, activities, meals, visa, flights] = await Promise.all([
     hotelsModel.list(),
     toursModel.list(),
     transfersModel.list(),
     activitiesModel.list(),
     mealsModel.list(),
     visaModel.list(),
+    flightsModel.list(),
   ]);
-  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities, meal: meals, visa };
+  // `flight` (0064/0065_fd_package_flights*.sql) is read by resolveRatePerPax
+  // below to price a package's onward_flight_id/return_flight_id when
+  // flights_enabled — never by composeItinerary/computeNetRatePerPax, since
+  // a flight is never placed as a day-by-day itinerary item.
+  return { hotel: hotels, tour: tours, transfer: transfers, activity: activities, meal: meals, visa, flight: flights };
 }
 
 // Pricing is no longer a manually-entered tiered rate (Gold/Silver/Bronze) —
@@ -263,12 +272,29 @@ export function computeNetRatePerPax(items, pools) {
 // with nothing left to resolve at booking time). Shared by every reader
 // (admin catalog, agent listing/detail, booking) so they never disagree
 // about which price applies.
+// Flights (0064/0065_fd_package_flights*.sql) only ever contribute here when
+// flights_enabled — the direct-inclusion pick, not the add-on checkbox path.
+// A flight added as a fd_addons row instead is deliberately *not* folded in
+// here: add-ons are an opt-in a-la-carte charge the agent applies at booking
+// time (see booking.service.js), never part of the package's own advertised
+// net rate, same as Activities/Tours/Transfers offered as add-ons already
+// aren't. Only Onward/Return picked directly here behave like Meals/Visa
+// above — an always-included cost baked into the rate.
+function resolveFlightsPerPax(fdPackage, pools) {
+  if (!fdPackage.flights_enabled) return 0;
+  const flights = pools.flight || [];
+  const onward = flights.find((f) => f.id === fdPackage.onward_flight_id);
+  const ret = flights.find((f) => f.id === fdPackage.return_flight_id);
+  return Number(onward?.price || 0) + Number(ret?.price || 0);
+}
+
 export function resolveRatePerPax(fdPackage, items, pools) {
   if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
   const dayCount = parseDurationDays(fdPackage.duration);
   const mealsPerPax = computeFdMealsPerPax(fdPackage, pools.meal, dayCount);
   const visaPerPax = fdPackage.visa_enabled ? Number(pools.visa?.[0]?.price_per_person || 0) : 0;
-  return computeNetRatePerPax(items, pools) + mealsPerPax + visaPerPax;
+  const flightsPerPax = resolveFlightsPerPax(fdPackage, pools);
+  return computeNetRatePerPax(items, pools) + mealsPerPax + visaPerPax + flightsPerPax;
 }
 
 // Composes the persisted days/items rows into the [{dayNumber, notes, items:
@@ -344,11 +370,13 @@ export async function incrementSeatsBooked(client, departureDateId, pax) {
 
 export async function listAddons(fdPackageId) {
   const { rows } = await pool.query(
-    `SELECT fd_addons.*, activities.name AS activity_name, tours.name AS tour_name, transfers.name AS transfer_name
+    `SELECT fd_addons.*, activities.name AS activity_name, tours.name AS tour_name,
+       transfers.name AS transfer_name, flights.name AS flight_name
      FROM fd_addons
      LEFT JOIN activities ON activities.id = fd_addons.activity_id
      LEFT JOIN tours ON tours.id = fd_addons.tour_id
      LEFT JOIN transfers ON transfers.id = fd_addons.transfer_id
+     LEFT JOIN flights ON flights.id = fd_addons.flight_id
      WHERE fd_package_id = $1`,
     [fdPackageId]
   );
@@ -367,12 +395,14 @@ export async function findAddonsByIds(fdPackageId, addonIds) {
 // Task 5 — pricePerPax is derived server-side by the caller (fdPackagesAdmin
 // .controller.js#postAddon reads it straight off the selected catalog item)
 // rather than admin-typed; `location` is gone, the old manual-entry-only
-// concept it existed for.
-export async function addAddon(fdPackageId, { activityId, tourId, transferId, pricePerPax }) {
+// concept it existed for. flightId (0064_fd_package_flights.sql) always
+// resolves to a pricePerPax of 0 — the flights catalog has no rate column —
+// same as every other exclusive option here, just with nothing to charge.
+export async function addAddon(fdPackageId, { activityId, tourId, transferId, flightId, pricePerPax }) {
   const { rows } = await pool.query(
-    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, transfer_id, price_per_pax)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [fdPackageId, activityId || null, tourId || null, transferId || null, pricePerPax]
+    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, transfer_id, flight_id, price_per_pax)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [fdPackageId, activityId || null, tourId || null, transferId || null, flightId || null, pricePerPax]
   );
   return rows[0];
 }

@@ -16,7 +16,7 @@ import {
   addAddon,
   removeAddon,
 } from '../models/fdPackages.model.js';
-import { activitiesModel, toursModel, transfersModel } from '../models/catalog.model.js';
+import { activitiesModel, toursModel, transfersModel, flightsModel } from '../models/catalog.model.js';
 import { toSnakeCaseColumns } from '../validation/schemas.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -42,6 +42,19 @@ const MIN_CAROUSEL_IMAGES = 4;
 function carouselImagesError(images, status) {
   if (status === 'published' && (images || []).length < MIN_CAROUSEL_IMAGES) {
     return `Add at least ${MIN_CAROUSEL_IMAGES} carousel images before publishing.`;
+  }
+  return null;
+}
+
+// Same "only checked at the moment of publishing" gate as carouselImagesError
+// above, for the Flights section (0064_fd_package_flights.sql) — flying
+// solely on flightsEnabled being true (mid-edit, before either flight is
+// picked yet) would reject the debounced autosave PATCH that fires the
+// instant the toggle is flipped on, well before the admin has had a chance
+// to actually pick a flight.
+function flightsSelectionError(flightsEnabled, onwardFlightId, returnFlightId, status) {
+  if (status === 'published' && flightsEnabled && (!onwardFlightId || !returnFlightId)) {
+    return 'Select both an Onward and a Return flight before publishing, or turn off the Flights section.';
   }
   return null;
 }
@@ -84,6 +97,14 @@ function toPublicPackage(fdPackage, ratePerPax) {
     dinnerDays: toNumOrNull(fdPackage.dinner_days),
     // Task 5 — "included or not" checkbox (0062_fd_addons_transfer_visa.sql).
     visaEnabled: !!fdPackage.visa_enabled,
+    // Flights section (0064_fd_package_flights.sql) — ids only; the editor
+    // resolves names/source/destination/date against its own /flights fetch
+    // (same "parent already has the full catalog loaded" convention
+    // AddonsManager uses for activities/tours/transfers), rather than this
+    // response embedding a joined name the way hotelName above does.
+    flightsEnabled: !!fdPackage.flights_enabled,
+    onwardFlightId: fdPackage.onward_flight_id ?? null,
+    returnFlightId: fdPackage.return_flight_id ?? null,
     // Client-facing Inclusions/Exclusions — see
     // 0050_fd_packages_inclusions_exclusions.sql.
     inclusions: fdPackage.inclusions || '',
@@ -142,7 +163,8 @@ export async function get(req, res, next) {
           activityId: a.activity_id,
           tourId: a.tour_id,
           transferId: a.transfer_id,
-          name: a.activity_name || a.tour_name || a.transfer_name,
+          flightId: a.flight_id,
+          name: a.activity_name || a.tour_name || a.transfer_name || a.flight_name,
           pricePerPax: Number(a.price_per_pax),
         })),
       },
@@ -154,7 +176,9 @@ export async function get(req, res, next) {
 
 export async function create(req, res, next) {
   try {
-    const message = carouselImagesError(req.body.images, req.body.status);
+    const message =
+      carouselImagesError(req.body.images, req.body.status) ||
+      flightsSelectionError(req.body.flightsEnabled, req.body.onwardFlightId, req.body.returnFlightId, req.body.status);
     if (message) {
       return res.status(400).json({ error: 'validation_error', message });
     }
@@ -175,7 +199,12 @@ export async function update(req, res, next) {
     // two the request isn't touching, so fall back to what's already saved.
     const finalStatus = req.body.status !== undefined ? req.body.status : existing.status;
     const finalImages = req.body.images !== undefined ? req.body.images : existing.images;
-    const message = carouselImagesError(finalImages, finalStatus);
+    const finalFlightsEnabled = req.body.flightsEnabled !== undefined ? req.body.flightsEnabled : existing.flights_enabled;
+    const finalOnwardFlightId = req.body.onwardFlightId !== undefined ? req.body.onwardFlightId : existing.onward_flight_id;
+    const finalReturnFlightId = req.body.returnFlightId !== undefined ? req.body.returnFlightId : existing.return_flight_id;
+    const message =
+      carouselImagesError(finalImages, finalStatus) ||
+      flightsSelectionError(finalFlightsEnabled, finalOnwardFlightId, finalReturnFlightId, finalStatus);
     if (message) {
       return res.status(400).json({ error: 'validation_error', message });
     }
@@ -295,8 +324,11 @@ export async function deleteDepartureDate(req, res, next) {
 
 // Task 5 — admin picks a real catalog item by checkbox; its price is read
 // straight off that catalog entry here (never admin-typed) so it can never
-// drift from what the Product Catalog actually charges elsewhere.
-async function resolveAddonPriceAndName({ activityId, tourId, transferId }) {
+// drift from what the Product Catalog actually charges elsewhere. Flights
+// (0064_fd_package_flights.sql, priced via 0065_flights_price.sql) follow the
+// same rule now that they have a price column — still go through the same
+// "does this id actually exist" check as everything else either way.
+async function resolveAddonPriceAndName({ activityId, tourId, transferId, flightId }) {
   if (activityId) {
     const row = await activitiesModel.findById(activityId);
     if (!row) return null;
@@ -307,20 +339,31 @@ async function resolveAddonPriceAndName({ activityId, tourId, transferId }) {
     if (!row) return null;
     return { pricePerPax: Number(row.price || 0), name: row.name };
   }
-  const row = await transfersModel.findById(transferId);
+  if (transferId) {
+    const row = await transfersModel.findById(transferId);
+    if (!row) return null;
+    return { pricePerPax: Number(row.price || 0), name: row.name };
+  }
+  const row = await flightsModel.findById(flightId);
   if (!row) return null;
   return { pricePerPax: Number(row.price || 0), name: row.name };
 }
 
 export async function postAddon(req, res, next) {
   try {
-    const { activityId, tourId, transferId } = req.body;
-    const resolved = await resolveAddonPriceAndName({ activityId, tourId, transferId });
+    const { activityId, tourId, transferId, flightId } = req.body;
+    const resolved = await resolveAddonPriceAndName({ activityId, tourId, transferId, flightId });
     if (!resolved) {
       return res.status(400).json({ error: 'invalid_item', message: 'That catalog item no longer exists.' });
     }
 
-    const addon = await addAddon(req.params.id, { activityId, tourId, transferId, pricePerPax: resolved.pricePerPax });
+    const addon = await addAddon(req.params.id, {
+      activityId,
+      tourId,
+      transferId,
+      flightId,
+      pricePerPax: resolved.pricePerPax,
+    });
     // Mirrors the get() addons mapping above — postAddon previously returned
     // the raw snake_case DB row, so a freshly-added addon showed a blank
     // price in the UI until the page was reloaded via get().
@@ -330,6 +373,7 @@ export async function postAddon(req, res, next) {
         activityId: addon.activity_id,
         tourId: addon.tour_id,
         transferId: addon.transfer_id,
+        flightId: addon.flight_id,
         name: resolved.name,
         pricePerPax: resolved.pricePerPax,
       },

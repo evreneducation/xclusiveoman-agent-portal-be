@@ -242,6 +242,9 @@ export const flightSchema = z.object({
   destination: z.string().min(1, 'Destination is required').max(200),
   departureDate: z.string().min(1, 'Departure date is required'),
   isFlightOnward: z.boolean(),
+  // 0065_flights_price.sql — optional, same as transfers.price, so this can
+  // still be added without a price and priced in later.
+  price: z.number().nonnegative('Price must be a positive number').optional(),
 });
 
 // camelCase request bodies -> snake_case DB columns for the catalog CRUD models.
@@ -280,6 +283,10 @@ const CATALOG_KEY_MAP = {
   dinnerPeople: 'dinner_people',
   dinnerDays: 'dinner_days',
   visaEnabled: 'visa_enabled',
+  flightsEnabled: 'flights_enabled',
+  onwardFlightId: 'onward_flight_id',
+  returnFlightId: 'return_flight_id',
+  flightId: 'flight_id',
 };
 
 export function toSnakeCaseColumns(body) {
@@ -328,6 +335,15 @@ export const fdPackageSchema = z.object({
   // Priced at booking time from the visa catalog's price_per_person, same
   // deferred-until-real-pax-is-known posture as meals above.
   visaEnabled: z.boolean().optional(),
+  // Flights section (0064_fd_package_flights.sql) — flightsEnabled true
+  // means this package includes exactly one Onward + one Return flight
+  // directly (onwardFlightId/returnFlightId); false means neither is set and
+  // those same flights are instead offered as fd_addons checkbox add-ons
+  // (see fdAddonSchema's flightId). Enforcing "not both at once" is the
+  // editor's job (FdPackageEditor.jsx), not this schema's.
+  flightsEnabled: z.boolean().optional(),
+  onwardFlightId: z.string().uuid().nullable().optional(),
+  returnFlightId: z.string().uuid().nullable().optional(),
   // Client-facing Inclusions/Exclusions — same shape/behavior as Custom FIT
   // quotes (packageRequestCostingSchema above): one point per line, edited
   // in FdPackageEditor.jsx via the catalog dropdown + editable list
@@ -352,9 +368,14 @@ export const fdAddonSchema = z
     activityId: z.string().uuid().optional(),
     tourId: z.string().uuid().optional(),
     transferId: z.string().uuid().optional(),
+    // Flights section (0064_fd_package_flights.sql) — only ever posted for a
+    // package that has flightsEnabled false (the editor hides this option
+    // entirely otherwise); nothing enforces that here, same as the rest of
+    // the "not both at once" split living in FdPackageEditor.jsx.
+    flightId: z.string().uuid().optional(),
   })
-  .refine((v) => [v.activityId, v.tourId, v.transferId].filter(Boolean).length === 1, {
-    message: 'Provide exactly one of activityId, tourId, or transferId',
+  .refine((v) => [v.activityId, v.tourId, v.transferId, v.flightId].filter(Boolean).length === 1, {
+    message: 'Provide exactly one of activityId, tourId, transferId, or flightId',
   });
 
 // Reused by both the agent self-service booking schema (below) and the
