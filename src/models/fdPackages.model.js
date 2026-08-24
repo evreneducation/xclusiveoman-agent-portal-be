@@ -307,6 +307,9 @@ export function resolveFlightDetails(fdPackage, pools) {
     source: f.source,
     destination: f.destination,
     departureDate: f.departure_date,
+    // 0066_flights_departure_time.sql — admin-entered "HH:MM:SS" (or null for
+    // a flight that predates this column); the frontend formats it for display.
+    departureTime: f.departure_time,
   });
   return { onward: toPublicFlight(onward), return: toPublicFlight(ret) };
 }

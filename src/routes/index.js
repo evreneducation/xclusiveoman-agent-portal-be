@@ -27,6 +27,7 @@ import reviewsRoutes from './reviews.routes.js';
 import reviewsAdminRoutes from './reviewsAdmin.routes.js';
 import cmsRoutes from './cms.routes.js';
 import cmsPublicRoutes from './cmsPublic.routes.js';
+import siteTermsRoutes, { adminSiteTermsRouter } from './siteTerms.routes.js';
 
 const router = Router();
 
@@ -87,6 +88,12 @@ router.use('/admin/operations', fdOperationsAdminRoutes);
 router.use('/admin/bookings', bookingsAdminRoutes);
 router.use('/admin/package-requests', packageRequestsAdminRoutes);
 router.use('/admin/mice-rfqs', miceRfqsAdminRoutes);
+// Admin "Terms & Conditions" tab — its own RBAC gate (requireFeature('catalog'),
+// same key Product/MICE Catalog use) but still registered here, ahead of the
+// bare-/admin trio, per the same convention as every other specific-prefix
+// router above (defensive — 'catalog' already passes adminCatalogRouter's
+// own identical gate today, but this keeps the ordering consistent).
+router.use('/admin/site-terms', adminSiteTermsRouter);
 router.use('/admin', adminRoutes);
 router.use('/admin', adminCatalogRouter);
 router.use('/admin', adminPaymentsRouter);
@@ -102,6 +109,7 @@ router.use('/marketing/track', marketingTrackingRoutes);
 // cmsPublic.routes.js's own comment.
 router.use('/cms', cmsPublicRoutes);
 router.use('/', catalogRoutes);
+router.use('/', siteTermsRoutes);
 router.use('/departures', departuresRoutes);
 router.use('/package-requests', packageRequestsRoutes);
 // /admin/package-requests and /admin/mice-rfqs themselves are registered
