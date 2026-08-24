@@ -48,13 +48,39 @@ export function catalogHandlersFor(entity) {
   const model = MODELS[entity];
 
   return {
+    // ?page=/?pageSize= (opt-in — see createCrudModel#list's own comment)
+    // currently only exercised by the admin Hotels tab (ProductCatalog.jsx),
+    // but available to every entity here since they all share this one
+    // handler. Every other caller — the agent-facing catalog browse for all
+    // ten entities, admin's own Tours/Activities/Transfers/etc. tabs — still
+    // calls this with neither param and gets back the plain
+    // `{ [entity]: rows }` shape unchanged.
     async list(req, res, next) {
       try {
         const { city, search, mice, mealType, isFlightOnward } = req.query;
         const isMiceEnabled = mice === undefined ? undefined : mice === 'true';
         const isFlightOnwardBool = isFlightOnward === undefined ? undefined : isFlightOnward === 'true';
-        const rows = await model.list({ city, search, isMiceEnabled, mealType, isFlightOnward: isFlightOnwardBool });
-        res.json({ [entity]: rows });
+
+        const paginate = req.query.page !== undefined || req.query.pageSize !== undefined;
+        const page = paginate ? Math.max(1, parseInt(req.query.page, 10) || 1) : undefined;
+        const pageSize = paginate ? Math.max(1, Math.min(100, parseInt(req.query.pageSize, 10) || 10)) : undefined;
+
+        const result = await model.list({
+          city,
+          search,
+          isMiceEnabled,
+          mealType,
+          isFlightOnward: isFlightOnwardBool,
+          page,
+          pageSize,
+        });
+
+        if (paginate) {
+          const { rows, total } = result;
+          res.json({ [entity]: rows, pagination: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) } });
+        } else {
+          res.json({ [entity]: result });
+        }
       } catch (err) {
         next(err);
       }
