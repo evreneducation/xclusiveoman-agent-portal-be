@@ -120,16 +120,46 @@ function toPublicPackage(fdPackage, ratePerPax) {
   };
 }
 
+// GET /api/admin/fd-packages?search=&page=&pageSize=
+// `search` (Product Catalog's FD Packages table) is a free-text match over
+// title/theme/hotel name, applied in JS same as every other admin list's
+// search (admin.controller.js#getAgencies, relationshipManagers.controller.js
+// #list). `page`/`pageSize` pagination is opt-in (only applied when either is
+// present) — every other existing caller of this same endpoint
+// (FdPackageEditor.jsx's own related-package lookups, Team Portal's
+// Catalog.jsx, ManualBookingWizard.jsx's package picker) calls it with
+// neither and still gets back the full list unchanged, so none of them
+// silently truncate to a page of 10.
 export async function list(req, res, next) {
   try {
+    res.set('Cache-Control', 'no-store');
     const [rows, pools] = await Promise.all([listAllFdPackagesForAdmin(), loadCatalogPools()]);
-    const fdPackages = await Promise.all(
+    let fdPackages = await Promise.all(
       rows.map(async (row) => {
         const { items } = await listItineraryForPackage(row.id);
         return toPublicPackage(row, resolveRatePerPax(row, items, pools));
       })
     );
-    res.json({ fdPackages });
+
+    const { search } = req.query;
+    if (search) {
+      const needle = search.trim().toLowerCase();
+      fdPackages = fdPackages.filter((p) =>
+        [p.title, p.theme, p.hotelName].some((v) => v && v.toLowerCase().includes(needle))
+      );
+    }
+
+    const paginate = req.query.page !== undefined || req.query.pageSize !== undefined;
+    if (!paginate) {
+      return res.json({ fdPackages });
+    }
+    const total = fdPackages.length;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize, 10) || 10));
+    const start = (page - 1) * pageSize;
+    fdPackages = fdPackages.slice(start, start + pageSize);
+
+    res.json({ fdPackages, pagination: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) } });
   } catch (err) {
     next(err);
   }

@@ -7,6 +7,18 @@ import { pool } from '../db/pool.js';
  */
 function createCrudModel(table, columns) {
   return {
+    // `filters.page`/`filters.pageSize` are opt-in (Product Catalog's Hotels
+    // table, following FdPackagesTab's same pagination) — when neither is
+    // passed this returns the plain rows array exactly as before (every
+    // other caller: packageRequestsAdmin.controller.js's mealsModel.list()/
+    // visaModel.list(), the agent-facing GET /<entity> catalog.routes.js
+    // route for every entity that doesn't opt in). Only when either is
+    // present does it run a COUNT(*) alongside a LIMIT/OFFSET query and
+    // return `{ rows, total, page, pageSize }` instead — real SQL-level
+    // pagination, not a fetch-everything-then-slice-in-JS shortcut, since
+    // this is a real table query (unlike the JS-side search/pagination on
+    // admin.controller.js#getAgencies etc., which already had to load
+    // everything anyway to join in owner/RM data first).
     async list(filters = {}) {
       const clauses = [];
       const values = [];
@@ -39,11 +51,25 @@ function createCrudModel(table, columns) {
       }
 
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-      const { rows } = await pool.query(
-        `SELECT * FROM ${table} ${where} ORDER BY created_at DESC`,
-        values
-      );
-      return rows;
+
+      if (filters.page === undefined && filters.pageSize === undefined) {
+        const { rows } = await pool.query(`SELECT * FROM ${table} ${where} ORDER BY created_at DESC`, values);
+        return rows;
+      }
+
+      const page = Math.max(1, filters.page || 1);
+      const pageSize = Math.max(1, Math.min(100, filters.pageSize || 10));
+      const offset = (page - 1) * pageSize;
+
+      const [{ rows: countRows }, { rows }] = await Promise.all([
+        pool.query(`SELECT COUNT(*)::int AS count FROM ${table} ${where}`, values),
+        pool.query(
+          `SELECT * FROM ${table} ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
+          [...values, pageSize, offset]
+        ),
+      ]);
+
+      return { rows, total: countRows[0].count, page, pageSize };
     },
 
     async findById(id) {
