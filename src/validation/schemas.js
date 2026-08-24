@@ -231,6 +231,15 @@ export const visaSchema = z.object({
   pricePerPerson: z.number().nonnegative(),
 });
 
+// Admin "Terms & Conditions" tab (see 0067_site_terms.sql) — a single
+// rich-text (TipTap-authored HTML) policy document, singleton like Visa
+// above. Not run through toSnakeCaseColumns/CATALOG_KEY_MAP — the
+// controller (siteTerms.controller.js) reads bodyHtml straight off the
+// validated body, no column-name translation needed for a one-field model.
+export const siteTermsSchema = z.object({
+  bodyHtml: z.string().min(1, 'Terms & Conditions content is required'),
+});
+
 // Product Catalog "Flights" tab (see 0063_flights_catalog.sql) — a plain
 // growable list (unlike Visa above), any number of onward and return
 // entries. isFlightOnward is set by which of the two Add Flight sub-tab
