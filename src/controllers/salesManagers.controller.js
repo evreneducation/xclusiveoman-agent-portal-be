@@ -12,13 +12,35 @@ import {
 import { sendEmail } from '../services/email.service.js';
 import { buildStaffWelcomeEmailHtml } from '../services/emailTemplate.service.js';
 
-// GET /api/admin/sales-managers
+// GET /api/admin/sales-managers?search=&page=&pageSize=
 // Lists the sales_manager staff pool. Unlike relationship managers, sales
 // managers have no per-agency assignment concept (no agencies.*_user_id FK).
+// Same search/pagination/no-store convention as
+// relationshipManagers.controller.js#list — see its own comment.
 export async function list(req, res, next) {
   try {
-    const salesManagers = await listStaffByRole('sales_manager');
-    res.json({ salesManagers: salesManagers.map(toPublicUser) });
+    res.set('Cache-Control', 'no-store');
+    let salesManagers = (await listStaffByRole('sales_manager')).map(toPublicUser);
+
+    const { search } = req.query;
+    if (search) {
+      const needle = search.trim().toLowerCase();
+      salesManagers = salesManagers.filter((sm) =>
+        [sm.fullName, sm.email, sm.phone, sm.whatsappNumber].some((v) => v && v.toLowerCase().includes(needle))
+      );
+    }
+
+    const paginate = req.query.page !== undefined || req.query.pageSize !== undefined;
+    if (!paginate) {
+      return res.json({ salesManagers });
+    }
+    const total = salesManagers.length;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize, 10) || 10));
+    const start = (page - 1) * pageSize;
+    salesManagers = salesManagers.slice(start, start + pageSize);
+
+    res.json({ salesManagers, pagination: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) } });
   } catch (err) {
     next(err);
   }
