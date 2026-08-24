@@ -13,22 +13,51 @@ import {
 import { sendEmail } from '../services/email.service.js';
 import { buildStaffWelcomeEmailHtml } from '../services/emailTemplate.service.js';
 
-// GET /api/admin/relationship-managers
+// GET /api/admin/relationship-managers?search=&page=&pageSize=
 // Lists the relationship_manager staff pool, each annotated with the
 // agencies currently pointing at them via agencies.rm_user_id (REL-1/REL-2).
+// `search` (Employees table view) is a free-text match over name/email/
+// phone/WhatsApp number, applied in JS same as admin.controller.js#getAgencies
+// does for its own search — there's no index worth a SQL WHERE for a staff
+// pool this small. `page`/`pageSize` pagination is opt-in (only applied when
+// either is present in the query) and, same as getAgencies, no-store
+// Cache-Control since an edit here (status/permissions) can change the very
+// next request's result.
 export async function list(req, res, next) {
   try {
+    res.set('Cache-Control', 'no-store');
     const rms = await listStaffByRole('relationship_manager');
     const agencies = await listAgenciesByRmIds(rms.map((rm) => rm.id));
 
-    const relationshipManagers = rms.map((rm) => ({
+    let relationshipManagers = rms.map((rm) => ({
       ...toPublicUser(rm),
       assignedAgencies: agencies
         .filter((a) => a.rm_user_id === rm.id)
         .map((a) => ({ id: a.id, name: a.name })),
     }));
 
-    res.json({ relationshipManagers });
+    const { search } = req.query;
+    if (search) {
+      const needle = search.trim().toLowerCase();
+      relationshipManagers = relationshipManagers.filter((rm) =>
+        [rm.fullName, rm.email, rm.phone, rm.whatsappNumber].some((v) => v && v.toLowerCase().includes(needle))
+      );
+    }
+
+    const paginate = req.query.page !== undefined || req.query.pageSize !== undefined;
+    if (!paginate) {
+      return res.json({ relationshipManagers });
+    }
+    const total = relationshipManagers.length;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize, 10) || 10));
+    const start = (page - 1) * pageSize;
+    relationshipManagers = relationshipManagers.slice(start, start + pageSize);
+
+    res.json({
+      relationshipManagers,
+      pagination: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    });
   } catch (err) {
     next(err);
   }

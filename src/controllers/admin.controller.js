@@ -32,7 +32,7 @@ function toAdminAgency(agency, owner) {
   };
 }
 
-// GET /api/admin/agencies?status=&tier=&country=&inactiveSinceDays=&search=
+// GET /api/admin/agencies?status=&tier=&country=&inactiveSinceDays=&search=&page=&pageSize=
 // — tier/country/inactiveSinceDays back Marketing Center's four audience
 // segments. listAgencies() already accepted tier/country (added for, and
 // still shared with, services/marketingSend.service.js#resolveAudience —
@@ -42,8 +42,9 @@ function toAdminAgency(agency, owner) {
 // A segment's shown count/members can therefore never drift from what
 // sending to it would actually do — both read the exact same WHERE clauses.
 //
-// `search` (Task 10) is a free-text match over agency name / owner name /
-// owner email, applied here in JS rather than in listAgencies' SQL — it
+// `search` (Task 10, extended for Agent Approvals) is a free-text match over
+// agency name / owner name / owner email / country / license number,
+// applied here in JS rather than in listAgencies' SQL — it
 // needs the owner data this handler already joins in below (listAgencies
 // itself only ever joins the assigned RM, not the owner), and it only ever
 // narrows an already-segment-filtered result, never decides segment
@@ -54,6 +55,13 @@ function toAdminAgency(agency, owner) {
 // same as `status` already did.
 export async function getAgencies(req, res, next) {
   try {
+    // This is admin data an approve/reject action can change from one
+    // request to the next — no reason for the browser to conditionally
+    // cache it at all (Express's default per-response ETag was otherwise
+    // making a repeat visit to an already-seen page/filter come back as a
+    // harmless-but-pointless 304). Same pattern as
+    // marketingTracking.controller.js's own Cache-Control header.
+    res.set('Cache-Control', 'no-store');
     const { status, tier, country, search } = req.query;
     const inactiveSinceDaysNum = Number(req.query.inactiveSinceDays);
     const inactiveSinceDays = Number.isInteger(inactiveSinceDaysNum) && inactiveSinceDaysNum > 0 ? inactiveSinceDaysNum : undefined;
@@ -87,11 +95,33 @@ export async function getAgencies(req, res, next) {
     if (search) {
       const needle = search.trim().toLowerCase();
       agencies = agencies.filter((a) =>
-        [a.name, a.ownerName, a.ownerEmail, a.country].some((v) => v && v.toLowerCase().includes(needle))
+        [a.name, a.ownerName, a.ownerEmail, a.country, a.licenseNumber].some((v) => v && v.toLowerCase().includes(needle))
       );
     }
 
-    res.json({ agencies });
+    // Pagination (Agent Approvals table view) — opt-in via ?page=/?pageSize=,
+    // same param names and { total, page, pageSize, totalPages } response
+    // shape as supportTicketsAdmin.controller.js's own pagination, for
+    // consistency across the admin API rather than a one-off shape here.
+    // Applied last, after every filter above (status/tier/country/
+    // inactiveSinceDays are SQL WHERE clauses in listAgencies; search is
+    // JS-side here since it needs the owner join). Every *other* existing
+    // caller of this same endpoint — Team Portal's Approved Agents page,
+    // Marketing Center's audience counts, the admin Dashboard — calls it
+    // with neither param and still gets back the full filtered list
+    // unchanged (no `pagination` key in the response either), so none of
+    // them silently truncate to a page of 10.
+    const paginate = req.query.page !== undefined || req.query.pageSize !== undefined;
+    if (!paginate) {
+      return res.json({ agencies });
+    }
+    const total = agencies.length;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize, 10) || 10));
+    const start = (page - 1) * pageSize;
+    agencies = agencies.slice(start, start + pageSize);
+
+    res.json({ agencies, pagination: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) } });
   } catch (err) {
     next(err);
   }
