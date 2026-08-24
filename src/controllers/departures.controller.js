@@ -74,6 +74,12 @@ export async function listDepartures(req, res, next) {
         const hotel = hotelId ? pools.hotel.find((h) => h.id === hotelId) : null;
         return {
           ...toPublicPackage(p, resolveRatePerPax(p, itinerary.items, pools), hotel),
+          // Same null-unless-directly-included resolution the single-departure
+          // GET already uses (resolveFlightDetails, see its own doc comment) —
+          // added here too so the listing (Departures.jsx's DepartureCard) can
+          // show an onward/return summary on the card itself when a package
+          // has flights, without a second per-card request.
+          flights: resolveFlightDetails(p, pools),
           nextDepartures: dates.map((d) => ({
             id: d.id,
             date: d.date,

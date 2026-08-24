@@ -231,6 +231,15 @@ export const visaSchema = z.object({
   pricePerPerson: z.number().nonnegative(),
 });
 
+// Admin "Terms & Conditions" tab (see 0067_site_terms.sql) — a single
+// rich-text (TipTap-authored HTML) policy document, singleton like Visa
+// above. Not run through toSnakeCaseColumns/CATALOG_KEY_MAP — the
+// controller (siteTerms.controller.js) reads bodyHtml straight off the
+// validated body, no column-name translation needed for a one-field model.
+export const siteTermsSchema = z.object({
+  bodyHtml: z.string().min(1, 'Terms & Conditions content is required'),
+});
+
 // Product Catalog "Flights" tab (see 0063_flights_catalog.sql) — a plain
 // growable list (unlike Visa above), any number of onward and return
 // entries. isFlightOnward is set by which of the two Add Flight sub-tab
@@ -241,6 +250,11 @@ export const flightSchema = z.object({
   source: z.string().min(1, 'Source is required').max(200),
   destination: z.string().min(1, 'Destination is required').max(200),
   departureDate: z.string().min(1, 'Departure date is required'),
+  // 0066_flights_departure_time.sql — "HH:MM" from <input type="time">,
+  // same required-alongside-the-date posture as departureDate above.
+  departureTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Departure time must be a valid HH:MM time'),
   isFlightOnward: z.boolean(),
   // 0065_flights_price.sql — optional, same as transfers.price, so this can
   // still be added without a price and priced in later.
@@ -268,6 +282,7 @@ const CATALOG_KEY_MAP = {
   pricePerPerson: 'price_per_person',
   pricePerDay: 'price_per_day',
   departureDate: 'departure_date',
+  departureTime: 'departure_time',
   isFlightOnward: 'is_flight_onward',
   // FD packages (fdPackageSchema) — these were missing, which silently dropped
   // them from every create/update since FD_COLUMNS looks up the snake_case key.

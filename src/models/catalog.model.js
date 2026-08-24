@@ -142,5 +142,5 @@ export const visaModel = createCrudModel('visa', ['price_per_person']);
 // "one table, a column tells the sub-type apart" convention meals.meal_type
 // already uses for Lunch/Dinner.
 export const flightsModel = createCrudModel('flights', [
-  'name', 'source', 'destination', 'departure_date', 'is_flight_onward', 'price',
+  'name', 'source', 'destination', 'departure_date', 'departure_time', 'is_flight_onward', 'price',
 ]);
