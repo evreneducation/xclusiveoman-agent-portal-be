@@ -1,11 +1,11 @@
 import { pool } from '../db/pool.js';
 
-export async function createAgency(client, { name, type, licenseNumber, country }) {
+export async function createAgency(client, { name, type, licenseNumber, licenseDocumentUrl, country }) {
   const { rows } = await client.query(
-    `INSERT INTO agencies (name, type, license_number, country, status)
-     VALUES ($1, $2, $3, $4, 'pending')
+    `INSERT INTO agencies (name, type, license_number, license_document_url, country, status)
+     VALUES ($1, $2, $3, $4, $5, 'pending')
      RETURNING *`,
-    [name, type, licenseNumber || null, country]
+    [name, type, licenseNumber || null, licenseDocumentUrl || null, country]
   );
   return rows[0];
 }

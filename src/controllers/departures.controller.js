@@ -39,6 +39,10 @@ function toPublicPackage(fdPackage, ratePerPax, hotel) {
     // primary hotel's city is the closest real-data stand-in.
     destination: hotel?.city || null,
     hotelName: hotel?.name || null,
+    // Star rating shown on the listing card's "N Star Hotel" info row
+    // (Departures.jsx's DepartureCard) — the resolved primary hotel's own
+    // category, same resolution as hotelName/destination just above.
+    hotelCategory: hotel?.category ?? null,
     shortDescription: fdPackage.short_description,
     suitableAgeMin: fdPackage.suitable_age_min,
     rating: fdPackage.rating,
@@ -84,6 +88,10 @@ export async function listDepartures(req, res, next) {
             id: d.id,
             date: d.date,
             seatsLeft: d.seats_total - d.seats_booked,
+            // Total capacity alongside seatsLeft — DepartureCard's seats-left
+            // progress bar needs both ends of the ratio, not just what's
+            // remaining.
+            seatsTotal: d.seats_total,
             location: d.location,
           })),
         };
@@ -135,6 +143,7 @@ export async function getDeparture(req, res, next) {
           id: d.id,
           date: d.date,
           seatsLeft: d.seats_total - d.seats_booked,
+          seatsTotal: d.seats_total,
           location: d.location,
         })),
         // `type` tells the agent-facing UI (DepartureDetail.jsx) which
