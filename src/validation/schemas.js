@@ -6,8 +6,20 @@ import { isValidTimeZone, zonedDateTimeToUtc } from '../utils/timezone.js';
 
 export const registerSchema = z.object({
   agencyName: z.string().min(2).max(200),
-  agencyType: z.enum(['travel_agent', 'mice_company']),
+  // 'mice_company' dropped from self-service Sign Up — the Agency Type
+  // picker (Register.jsx) now only ever offers Travel Agent, so this
+  // endpoint no longer accepts anything else. The agency_type DB enum still
+  // has 'mice_company' (existing agencies, and it's still assignable
+  // elsewhere e.g. admin-created agencies) — only the public registration
+  // API stopped accepting it.
+  agencyType: z.literal('travel_agent'),
   licenseNumber: z.string().max(100).optional(),
+  // IATA/License proof is now a mandatory upload (registerLicenseDocument
+  // below, POST /auth/register/license-document) rather than optional
+  // free-text — this is the URL that upload returns, not a file itself
+  // (this schema validates the JSON /register body; the document was
+  // already uploaded to Cloudinary in a separate prior request).
+  licenseDocumentUrl: z.string().url(),
   country: z.string().min(2).max(100),
   ownerFullName: z.string().min(2).max(200),
   email: z.string().email(),
