@@ -128,6 +128,55 @@ export const patchSalesManagerSchema = z.object({
   permissions: lmPermissionsSchema.optional(),
 });
 
+// --- Custom-role employees ---
+// Employees & Roles' unified "Add" button (Employees.jsx) added a third
+// option beyond the RM/LM schemas above — "Other", a free-text role typed
+// by the admin (product decision: saved straight into users.role, no
+// Access Features, no /team login routing yet — see
+// customRoleEmployees.controller.js#create's own comment). This is exactly
+// the kind of "any staff role, including super_admin" free-for-all the
+// comment above says was already tried and removed once — RESERVED_ROLES
+// keeps this from reopening that hole: every role name this app's own
+// requireRole(...) gates already check for is off-limits here, so this can
+// only ever mint a label with no built-in privileges, never impersonate an
+// existing one by typing its name.
+const RESERVED_ROLES = new Set([
+  'agency_owner',
+  'agency_staff',
+  'ops_admin',
+  'super_admin',
+  'sales_marketing',
+  'support',
+  'finance',
+  'relationship_manager',
+  'sales_manager',
+]);
+
+// Generic basic-field edit (employees.controller.js#update) for any staff
+// user regardless of role — no `permissions` field, deliberately: Access
+// Features only exist for the RM/LM schemas above, which keep their own
+// dedicated PATCH endpoints for that.
+export const patchGenericEmployeeSchema = z.object({
+  fullName: z.string().min(2).max(200).optional(),
+  phone: z.string().max(30).optional(),
+  whatsappNumber: z.string().max(30).optional(),
+  status: z.enum(['active', 'disabled']).optional(),
+});
+
+export const createCustomRoleEmployeeSchema = z.object({
+  fullName: z.string().min(2).max(200),
+  email: z.string().email(),
+  phone: z.string().max(30).optional(),
+  whatsappNumber: z.string().max(30).optional(),
+  role: z
+    .string()
+    .min(2)
+    .max(60)
+    .transform((s) => s.trim().toLowerCase().replace(/\s+/g, '_'))
+    .refine((r) => /^[a-z][a-z0-9_]*$/.test(r), 'Role can only contain letters, numbers, and spaces')
+    .refine((r) => !RESERVED_ROLES.has(r), 'That role name is already used by a built-in role'),
+});
+
 // --- Catalog (doc §11.2 / §12.3) ---
 
 export const hotelSchema = z.object({
