@@ -1,0 +1,11 @@
+-- Self-service Agent Sign Up (Register.jsx) now requires an uploaded IATA/
+-- License document (jpg/png/jpeg/pdf) instead of just a free-text license
+-- number — license_number (0002_agencies.sql) is untouched and stays
+-- optional/free-text (still used by the admin Agent Approvals search), this
+-- is the URL of the actual uploaded proof document. Nullable at the DB
+-- level so existing agencies (registered before this requirement existed)
+-- aren't retroactively invalidated — the NOT NULL-equivalent requirement is
+-- enforced at the API layer instead (registerSchema, schemas.js), same
+-- posture as every other "required going forward, not retroactively"
+-- column in this schema.
+ALTER TABLE agencies ADD COLUMN license_document_url TEXT;

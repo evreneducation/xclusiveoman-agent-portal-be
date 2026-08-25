@@ -12,6 +12,7 @@ import {
 import { sendEmail, sendOtpEmail } from '../services/email.service.js';
 import { buildAgentRegistrationReceivedEmailHtml } from '../services/emailTemplate.service.js';
 import { createNotification } from '../services/notification.service.js';
+import { uploadBuffer } from '../services/cloudinary.service.js';
 
 // Email OTP login — the sole authentication mechanism now (no password
 // anywhere — users.password_hash was dropped, 0060_drop_password.sql).
@@ -126,11 +127,38 @@ async function sendAgentRegistrationReceivedEmail({ agency, user }) {
   }
 }
 
+// POST /api/auth/register/license-document — public, multipart, single file
+// at req.file (field 'licenseDocument'). Uploaded up front, same
+// upload-then-reference-the-URL pattern the catalog editors use
+// (uploadImagesHandlerFor, catalog.controller.js) — the agency doesn't
+// exist yet when this fires (it's mid-signup), so there's no record id to
+// scope the Cloudinary folder to; 'pending' stands in for it the same way
+// uploadImagesHandlerFor's own idField falls back to 'new'. No auth — the
+// whole point is this runs before any account/session exists — but the
+// `upload` middleware (multer, middleware/upload.js) still validates MIME
+// type (jpeg/png/webp/pdf — jpg files report as image/jpeg, so ".jpg" is
+// already covered) and a 10MB size cap before this ever runs.
+export async function uploadLicenseDocument(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'missing_file', message: 'Upload your IATA/License document' });
+    }
+
+    const uploaded = await uploadBuffer(req.file.buffer, {
+      folderParts: ['agencies', 'pending', 'license-documents'],
+    });
+
+    res.status(201).json({ url: uploaded.secure_url });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // POST /api/auth/register — AUTH-1: public agency + owner signup, status=pending.
 // No password collected — the new owner signs in afterward (once approved)
 // the same way everyone else does now: email OTP.
 export async function register(req, res, next) {
-  const { agencyName, agencyType, licenseNumber, country, ownerFullName, email, phone } = req.body;
+  const { agencyName, agencyType, licenseNumber, licenseDocumentUrl, country, ownerFullName, email, phone } = req.body;
 
   const client = await pool.connect();
   try {
@@ -144,6 +172,7 @@ export async function register(req, res, next) {
       name: agencyName,
       type: agencyType,
       licenseNumber,
+      licenseDocumentUrl,
       country,
     });
 

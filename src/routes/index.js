@@ -14,6 +14,8 @@ import paymentsRoutes, { adminPaymentsRouter } from './payments.routes.js';
 import bookingsRoutes from './bookings.routes.js';
 import relationshipManagersRoutes from './relationshipManagers.routes.js';
 import salesManagersRoutes from './salesManagers.routes.js';
+import customRoleEmployeesRoutes from './customRoleEmployees.routes.js';
+import employeesRoutes from './employees.routes.js';
 import locationsRoutes from './locations.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 import marketingRoutes from './marketing.routes.js';
@@ -83,6 +85,12 @@ router.use('/admin/reviews', reviewsAdminRoutes);
 router.use('/admin/fd-packages', fdPackagesAdminRoutes);
 router.use('/admin/relationship-managers', relationshipManagersRoutes);
 router.use('/admin/sales-managers', salesManagersRoutes);
+// Order matters here: the more specific /custom-role path must be
+// registered before the generic /admin/employees router below, so a
+// request there is never shadowed by the generic router's own `/:id`
+// pattern (which would otherwise try to treat "custom-role" as a user id).
+router.use('/admin/employees/custom-role', customRoleEmployeesRoutes);
+router.use('/admin/employees', employeesRoutes);
 router.use('/admin/marketing', marketingRoutes);
 router.use('/admin/operations', fdOperationsAdminRoutes);
 router.use('/admin/bookings', bookingsAdminRoutes);
