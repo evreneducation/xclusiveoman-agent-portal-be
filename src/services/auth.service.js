@@ -66,6 +66,30 @@ export function verifyItineraryPdfToken(token) {
   return claims;
 }
 
+// Same narrow-purpose-token pattern as signItineraryPdfToken above, for FD
+// departure itineraries (DepartureDetail.jsx's "Download Itinerary") instead
+// of Custom FIT package_requests — a separate `purpose` string so a leaked
+// FD token can't be replayed against the FIT data endpoint or vice versa,
+// even though both are scoped the same way otherwise.
+const FD_ITINERARY_PDF_TOKEN_PURPOSE = 'fd_itinerary_pdf';
+const FD_ITINERARY_PDF_TOKEN_EXPIRES_IN = '2m';
+
+export function signFdItineraryPdfToken({ userId, departureId }) {
+  return jwt.sign(
+    { sub: userId, departureId, purpose: FD_ITINERARY_PDF_TOKEN_PURPOSE },
+    env.jwtAccessSecret,
+    { expiresIn: FD_ITINERARY_PDF_TOKEN_EXPIRES_IN }
+  );
+}
+
+export function verifyFdItineraryPdfToken(token) {
+  const claims = jwt.verify(token, env.jwtAccessSecret);
+  if (claims.purpose !== FD_ITINERARY_PDF_TOKEN_PURPOSE) {
+    throw new Error('Not an FD itinerary PDF token');
+  }
+  return claims;
+}
+
 // Still used by the OTP flow below (hashes the 6-digit code before storing
 // it) — generateRawToken (the old forgot-password reset-token generator)
 // was removed since nothing calls it anymore.

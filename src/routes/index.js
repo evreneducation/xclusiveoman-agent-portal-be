@@ -7,6 +7,7 @@ import departuresRoutes from './departures.routes.js';
 import packageRequestsRoutes from './packageRequests.routes.js';
 import packageRequestsAdminRoutes from './packageRequestsAdmin.routes.js';
 import itineraryPdfDataRoutes from './itineraryPdfData.routes.js';
+import fdItineraryPdfDataRoutes from './fdItineraryPdfData.routes.js';
 import miceRfqsRoutes from './miceRfqs.routes.js';
 import miceRfqsAdminRoutes from './miceRfqsAdmin.routes.js';
 import fdPackagesAdminRoutes from './fdPackagesAdmin.routes.js';
@@ -125,6 +126,8 @@ router.use('/package-requests', packageRequestsRoutes);
 // comment up there) — moved up from here to fix the same shadowing bug.
 // pdfToken-authenticated (not requireAuth) — see itineraryPdfData.routes.js.
 router.use('/itinerary-pdf', itineraryPdfDataRoutes);
+// Same, for FD departure itineraries — see fdItineraryPdfData.routes.js.
+router.use('/fd-itinerary-pdf', fdItineraryPdfDataRoutes);
 router.use('/mice/rfqs', miceRfqsRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/bookings', bookingsRoutes);
