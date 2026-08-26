@@ -137,15 +137,19 @@ export const toursModel = createCrudModel('tours', [
   'name', 'city', 'description', 'duration', 'images', 'category', 'price',
   'group_suitability', 'rating', 'review_count', 'suitable_age_min', 'is_bestseller',
   'is_mice_enabled',
+  // 0072_tours_activities_transfers_status.sql — draft/published.
+  'status',
 ]);
 
 export const activitiesModel = createCrudModel('activities', [
   'name', 'city', 'description', 'duration', 'images', 'price_per_pax',
   'rating', 'review_count', 'suitable_age_min', 'is_bestseller', 'is_mice_enabled',
+  'status',
 ]);
 
 export const transfersModel = createCrudModel('transfers', [
   'name', 'type', 'vehicle_class', 'city', 'description', 'price', 'images', 'is_mice_enabled',
+  'status',
 ]);
 
 export const experiencesModel = createCrudModel('experiences', [

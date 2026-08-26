@@ -231,23 +231,31 @@ export const hotelSchema = z.object({
   isMiceEnabled: z.boolean().optional(),
 });
 
+// name/city/description/duration/images/category/price all used to be
+// required unconditionally, same problem hotelSchema had (see its own
+// comment above) — 0072_tours_activities_transfers_status.sql moves
+// "must be complete" to a publish-time gate instead (requireCatalogPublishFields,
+// catalog.routes.js), each field still validating its own format when present.
 export const tourSchema = z.object({
-  name: z.string().min(2).max(200),
-  city: z.string().min(2).max(100),
-  description: z.string().min(1, 'Description is required'),
-  duration: z.string().min(1, 'Duration is required').max(50),
-  images: z.array(z.string()).min(1, 'Upload at least one image'),
-  category: z.string().min(1, 'Tour category is required').max(100),
-  price: z.number().positive('Price must be a positive number'),
+  name: z.string().min(2).max(200).optional(),
+  city: z.string().min(2).max(100).optional(),
+  description: z.string().optional(),
+  duration: z.string().max(50).optional(),
+  images: z.array(z.string()).optional(),
+  category: z.string().max(100).optional(),
+  price: z.number().positive('Price must be a positive number').optional(),
   groupSuitability: z.string().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isBestseller: z.boolean().optional(),
   isMiceEnabled: z.boolean().optional(),
+  // 0072_tours_activities_transfers_status.sql — same status story as
+  // hotelSchema's own `status` field above.
+  status: z.enum(['draft', 'published']).optional(),
 });
 
 export const activitySchema = z.object({
-  name: z.string().min(2).max(200),
-  city: z.string().min(2).max(100),
+  name: z.string().min(2).max(200).optional(),
+  city: z.string().min(2).max(100).optional(),
   description: z.string().optional(),
   duration: z.string().max(50).optional(),
   images: z.array(z.string()).optional(),
@@ -255,11 +263,12 @@ export const activitySchema = z.object({
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isBestseller: z.boolean().optional(),
   isMiceEnabled: z.boolean().optional(),
+  status: z.enum(['draft', 'published']).optional(),
 });
 
 export const transferSchema = z.object({
-  name: z.string().min(2).max(200),
-  type: z.enum(['airport', 'intercity', 'point_to_point', 'group_coach']),
+  name: z.string().min(2).max(200).optional(),
+  type: z.enum(['airport', 'intercity', 'point_to_point', 'group_coach']).optional(),
   vehicleClass: z.string().max(100).optional(),
   city: z.string().max(100).optional(),
   description: z.string().optional(),
@@ -270,6 +279,7 @@ export const transferSchema = z.object({
   // hotel/tour images, not required, since existing transfers predate it.
   images: z.array(z.string()).optional(),
   isMiceEnabled: z.boolean().optional(),
+  status: z.enum(['draft', 'published']).optional(),
 });
 
 export const experienceSchema = z.object({
