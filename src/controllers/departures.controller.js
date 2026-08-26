@@ -157,6 +157,12 @@ export async function getDeparture(req, res, next) {
         addons: addons.map((a) => ({
           id: a.id,
           type: a.activity_id ? 'activity' : a.tour_id ? 'tour' : a.transfer_id ? 'transfer' : 'flight',
+          // The catalog row's own id (not `id` above, which is the fd_addons
+          // join-row id) — lets the agent-facing "View Details" combobox
+          // (DepartureDetail.jsx) fetch the full catalog record straight off
+          // the existing generic GET /:entity/:id detail route
+          // (catalog.routes.js) using this + `type`.
+          catalogId: a.activity_id || a.tour_id || a.transfer_id || a.flight_id,
           name: a.activity_name || a.tour_name || a.transfer_name || a.flight_name,
           pricePerPax: Number(a.price_per_pax),
         })),

@@ -458,8 +458,17 @@ export const fdPackageSchema = z.object({
 
 export const fdDepartureDateSchema = z.object({
   date: z.string(), // ISO date
-  seatsTotal: z.number().int().nonnegative(),
-  location: z.string().min(1, 'Location is required').max(100), // e.g. "Mumbai" — picked from GET /departure-locations
+  seatsTotal: z.number().int().positive('Seats must be at least 1'), // was nonnegative() — a 0-seat departure date can never be booked, mirrors the FdPackageEditor's own client-side check
+  location: z.string().min(1, 'Location is required').max(100), // e.g. "Mumbai" — picked from GET /departure-locations, or freshly typed (see departureLocationSchema)
+});
+
+// POST /departure-locations (staff-only, see locations.routes.js) — lets the
+// FD Package editor's Location picker save a brand-new city into the
+// departure_locations master list (0018_departure_locations.sql) instead of
+// only ever offering its original admin-seeded 15, same trim+non-empty shape
+// fdDepartureDateSchema.location already expects.
+export const departureLocationSchema = z.object({
+  name: z.string().trim().min(1, 'Location name is required').max(100),
 });
 
 // Task 5 — admin picks a real catalog item (activity/tour/transfer) as a
