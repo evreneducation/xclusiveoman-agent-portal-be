@@ -559,10 +559,16 @@ export const emailToSupplierSchema = z.object({
 
 // SUP-1: "Subject + description form" — both required (see migration
 // 0056's own comment on why `description` is required despite the ERD's
-// terser one-line listing).
+// terser one-line listing). `description` is rich text now
+// (shared/components/RichTextEditor.jsx on the frontend) — its empty state
+// is `<p></p>`, which `.min(1)` alone wouldn't catch, so the refine below
+// strips tags first, same as that component's own isEmptyHtml.
 export const createTicketSchema = z.object({
   subject: z.string().min(1, 'Subject is required').max(200),
-  description: z.string().min(1, 'Description is required').max(5000),
+  description: z
+    .string()
+    .max(5000)
+    .refine((v) => v.replace(/<[^>]*>/g, '').trim().length > 0, { message: 'Description is required' }),
   priority: z.enum(['low', 'normal', 'high']).optional().default('normal'),
 });
 

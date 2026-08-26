@@ -45,6 +45,17 @@ function deriveHotelPricePerNight(req, res, next) {
 const HOTEL_REQUIRED_ON_PUBLISH = ['name', 'city', 'state', 'address', 'email', 'category', 'description'];
 const HOTEL_PRICE_FIELDS = ['price_per_night', 'single_price', 'double_price', 'triple_price'];
 
+// `description` is rich text now (shared/components/RichTextEditor.jsx) —
+// its empty state is `<p></p>`, not `''`. Mirrors the frontend's own
+// isEmptyHtml (RichTextEditor.jsx) so a required-but-still-blank rich text
+// field is rejected the same way here as it already is client-side.
+const HTML_REQUIRED_FIELDS = new Set(['description']);
+
+function isFieldEmpty(field, value) {
+  if (HTML_REQUIRED_FIELDS.has(field)) return !value || !String(value).replace(/<[^>]*>/g, '').trim();
+  return value === undefined || value === null || value === '';
+}
+
 // Same "only checked at the moment of publishing" gate FD packages use
 // (fdPackagesAdmin.controller.js's carouselImagesError/heroImageError) —
 // hotelSchema no longer requires any of these up front (0070_hotels_status.sql),
@@ -65,8 +76,7 @@ async function requireHotelPublishFields(req, res, next) {
     const finalOf = (field) => (req.body[field] !== undefined ? req.body[field] : existing?.[field]);
 
     for (const field of HOTEL_REQUIRED_ON_PUBLISH) {
-      const value = finalOf(field);
-      if (value === undefined || value === null || value === '') {
+      if (isFieldEmpty(field, finalOf(field))) {
         return res.status(400).json({ error: 'validation_error', message: 'Please fill in all required fields before publishing.' });
       }
     }
@@ -103,8 +113,7 @@ function createPublishFieldsGate(model, { requiredFields, requireImages = false,
       const finalOf = (field) => (req.body[field] !== undefined ? req.body[field] : existing?.[field]);
 
       for (const field of requiredFields) {
-        const value = finalOf(field);
-        if (value === undefined || value === null || value === '') {
+        if (isFieldEmpty(field, finalOf(field))) {
           return res.status(400).json({ error: 'validation_error', message: 'Please fill in all required fields before publishing.' });
         }
       }
