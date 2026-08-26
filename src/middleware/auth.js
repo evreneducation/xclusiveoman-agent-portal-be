@@ -1,4 +1,4 @@
-import { verifyAccessToken, verifyItineraryPdfToken } from '../services/auth.service.js';
+import { verifyAccessToken, verifyItineraryPdfToken, verifyFdItineraryPdfToken } from '../services/auth.service.js';
 import { findUserById } from '../models/users.model.js';
 
 /**
@@ -55,6 +55,24 @@ export async function requirePdfToken(req, res, next) {
   }
   try {
     req.pdfClaims = verifyItineraryPdfToken(token);
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'unauthorized', message: 'Invalid or expired pdfToken' });
+  }
+}
+
+// Same shape as requirePdfToken above, for FD departure itineraries (see
+// signFdItineraryPdfToken/verifyFdItineraryPdfToken — auth.service.js) —
+// attaches req.fdPdfClaims instead of req.pdfClaims so the two token kinds
+// can never be confused for one another even though both flow through this
+// same file.
+export async function requireFdPdfToken(req, res, next) {
+  const token = typeof req.query.pdfToken === 'string' ? req.query.pdfToken : null;
+  if (!token) {
+    return res.status(401).json({ error: 'unauthorized', message: 'Missing pdfToken' });
+  }
+  try {
+    req.fdPdfClaims = verifyFdItineraryPdfToken(token);
     next();
   } catch (err) {
     return res.status(401).json({ error: 'unauthorized', message: 'Invalid or expired pdfToken' });

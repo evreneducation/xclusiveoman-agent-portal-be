@@ -1,6 +1,6 @@
 import puppeteer from 'puppeteer';
 import { env } from '../config/env.js';
-import { signItineraryPdfToken } from './auth.service.js';
+import { signItineraryPdfToken, signFdItineraryPdfToken } from './auth.service.js';
 
 // Server-side itinerary PDF generation — renders the *actual* agent frontend
 // (agent/pages/ItineraryPrint.jsx, which wraps the existing
@@ -108,5 +108,46 @@ export async function generateItineraryPdf({ packageRequestId, userId }) {
     return Buffer.from(pdfData);
   } finally {
     await page.close().catch(() => {}); // best-effort — a close failure shouldn't mask the real result/error above
+  }
+}
+
+/**
+ * Same flow as generateItineraryPdf above, for one FD package's departure
+ * itinerary (DepartureDetail.jsx's "Download Itinerary" button) instead of a
+ * Custom FIT package_request — renders agent/pages/DepartureItineraryPrint.jsx
+ * (which wraps agent/components/FdItineraryDocument.jsx unchanged), sharing
+ * this same Chromium instance rather than launching a second one. `userId` is
+ * embedded in the short-lived FD pdfToken the print page uses to
+ * authenticate its own data fetch (see requireFdPdfToken/
+ * departures.controller.js#getDepartureDataForPdf) — the caller
+ * (downloadDepartureItineraryPdf) has already verified this departure is
+ * published/exists before calling this.
+ */
+export async function generateFdItineraryPdf({ departureId, userId }) {
+  const pdfToken = signFdItineraryPdfToken({ userId, departureId });
+  const printUrl = `${env.agentPortalUrl}/departures/${departureId}/print?pdfToken=${encodeURIComponent(pdfToken)}`;
+
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setViewport({ width: 1240, height: 1754 });
+    await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: RENDER_TIMEOUT_MS });
+    await page.waitForFunction('window.__PDF_READY__ === true', { timeout: RENDER_TIMEOUT_MS });
+
+    const renderError = await page.evaluate(() => window.__PDF_ERROR__ || null);
+    if (renderError) {
+      throw new Error(`Itinerary failed to render: ${renderError}`);
+    }
+
+    const pdfData = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      displayHeaderFooter: false,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+    });
+
+    return Buffer.from(pdfData);
+  } finally {
+    await page.close().catch(() => {});
   }
 }
