@@ -70,16 +70,34 @@ function flightsSelectionError(flightsEnabled, onwardFlightId, returnFlightId, s
   return null;
 }
 
+// fd_packages.hotel_id/hotel_name are a pre-day-by-day-itinerary leftover
+// (0013_fd_package_hotel.sql) — the day-by-day itinerary builder
+// (ItineraryManager, FdPackageEditor.jsx) never writes to that column, it
+// only ever places hotel items on individual days (fd_itinerary_items), so
+// hotel_id is null on every package that's ever gone through this editor and
+// the old join-on-hotel_id approach always resolved hotelName to null. This
+// derives it from the itinerary instead — the earliest day that has a hotel
+// placed on it, resolved against the already-loaded hotel pool — which is
+// what a listing actually wants to show ("the" hotel this package uses).
+function deriveHotelName(items, pools) {
+  const hotelItem = [...items].sort((a, b) => a.day_number - b.day_number).find((it) => it.item_type === 'hotel');
+  if (!hotelItem) return null;
+  return pools.hotel?.find((h) => h.id === hotelItem.item_id)?.name || null;
+}
+
 // `ratePerPax` is the already-resolved rate (see resolveRatePerPax —
 // fdPackage.rate_per_pax when the admin set an override, else the itinerary
 // total). Callers that haven't loaded the itinerary/catalog pools
 // (create/update, which have no itinerary yet) simply omit it, so a package
-// with no override and no itinerary yet reports ratePerPax: null.
+// with no override and no itinerary yet reports ratePerPax: null. `hotelName`
+// works the same way — omitted (falls back to the always-null legacy
+// hotel_id join) by callers with no itinerary loaded yet; list()/get() below
+// pass deriveHotelName's result explicitly.
 // `rateOverride` is the raw column, unresolved — the editor needs this
 // (rather than the resolved ratePerPax) to tell whether the admin has set a
 // manual price at all, since it computes the itinerary-driven default live
 // on its own instead of trusting a value that might just be the fallback.
-function toPublicPackage(fdPackage, ratePerPax) {
+function toPublicPackage(fdPackage, ratePerPax, hotelName) {
   return {
     id: fdPackage.id,
     title: fdPackage.title,
@@ -88,7 +106,7 @@ function toPublicPackage(fdPackage, ratePerPax) {
     heroImageUrl: fdPackage.hero_image_url,
     images: fdPackage.images || [],
     hotelId: fdPackage.hotel_id,
-    hotelName: fdPackage.hotel_name ?? null,
+    hotelName: hotelName !== undefined ? hotelName : (fdPackage.hotel_name ?? null),
     shortDescription: fdPackage.short_description,
     suitableAgeMin: fdPackage.suitable_age_min,
     rating: toNumOrNull(fdPackage.rating),
@@ -148,7 +166,7 @@ export async function list(req, res, next) {
     let fdPackages = await Promise.all(
       rows.map(async (row) => {
         const { items } = await listItineraryForPackage(row.id);
-        return toPublicPackage(row, resolveRatePerPax(row, items, pools));
+        return toPublicPackage(row, resolveRatePerPax(row, items, pools), deriveHotelName(items, pools));
       })
     );
 
@@ -190,7 +208,7 @@ export async function get(req, res, next) {
 
     res.json({
       fdPackage: {
-        ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools)),
+        ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools), deriveHotelName(itinerary.items, pools)),
         itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
         departureDates: dates.map((d) => ({
           id: d.id,
