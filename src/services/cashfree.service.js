@@ -25,7 +25,7 @@ export async function createOrder({ bookingId, amount, customerEmail, customerPh
     body: JSON.stringify({
       order_id: `booking-${bookingId}-${Date.now()}`,
       order_amount: amount,
-      order_currency: 'OMR',
+      order_currency: 'INR',
       order_tag: bookingId,
       customer_details: {
         customer_id: customerId,
