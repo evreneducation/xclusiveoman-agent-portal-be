@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { catalogHandlersFor, uploadImagesHandlerFor } from '../controllers/catalog.controller.js';
+import { hotelsModel, toursModel, activitiesModel, transfersModel } from '../models/catalog.model.js';
 import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import {
@@ -41,6 +42,114 @@ function deriveHotelPricePerNight(req, res, next) {
   next();
 }
 
+const HOTEL_REQUIRED_ON_PUBLISH = ['name', 'city', 'state', 'address', 'email', 'category', 'description'];
+const HOTEL_PRICE_FIELDS = ['price_per_night', 'single_price', 'double_price', 'triple_price'];
+
+// `description` is rich text now (shared/components/RichTextEditor.jsx) —
+// its empty state is `<p></p>`, not `''`. Mirrors the frontend's own
+// isEmptyHtml (RichTextEditor.jsx) so a required-but-still-blank rich text
+// field is rejected the same way here as it already is client-side.
+const HTML_REQUIRED_FIELDS = new Set(['description']);
+
+function isFieldEmpty(field, value) {
+  if (HTML_REQUIRED_FIELDS.has(field)) return !value || !String(value).replace(/<[^>]*>/g, '').trim();
+  return value === undefined || value === null || value === '';
+}
+
+// Same "only checked at the moment of publishing" gate FD packages use
+// (fdPackagesAdmin.controller.js's carouselImagesError/heroImageError) —
+// hotelSchema no longer requires any of these up front (0070_hotels_status.sql),
+// so HotelEditor.jsx's draft autosave can save a half-filled hotel; this is
+// what stops one from actually going live incomplete, whether through the UI
+// or a direct API call. Runs after deriveHotelPricePerNight so price_per_night
+// is already derived from whichever occupancy price was submitted. PATCH
+// bodies are partial, so a field this request doesn't touch falls back to
+// whatever's already saved (mirrors fdPackagesAdmin.controller.js#update's
+// finalStatus/finalImages pattern) — req.params.id is undefined on a create,
+// so `existing` is just null there and every field must come from the body.
+async function requireHotelPublishFields(req, res, next) {
+  try {
+    const existing = req.params.id ? await hotelsModel.findById(req.params.id) : null;
+    const finalStatus = req.body.status !== undefined ? req.body.status : existing?.status;
+    if (finalStatus !== 'published') return next();
+
+    const finalOf = (field) => (req.body[field] !== undefined ? req.body[field] : existing?.[field]);
+
+    for (const field of HOTEL_REQUIRED_ON_PUBLISH) {
+      if (isFieldEmpty(field, finalOf(field))) {
+        return res.status(400).json({ error: 'validation_error', message: 'Please fill in all required fields before publishing.' });
+      }
+    }
+    const images = finalOf('images');
+    if (!images || images.length === 0) {
+      return res.status(400).json({ error: 'validation_error', message: 'Upload at least one image before publishing.' });
+    }
+    if (!HOTEL_PRICE_FIELDS.some((field) => Number(finalOf(field)) > 0)) {
+      return res
+        .status(400)
+        .json({ error: 'validation_error', message: 'Set a price for at least one occupancy type before publishing.' });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Generalized version of requireHotelPublishFields just above, for tours/
+// activities/transfers (0072_tours_activities_transfers_status.sql) — same
+// "only checked at the moment of publishing" shape, just table- and
+// field-list-driven instead of hardcoded to hotels, since these three don't
+// each need hotels' bespoke occupancy-price derivation step. `priceFields`
+// mirrors HOTEL_PRICE_FIELDS's "at least one must be a positive number"
+// check; pass an empty array for an entity whose price is genuinely optional
+// even at publish (matches that entity's own validate*Form.js on the client).
+function createPublishFieldsGate(model, { requiredFields, requireImages = false, priceFields = [] }) {
+  return async function requirePublishFields(req, res, next) {
+    try {
+      const existing = req.params.id ? await model.findById(req.params.id) : null;
+      const finalStatus = req.body.status !== undefined ? req.body.status : existing?.status;
+      if (finalStatus !== 'published') return next();
+
+      const finalOf = (field) => (req.body[field] !== undefined ? req.body[field] : existing?.[field]);
+
+      for (const field of requiredFields) {
+        if (isFieldEmpty(field, finalOf(field))) {
+          return res.status(400).json({ error: 'validation_error', message: 'Please fill in all required fields before publishing.' });
+        }
+      }
+      if (requireImages) {
+        const images = finalOf('images');
+        if (!images || images.length === 0) {
+          return res.status(400).json({ error: 'validation_error', message: 'Upload at least one image before publishing.' });
+        }
+      }
+      if (priceFields.length && !priceFields.some((field) => Number(finalOf(field)) > 0)) {
+        return res.status(400).json({ error: 'validation_error', message: 'Set a price before publishing.' });
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+// Field lists mirror each entity's own admin/lib/*Form.js exactly
+// (TOUR_REQUIRED_FIELDS, ACTIVITY_REQUIRED_FIELDS, TRANSFER_REQUIRED_FIELDS) —
+// activities/transfers don't require images or a price even at publish
+// today (their client-side validators only check price *format* when one's
+// provided, never its presence), so both stay off for those two.
+const requireTourPublishFields = createPublishFieldsGate(toursModel, {
+  requiredFields: ['name', 'city', 'description', 'duration', 'category'],
+  requireImages: true,
+  priceFields: ['price'],
+});
+const requireActivityPublishFields = createPublishFieldsGate(activitiesModel, {
+  requiredFields: ['name', 'city'],
+});
+const requireTransferPublishFields = createPublishFieldsGate(transfersModel, {
+  requiredFields: ['name', 'type'],
+});
+
 const ENTITIES = [
   { path: 'hotels', schema: hotelSchema },
   { path: 'tours', schema: tourSchema },
@@ -68,11 +177,21 @@ export const adminCatalogRouter = Router();
 // RM_FEATURE_KEYS, so is 403'd here regardless of its other checkboxes).
 adminCatalogRouter.use(requireAuth, requireRole(...STAFF_ROLES), requireFeature('catalog'));
 
+// path -> extra middleware run after toColumns, before the generic
+// create/update handler. Only hotels carries occupancy-tiered pricing;
+// hotels/tours/activities/transfers each carry their own publish-fields
+// gate (0070_hotels_status.sql / 0072_tours_activities_transfers_status.sql)
+// — every other entity's pipeline is unchanged.
+const EXTRA_MIDDLEWARE = {
+  hotels: [deriveHotelPricePerNight, requireHotelPublishFields],
+  tours: [requireTourPublishFields],
+  activities: [requireActivityPublishFields],
+  transfers: [requireTransferPublishFields],
+};
+
 for (const { path, schema } of ENTITIES) {
   const handlers = catalogHandlersFor(path);
-  // Only 'hotels' carries occupancy-tiered pricing — every other entity's
-  // pipeline is unchanged.
-  const extra = path === 'hotels' ? [deriveHotelPricePerNight] : [];
+  const extra = EXTRA_MIDDLEWARE[path] || [];
   adminCatalogRouter.post(`/${path}`, validateBody(schema), toColumns, ...extra, handlers.create);
   adminCatalogRouter.patch(`/${path}/:id`, validateBody(schema.partial()), toColumns, ...extra, handlers.update);
   adminCatalogRouter.delete(`/${path}/:id`, handlers.remove);
