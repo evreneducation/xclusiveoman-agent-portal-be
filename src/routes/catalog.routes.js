@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { catalogHandlersFor, uploadImagesHandlerFor } from '../controllers/catalog.controller.js';
+import { hotelsModel } from '../models/catalog.model.js';
 import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import {
@@ -41,6 +42,49 @@ function deriveHotelPricePerNight(req, res, next) {
   next();
 }
 
+const HOTEL_REQUIRED_ON_PUBLISH = ['name', 'city', 'state', 'address', 'email', 'category', 'description'];
+const HOTEL_PRICE_FIELDS = ['price_per_night', 'single_price', 'double_price', 'triple_price'];
+
+// Same "only checked at the moment of publishing" gate FD packages use
+// (fdPackagesAdmin.controller.js's carouselImagesError/heroImageError) —
+// hotelSchema no longer requires any of these up front (0070_hotels_status.sql),
+// so HotelEditor.jsx's draft autosave can save a half-filled hotel; this is
+// what stops one from actually going live incomplete, whether through the UI
+// or a direct API call. Runs after deriveHotelPricePerNight so price_per_night
+// is already derived from whichever occupancy price was submitted. PATCH
+// bodies are partial, so a field this request doesn't touch falls back to
+// whatever's already saved (mirrors fdPackagesAdmin.controller.js#update's
+// finalStatus/finalImages pattern) — req.params.id is undefined on a create,
+// so `existing` is just null there and every field must come from the body.
+async function requireHotelPublishFields(req, res, next) {
+  try {
+    const existing = req.params.id ? await hotelsModel.findById(req.params.id) : null;
+    const finalStatus = req.body.status !== undefined ? req.body.status : existing?.status;
+    if (finalStatus !== 'published') return next();
+
+    const finalOf = (field) => (req.body[field] !== undefined ? req.body[field] : existing?.[field]);
+
+    for (const field of HOTEL_REQUIRED_ON_PUBLISH) {
+      const value = finalOf(field);
+      if (value === undefined || value === null || value === '') {
+        return res.status(400).json({ error: 'validation_error', message: 'Please fill in all required fields before publishing.' });
+      }
+    }
+    const images = finalOf('images');
+    if (!images || images.length === 0) {
+      return res.status(400).json({ error: 'validation_error', message: 'Upload at least one image before publishing.' });
+    }
+    if (!HOTEL_PRICE_FIELDS.some((field) => Number(finalOf(field)) > 0)) {
+      return res
+        .status(400)
+        .json({ error: 'validation_error', message: 'Set a price for at least one occupancy type before publishing.' });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 const ENTITIES = [
   { path: 'hotels', schema: hotelSchema },
   { path: 'tours', schema: tourSchema },
@@ -70,9 +114,9 @@ adminCatalogRouter.use(requireAuth, requireRole(...STAFF_ROLES), requireFeature(
 
 for (const { path, schema } of ENTITIES) {
   const handlers = catalogHandlersFor(path);
-  // Only 'hotels' carries occupancy-tiered pricing — every other entity's
-  // pipeline is unchanged.
-  const extra = path === 'hotels' ? [deriveHotelPricePerNight] : [];
+  // Only 'hotels' carries occupancy-tiered pricing and the draft/published
+  // status gate — every other entity's pipeline is unchanged.
+  const extra = path === 'hotels' ? [deriveHotelPricePerNight, requireHotelPublishFields] : [];
   adminCatalogRouter.post(`/${path}`, validateBody(schema), toColumns, ...extra, handlers.create);
   adminCatalogRouter.patch(`/${path}/:id`, validateBody(schema.partial()), toColumns, ...extra, handlers.update);
   adminCatalogRouter.delete(`/${path}/:id`, handlers.remove);

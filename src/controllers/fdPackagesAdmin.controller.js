@@ -47,6 +47,17 @@ function carouselImagesError(images, status) {
 }
 
 // Same "only checked at the moment of publishing" gate as carouselImagesError
+// above — a package can sit in draft with no hero image while the admin is
+// still building it out (heroImageUrl is nullable in fdPackageSchema for
+// exactly that reason), but needs one before it goes live.
+function heroImageError(heroImageUrl, status) {
+  if (status === 'published' && !heroImageUrl) {
+    return 'Add a hero image before publishing.';
+  }
+  return null;
+}
+
+// Same "only checked at the moment of publishing" gate as carouselImagesError
 // above, for the Flights section (0064_fd_package_flights.sql) — flying
 // solely on flightsEnabled being true (mid-edit, before either flight is
 // picked yet) would reject the debounced autosave PATCH that fires the
@@ -208,6 +219,7 @@ export async function create(req, res, next) {
   try {
     const message =
       carouselImagesError(req.body.images, req.body.status) ||
+      heroImageError(req.body.heroImageUrl, req.body.status) ||
       flightsSelectionError(req.body.flightsEnabled, req.body.onwardFlightId, req.body.returnFlightId, req.body.status);
     if (message) {
       return res.status(400).json({ error: 'validation_error', message });
@@ -229,11 +241,13 @@ export async function update(req, res, next) {
     // two the request isn't touching, so fall back to what's already saved.
     const finalStatus = req.body.status !== undefined ? req.body.status : existing.status;
     const finalImages = req.body.images !== undefined ? req.body.images : existing.images;
+    const finalHeroImageUrl = req.body.heroImageUrl !== undefined ? req.body.heroImageUrl : existing.hero_image_url;
     const finalFlightsEnabled = req.body.flightsEnabled !== undefined ? req.body.flightsEnabled : existing.flights_enabled;
     const finalOnwardFlightId = req.body.onwardFlightId !== undefined ? req.body.onwardFlightId : existing.onward_flight_id;
     const finalReturnFlightId = req.body.returnFlightId !== undefined ? req.body.returnFlightId : existing.return_flight_id;
     const message =
       carouselImagesError(finalImages, finalStatus) ||
+      heroImageError(finalHeroImageUrl, finalStatus) ||
       flightsSelectionError(finalFlightsEnabled, finalOnwardFlightId, finalReturnFlightId, finalStatus);
     if (message) {
       return res.status(400).json({ error: 'validation_error', message });

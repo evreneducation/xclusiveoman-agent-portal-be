@@ -179,19 +179,37 @@ export const createCustomRoleEmployeeSchema = z.object({
 
 // --- Catalog (doc §11.2 / §12.3) ---
 
+// name/city/state/address/email/category/images/description all used to be
+// required here unconditionally — that's what made it impossible to ever
+// create a hotel row before every field was filled in. 0070_hotels_status.sql
+// moves "must be complete" to a publish-time gate instead (requireHotelPublishFields,
+// catalog.routes.js — same "only checked at the moment of publishing" shape
+// FD packages use for carousel images/flights), same as this schema already
+// did for "at least one occupancy price" below; each field here still
+// validates its own format/type when present, just isn't required to be
+// present, so a half-filled draft (HotelEditor.jsx's autosave) can save.
 export const hotelSchema = z.object({
-  name: z.string().min(2).max(200),
-  city: z.string().min(2).max(100),
-  state: z.string().min(2).max(100),
-  address: z.string().min(1).max(500),
-  email: z.string().email('Enter a valid email address'),
+  name: z.string().min(2).max(200).optional(),
+  city: z.string().min(2).max(100).optional(),
+  state: z.string().min(2).max(100).optional(),
+  address: z.string().min(1).max(500).optional(),
+  email: z.string().email('Enter a valid email address').optional(),
   // Star category — dropdown limited to 3/4/5 stars, reuses the existing
   // `category` column rather than adding a duplicate field.
-  category: z.number().int().refine((v) => [3, 4, 5].includes(v), {
-    message: 'Star category must be 3, 4, or 5',
-  }),
-  images: z.array(z.string()).min(1, 'Upload at least one image'),
-  description: z.string().min(1, 'Description is required'),
+  category: z
+    .number()
+    .int()
+    .refine((v) => [3, 4, 5].includes(v), { message: 'Star category must be 3, 4, or 5' })
+    .optional(),
+  images: z.array(z.string()).optional(),
+  description: z.string().optional(),
+  // 0070_hotels_status.sql — set explicitly by HotelEditor.jsx/MiceCatalog.jsx's
+  // MiceHotelForm on every full Save (status: 'published'), and by
+  // HotelEditor.jsx's draft autosave (status: 'draft', only on the create
+  // that first materializes the row — the debounced PATCHes after that never
+  // resend status, so they can't flip an already-published hotel back to
+  // draft mid-edit).
+  status: z.enum(['draft', 'published']).optional(),
   // Occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql) — admin
   // checks which of single/double/triple this hotel offers and prices each
   // one independently, replacing the old single flat pricePerNight field in
@@ -379,7 +397,7 @@ export const fdPackageSchema = z.object({
   title: z.string().min(2).max(200),
   theme: z.string().max(100).optional(),
   duration: z.string().max(50).optional(),
-  heroImageUrl: z.string().optional(),
+  heroImageUrl: z.string().nullable().optional(),
   images: z.array(z.string()).optional(),
   hotelId: z.string().uuid().nullable().optional(),
   shortDescription: z.string().optional(),

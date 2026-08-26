@@ -49,6 +49,16 @@ function createCrudModel(table, columns) {
         values.push(filters.isFlightOnward);
         i += 1;
       }
+      // Opt-in — only passed by the itinerary-building hotel pickers
+      // (FdPackageEditor.jsx, PackageBuilder.jsx, MiceBuilder.jsx), so a
+      // draft hotel can't be added to a package before it's ready. The admin
+      // management lists (ProductCatalog.jsx, MiceCatalog.jsx) omit this and
+      // keep seeing every hotel regardless of status.
+      if (filters.status && columns.includes('status')) {
+        clauses.push(`status = $${i}`);
+        values.push(filters.status);
+        i += 1;
+      }
 
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
@@ -118,6 +128,9 @@ export const hotelsModel = createCrudModel('hotels', [
   // middleware computes it from those three before this model ever sees the
   // request, so it's still populated for MICE quote costing, unchanged.
   'price_per_night', 'single_price', 'double_price', 'triple_price', 'is_mice_enabled',
+  // 0070_hotels_status.sql — draft/published; only hotels/list's `status`
+  // filter (below) reads it, gating the itinerary-building pickers.
+  'status',
 ]);
 
 export const toursModel = createCrudModel('tours', [
