@@ -49,6 +49,16 @@ function createCrudModel(table, columns) {
         values.push(filters.isFlightOnward);
         i += 1;
       }
+      // Opt-in — only passed by the itinerary-building hotel pickers
+      // (FdPackageEditor.jsx, PackageBuilder.jsx, MiceBuilder.jsx), so a
+      // draft hotel can't be added to a package before it's ready. The admin
+      // management lists (ProductCatalog.jsx, MiceCatalog.jsx) omit this and
+      // keep seeing every hotel regardless of status.
+      if (filters.status && columns.includes('status')) {
+        clauses.push(`status = $${i}`);
+        values.push(filters.status);
+        i += 1;
+      }
 
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
@@ -118,21 +128,28 @@ export const hotelsModel = createCrudModel('hotels', [
   // middleware computes it from those three before this model ever sees the
   // request, so it's still populated for MICE quote costing, unchanged.
   'price_per_night', 'single_price', 'double_price', 'triple_price', 'is_mice_enabled',
+  // 0070_hotels_status.sql — draft/published; only hotels/list's `status`
+  // filter (below) reads it, gating the itinerary-building pickers.
+  'status',
 ]);
 
 export const toursModel = createCrudModel('tours', [
   'name', 'city', 'description', 'duration', 'images', 'category', 'price',
   'group_suitability', 'rating', 'review_count', 'suitable_age_min', 'is_bestseller',
   'is_mice_enabled',
+  // 0072_tours_activities_transfers_status.sql — draft/published.
+  'status',
 ]);
 
 export const activitiesModel = createCrudModel('activities', [
   'name', 'city', 'description', 'duration', 'images', 'price_per_pax',
   'rating', 'review_count', 'suitable_age_min', 'is_bestseller', 'is_mice_enabled',
+  'status',
 ]);
 
 export const transfersModel = createCrudModel('transfers', [
   'name', 'type', 'vehicle_class', 'city', 'description', 'price', 'images', 'is_mice_enabled',
+  'status',
 ]);
 
 export const experiencesModel = createCrudModel('experiences', [

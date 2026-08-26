@@ -66,11 +66,13 @@ export async function listFdPackages({ status, destination, theme, featured, bes
 export async function listAllFdPackagesForAdmin() {
   const { rows } = await pool.query(`
     SELECT fd_packages.*,
+      hotels.name AS hotel_name,
       COALESCE(seat_agg.seats_total, 0) AS seats_total,
       COALESCE(seat_agg.seats_booked, 0) AS seats_booked,
       seat_agg.first_date,
       seat_agg.last_date
     FROM fd_packages
+    LEFT JOIN hotels ON hotels.id = fd_packages.hotel_id
     LEFT JOIN LATERAL (
       SELECT SUM(seats_total) AS seats_total, SUM(seats_booked) AS seats_booked,
         MIN(date) AS first_date, MAX(date) AS last_date

@@ -57,7 +57,7 @@ export function catalogHandlersFor(entity) {
     // `{ [entity]: rows }` shape unchanged.
     async list(req, res, next) {
       try {
-        const { city, search, mice, mealType, isFlightOnward } = req.query;
+        const { city, search, mice, mealType, isFlightOnward, status } = req.query;
         const isMiceEnabled = mice === undefined ? undefined : mice === 'true';
         const isFlightOnwardBool = isFlightOnward === undefined ? undefined : isFlightOnward === 'true';
 
@@ -71,6 +71,7 @@ export function catalogHandlersFor(entity) {
           isMiceEnabled,
           mealType,
           isFlightOnward: isFlightOnwardBool,
+          status,
           page,
           pageSize,
         });

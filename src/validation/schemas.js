@@ -179,19 +179,37 @@ export const createCustomRoleEmployeeSchema = z.object({
 
 // --- Catalog (doc §11.2 / §12.3) ---
 
+// name/city/state/address/email/category/images/description all used to be
+// required here unconditionally — that's what made it impossible to ever
+// create a hotel row before every field was filled in. 0070_hotels_status.sql
+// moves "must be complete" to a publish-time gate instead (requireHotelPublishFields,
+// catalog.routes.js — same "only checked at the moment of publishing" shape
+// FD packages use for carousel images/flights), same as this schema already
+// did for "at least one occupancy price" below; each field here still
+// validates its own format/type when present, just isn't required to be
+// present, so a half-filled draft (HotelEditor.jsx's autosave) can save.
 export const hotelSchema = z.object({
-  name: z.string().min(2).max(200),
-  city: z.string().min(2).max(100),
-  state: z.string().min(2).max(100),
-  address: z.string().min(1).max(500),
-  email: z.string().email('Enter a valid email address'),
+  name: z.string().min(2).max(200).optional(),
+  city: z.string().min(2).max(100).optional(),
+  state: z.string().min(2).max(100).optional(),
+  address: z.string().min(1).max(500).optional(),
+  email: z.string().email('Enter a valid email address').optional(),
   // Star category — dropdown limited to 3/4/5 stars, reuses the existing
   // `category` column rather than adding a duplicate field.
-  category: z.number().int().refine((v) => [3, 4, 5].includes(v), {
-    message: 'Star category must be 3, 4, or 5',
-  }),
-  images: z.array(z.string()).min(1, 'Upload at least one image'),
-  description: z.string().min(1, 'Description is required'),
+  category: z
+    .number()
+    .int()
+    .refine((v) => [3, 4, 5].includes(v), { message: 'Star category must be 3, 4, or 5' })
+    .optional(),
+  images: z.array(z.string()).optional(),
+  description: z.string().optional(),
+  // 0070_hotels_status.sql — set explicitly by HotelEditor.jsx/MiceCatalog.jsx's
+  // MiceHotelForm on every full Save (status: 'published'), and by
+  // HotelEditor.jsx's draft autosave (status: 'draft', only on the create
+  // that first materializes the row — the debounced PATCHes after that never
+  // resend status, so they can't flip an already-published hotel back to
+  // draft mid-edit).
+  status: z.enum(['draft', 'published']).optional(),
   // Occupancy-tiered pricing (0061_hotel_occupancy_pricing.sql) — admin
   // checks which of single/double/triple this hotel offers and prices each
   // one independently, replacing the old single flat pricePerNight field in
@@ -213,23 +231,31 @@ export const hotelSchema = z.object({
   isMiceEnabled: z.boolean().optional(),
 });
 
+// name/city/description/duration/images/category/price all used to be
+// required unconditionally, same problem hotelSchema had (see its own
+// comment above) — 0072_tours_activities_transfers_status.sql moves
+// "must be complete" to a publish-time gate instead (requireCatalogPublishFields,
+// catalog.routes.js), each field still validating its own format when present.
 export const tourSchema = z.object({
-  name: z.string().min(2).max(200),
-  city: z.string().min(2).max(100),
-  description: z.string().min(1, 'Description is required'),
-  duration: z.string().min(1, 'Duration is required').max(50),
-  images: z.array(z.string()).min(1, 'Upload at least one image'),
-  category: z.string().min(1, 'Tour category is required').max(100),
-  price: z.number().positive('Price must be a positive number'),
+  name: z.string().min(2).max(200).optional(),
+  city: z.string().min(2).max(100).optional(),
+  description: z.string().optional(),
+  duration: z.string().max(50).optional(),
+  images: z.array(z.string()).optional(),
+  category: z.string().max(100).optional(),
+  price: z.number().positive('Price must be a positive number').optional(),
   groupSuitability: z.string().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isBestseller: z.boolean().optional(),
   isMiceEnabled: z.boolean().optional(),
+  // 0072_tours_activities_transfers_status.sql — same status story as
+  // hotelSchema's own `status` field above.
+  status: z.enum(['draft', 'published']).optional(),
 });
 
 export const activitySchema = z.object({
-  name: z.string().min(2).max(200),
-  city: z.string().min(2).max(100),
+  name: z.string().min(2).max(200).optional(),
+  city: z.string().min(2).max(100).optional(),
   description: z.string().optional(),
   duration: z.string().max(50).optional(),
   images: z.array(z.string()).optional(),
@@ -237,11 +263,12 @@ export const activitySchema = z.object({
   suitableAgeMin: z.number().int().nonnegative().optional(),
   isBestseller: z.boolean().optional(),
   isMiceEnabled: z.boolean().optional(),
+  status: z.enum(['draft', 'published']).optional(),
 });
 
 export const transferSchema = z.object({
-  name: z.string().min(2).max(200),
-  type: z.enum(['airport', 'intercity', 'point_to_point', 'group_coach']),
+  name: z.string().min(2).max(200).optional(),
+  type: z.enum(['airport', 'intercity', 'point_to_point', 'group_coach']).optional(),
   vehicleClass: z.string().max(100).optional(),
   city: z.string().max(100).optional(),
   description: z.string().optional(),
@@ -252,6 +279,7 @@ export const transferSchema = z.object({
   // hotel/tour images, not required, since existing transfers predate it.
   images: z.array(z.string()).optional(),
   isMiceEnabled: z.boolean().optional(),
+  status: z.enum(['draft', 'published']).optional(),
 });
 
 export const experienceSchema = z.object({
@@ -379,7 +407,7 @@ export const fdPackageSchema = z.object({
   title: z.string().min(2).max(200),
   theme: z.string().max(100).optional(),
   duration: z.string().max(50).optional(),
-  heroImageUrl: z.string().optional(),
+  heroImageUrl: z.string().nullable().optional(),
   images: z.array(z.string()).optional(),
   hotelId: z.string().uuid().nullable().optional(),
   shortDescription: z.string().optional(),
@@ -531,10 +559,16 @@ export const emailToSupplierSchema = z.object({
 
 // SUP-1: "Subject + description form" — both required (see migration
 // 0056's own comment on why `description` is required despite the ERD's
-// terser one-line listing).
+// terser one-line listing). `description` is rich text now
+// (shared/components/RichTextEditor.jsx on the frontend) — its empty state
+// is `<p></p>`, which `.min(1)` alone wouldn't catch, so the refine below
+// strips tags first, same as that component's own isEmptyHtml.
 export const createTicketSchema = z.object({
   subject: z.string().min(1, 'Subject is required').max(200),
-  description: z.string().min(1, 'Description is required').max(5000),
+  description: z
+    .string()
+    .max(5000)
+    .refine((v) => v.replace(/<[^>]*>/g, '').trim().length > 0, { message: 'Description is required' }),
   priority: z.enum(['low', 'normal', 'high']).optional().default('normal'),
 });
 
