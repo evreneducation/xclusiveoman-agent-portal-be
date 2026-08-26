@@ -17,6 +17,7 @@ import { resolveMealsSummary } from '../utils/meals.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
 import { createFdBooking } from '../services/booking.service.js';
+import { generateFdItineraryPdf } from '../services/itineraryPdf.service.js';
 
 // ratePerPax is fdPackage.rate_per_pax (an admin override) when set, else the
 // sum of the package's day-by-day itinerary (see resolveRatePerPax) — the
@@ -104,6 +105,84 @@ export async function listDepartures(req, res, next) {
   }
 }
 
+// Builds the full agent-facing departure detail object — shared by the
+// normal authenticated GET below and getDepartureDataForPdf (the Puppeteer-
+// rendered print page's own data fetch), so the on-screen page and the
+// downloaded PDF are always built from the exact same query/compose path
+// rather than two independently-maintained copies drifting apart. Mirrors
+// packageRequests.controller.js's toPublicPackageRequest, reused the same
+// way by its own downloadItineraryPdf/getItineraryDataForPdf pair.
+async function buildDepartureDetail(fdPackage) {
+  const [itinerary, dates, addons, pools] = await Promise.all([
+    listItineraryForPackage(fdPackage.id),
+    listDepartureDates(fdPackage.id),
+    listAddons(fdPackage.id),
+    loadCatalogPools(),
+  ]);
+
+  // pools.hotel already holds every hotel's full row (loadCatalogPools) —
+  // resolving here off the itinerary's own hotel item instead of a second
+  // hotelsModel.findById(fdPackage.hotel_id) call both fixes the
+  // legacy-hotel_id bug (see resolvePrimaryHotelId) and avoids a redundant
+  // DB round trip.
+  const hotelId = resolvePrimaryHotelId(fdPackage, itinerary.items);
+  const hotel = hotelId ? pools.hotel.find((h) => h.id === hotelId) : null;
+
+  return {
+    ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools), hotel),
+    itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
+    // Read-only breakdown for the "Meals" section below the itinerary
+    // (DepartureDetail.jsx) — already folded into ratePerPax above via
+    // resolveRatePerPax, this is purely informational.
+    meals: resolveMealsSummary(fdPackage, pools.meal),
+    // null unless flights are included directly on the package — the
+    // "Flight Details" collapsible section (DepartureDetail.jsx) only
+    // renders when this comes back non-null.
+    flights: resolveFlightDetails(fdPackage, pools),
+    departureDates: dates.map((d) => ({
+      id: d.id,
+      date: d.date,
+      seatsLeft: d.seats_total - d.seats_booked,
+      seatsTotal: d.seats_total,
+      location: d.location,
+    })),
+    // `type` tells the agent-facing UI (DepartureDetail.jsx) which
+    // category heading an add-on belongs under (Activities/Tours/
+    // Transfers/Flights) — derived from whichever of the 4 mutually
+    // exclusive *_id columns is set (fd_addons_exactly_one_item CHECK
+    // constraint guarantees exactly one). `name` now falls back through
+    // all 4 joined name columns (listAddons), not just
+    // activity_name/tour_name — a transfer or flight add-on used to come
+    // back with name: null because of that.
+    addons: addons.map((a) => ({
+      id: a.id,
+      type: a.activity_id ? 'activity' : a.tour_id ? 'tour' : a.transfer_id ? 'transfer' : 'flight',
+      // The catalog row's own id (not `id` above, which is the fd_addons
+      // join-row id) — lets the agent-facing "View Details" combobox
+      // (DepartureDetail.jsx) fetch the full catalog record straight off
+      // the existing generic GET /:entity/:id detail route
+      // (catalog.routes.js) using this + `type`.
+      catalogId: a.activity_id || a.tour_id || a.transfer_id || a.flight_id,
+      name: a.activity_name || a.tour_name || a.transfer_name || a.flight_name,
+      pricePerPax: Number(a.price_per_pax),
+    })),
+    // Richer hotel detail for the "Hotel Information" section — the
+    // listing/toPublicPackage only carries hotelName for the card.
+    hotel: hotel
+      ? {
+          id: hotel.id,
+          name: hotel.name,
+          city: hotel.city,
+          state: hotel.state,
+          category: hotel.category,
+          boardBasisOptions: hotel.board_basis_options || [],
+          description: hotel.description,
+          images: hotel.images || [],
+        }
+      : null,
+  };
+}
+
 // GET /api/departures/:id — resolves net rate (from the itinerary) + itinerary/add-ons for the caller.
 export async function getDeparture(req, res, next) {
   try {
@@ -112,77 +191,71 @@ export async function getDeparture(req, res, next) {
       return res.status(404).json({ error: 'not_found' });
     }
 
-    const [itinerary, dates, addons, pools] = await Promise.all([
-      listItineraryForPackage(fdPackage.id),
-      listDepartureDates(fdPackage.id),
-      listAddons(fdPackage.id),
-      loadCatalogPools(),
-    ]);
-
-    // pools.hotel already holds every hotel's full row (loadCatalogPools) —
-    // resolving here off the itinerary's own hotel item instead of a second
-    // hotelsModel.findById(fdPackage.hotel_id) call both fixes the
-    // legacy-hotel_id bug (see resolvePrimaryHotelId) and avoids a redundant
-    // DB round trip.
-    const hotelId = resolvePrimaryHotelId(fdPackage, itinerary.items);
-    const hotel = hotelId ? pools.hotel.find((h) => h.id === hotelId) : null;
-
-    res.json({
-      departure: {
-        ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools), hotel),
-        itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
-        // Read-only breakdown for the "Meals" section below the itinerary
-        // (DepartureDetail.jsx) — already folded into ratePerPax above via
-        // resolveRatePerPax, this is purely informational.
-        meals: resolveMealsSummary(fdPackage, pools.meal),
-        // null unless flights are included directly on the package — the
-        // "Flight Details" collapsible section (DepartureDetail.jsx) only
-        // renders when this comes back non-null.
-        flights: resolveFlightDetails(fdPackage, pools),
-        departureDates: dates.map((d) => ({
-          id: d.id,
-          date: d.date,
-          seatsLeft: d.seats_total - d.seats_booked,
-          seatsTotal: d.seats_total,
-          location: d.location,
-        })),
-        // `type` tells the agent-facing UI (DepartureDetail.jsx) which
-        // category heading an add-on belongs under (Activities/Tours/
-        // Transfers/Flights) — derived from whichever of the 4 mutually
-        // exclusive *_id columns is set (fd_addons_exactly_one_item CHECK
-        // constraint guarantees exactly one). `name` now falls back through
-        // all 4 joined name columns (listAddons), not just
-        // activity_name/tour_name — a transfer or flight add-on used to come
-        // back with name: null because of that.
-        addons: addons.map((a) => ({
-          id: a.id,
-          type: a.activity_id ? 'activity' : a.tour_id ? 'tour' : a.transfer_id ? 'transfer' : 'flight',
-          // The catalog row's own id (not `id` above, which is the fd_addons
-          // join-row id) — lets the agent-facing "View Details" combobox
-          // (DepartureDetail.jsx) fetch the full catalog record straight off
-          // the existing generic GET /:entity/:id detail route
-          // (catalog.routes.js) using this + `type`.
-          catalogId: a.activity_id || a.tour_id || a.transfer_id || a.flight_id,
-          name: a.activity_name || a.tour_name || a.transfer_name || a.flight_name,
-          pricePerPax: Number(a.price_per_pax),
-        })),
-        // Richer hotel detail for the "Hotel Information" section — the
-        // listing/toPublicPackage only carries hotelName for the card.
-        hotel: hotel
-          ? {
-              id: hotel.id,
-              name: hotel.name,
-              city: hotel.city,
-              state: hotel.state,
-              category: hotel.category,
-              boardBasisOptions: hotel.board_basis_options || [],
-              description: hotel.description,
-              images: hotel.images || [],
-            }
-          : null,
-      },
-    });
+    res.json({ departure: await buildDepartureDetail(fdPackage) });
   } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/fd-itinerary-pdf/:id/data — the Puppeteer-rendered print page's
+// own data fetch (agent/pages/DepartureItineraryPrint.jsx), gated by
+// requireFdPdfToken instead of a login session (see fdItineraryPdfData.
+// routes.js and itineraryPdf.service.js#generateFdItineraryPdf for the full
+// flow). Re-checks the token's departureId against req.params.id itself —
+// same "don't trust the token's claims alone" posture requireAuth takes by
+// re-fetching the user from the DB — even though the token is already
+// scoped to exactly one departure.
+export async function getDepartureDataForPdf(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (req.fdPdfClaims.departureId !== id) {
+      return res.status(403).json({ error: 'forbidden', message: 'This token is not valid for this itinerary' });
+    }
+
+    const fdPackage = await findFdPackageById(id);
+    if (!fdPackage || fdPackage.status !== 'published') {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    res.json({ departure: await buildDepartureDetail(fdPackage) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/departures/:id/itinerary.pdf — DepartureDetail.jsx's "Download
+// Itinerary" button (see itineraryPdf.service.js#generateFdItineraryPdf for
+// the full render pipeline). No agency-ownership check needed here, unlike
+// package_requests' own downloadItineraryPdf — a published FD departure is
+// public-to-every-agent info already (same gate getDeparture above uses),
+// not a private per-agency quote.
+export async function downloadDepartureItineraryPdf(req, res, next) {
+  try {
+    const { id } = req.params;
+    const fdPackage = await findFdPackageById(id);
+    if (!fdPackage || fdPackage.status !== 'published') {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    let pdfBuffer;
+    try {
+      pdfBuffer = await generateFdItineraryPdf({ departureId: id, userId: req.user.id });
+    } catch (err) {
+      // Distinguish "we couldn't render it" from a generic 500 — the agent
+      // sees a clear "try again" message instead of a bare server error.
+      err.status = 502;
+      err.publicMessage = 'Unable to generate the itinerary PDF right now. Please try again.';
+      throw err;
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="itinerary-${id}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    if (err.status && err.publicMessage) {
+      return res.status(err.status).json({ error: 'pdf_generation_failed', message: err.publicMessage });
+    }
     next(err);
   }
 }
