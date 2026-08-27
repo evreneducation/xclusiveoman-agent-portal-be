@@ -16,7 +16,8 @@ import {
   addAddon,
   removeAddon,
 } from '../models/fdPackages.model.js';
-import { activitiesModel, toursModel, transfersModel, flightsModel } from '../models/catalog.model.js';
+import { activitiesModel, toursModel, transfersModel, flightsModel, mealsModel } from '../models/catalog.model.js';
+import { parseDurationDays } from '../utils/meals.js';
 import { toSnakeCaseColumns } from '../validation/schemas.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -116,14 +117,8 @@ function toPublicPackage(fdPackage, ratePerPax, hotelName) {
     status: fdPackage.status,
     ratePerPax: ratePerPax ?? null,
     rateOverride: toNumOrNull(fdPackage.rate_per_pax),
-    // Raw meal selection — the editor resolves these against its own /meals
-    // fetch to compute a live cost, the same way it does for itinerary items.
-    lunchMealId: fdPackage.lunch_meal_id ?? null,
-    lunchPeople: toNumOrNull(fdPackage.lunch_people),
-    lunchDays: toNumOrNull(fdPackage.lunch_days),
-    dinnerMealId: fdPackage.dinner_meal_id ?? null,
-    dinnerPeople: toNumOrNull(fdPackage.dinner_people),
-    dinnerDays: toNumOrNull(fdPackage.dinner_days),
+    // Meals (lunch/dinner) are opt-in fd_addons rows now (0075) — they come
+    // back in `addons` on get(), not as fields here.
     // Task 5 — "included or not" checkbox (0062_fd_addons_transfer_visa.sql).
     visaEnabled: !!fdPackage.visa_enabled,
     // Flights section (0064_fd_package_flights.sql) — ids only; the editor
@@ -227,7 +222,15 @@ export async function get(req, res, next) {
           tourId: a.tour_id,
           transferId: a.transfer_id,
           flightId: a.flight_id,
-          name: a.activity_name || a.tour_name || a.transfer_name || a.flight_name,
+          mealId: a.meal_id,
+          // Meal add-ons have no per-row name of their own — label by meal
+          // type (there's one lunch + one dinner catalog entry).
+          name:
+            a.activity_name ||
+            a.tour_name ||
+            a.transfer_name ||
+            a.flight_name ||
+            (a.meal_type ? a.meal_type[0].toUpperCase() + a.meal_type.slice(1) : a.meal_name),
           pricePerPax: Number(a.price_per_pax),
         })),
       },
@@ -394,7 +397,7 @@ export async function deleteDepartureDate(req, res, next) {
 // (0064_fd_package_flights.sql, priced via 0065_flights_price.sql) follow the
 // same rule now that they have a price column — still go through the same
 // "does this id actually exist" check as everything else either way.
-async function resolveAddonPriceAndName({ activityId, tourId, transferId, flightId }) {
+async function resolveAddonPriceAndName({ activityId, tourId, transferId, flightId, mealId, durationDays }) {
   if (activityId) {
     const row = await activitiesModel.findById(activityId);
     if (!row) return null;
@@ -410,6 +413,16 @@ async function resolveAddonPriceAndName({ activityId, tourId, transferId, flight
     if (!row) return null;
     return { pricePerPax: Number(row.price || 0), name: row.name };
   }
+  if (mealId) {
+    const row = await mealsModel.findById(mealId);
+    if (!row) return null;
+    // price_per_day × the package's Duration in days (0075) — repriced by
+    // updateFdPackage if the Duration later changes.
+    return {
+      pricePerPax: Number(row.price_per_day || 0) * (durationDays || 0),
+      name: row.meal_type ? row.meal_type[0].toUpperCase() + row.meal_type.slice(1) : row.name,
+    };
+  }
   const row = await flightsModel.findById(flightId);
   if (!row) return null;
   return { pricePerPax: Number(row.price || 0), name: row.name };
@@ -417,8 +430,14 @@ async function resolveAddonPriceAndName({ activityId, tourId, transferId, flight
 
 export async function postAddon(req, res, next) {
   try {
-    const { activityId, tourId, transferId, flightId } = req.body;
-    const resolved = await resolveAddonPriceAndName({ activityId, tourId, transferId, flightId });
+    const { activityId, tourId, transferId, flightId, mealId } = req.body;
+    let durationDays = null;
+    if (mealId) {
+      const fdPackage = await findFdPackageById(req.params.id);
+      if (!fdPackage) return res.status(404).json({ error: 'not_found' });
+      durationDays = parseDurationDays(fdPackage.duration);
+    }
+    const resolved = await resolveAddonPriceAndName({ activityId, tourId, transferId, flightId, mealId, durationDays });
     if (!resolved) {
       return res.status(400).json({ error: 'invalid_item', message: 'That catalog item no longer exists.' });
     }
@@ -428,6 +447,7 @@ export async function postAddon(req, res, next) {
       tourId,
       transferId,
       flightId,
+      mealId,
       pricePerPax: resolved.pricePerPax,
     });
     // Mirrors the get() addons mapping above — postAddon previously returned
@@ -440,6 +460,7 @@ export async function postAddon(req, res, next) {
         tourId: addon.tour_id,
         transferId: addon.transfer_id,
         flightId: addon.flight_id,
+        mealId: addon.meal_id,
         name: resolved.name,
         pricePerPax: resolved.pricePerPax,
       },

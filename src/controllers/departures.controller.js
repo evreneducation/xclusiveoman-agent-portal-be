@@ -13,7 +13,6 @@ import {
   listAddons,
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
-import { resolveMealsSummary } from '../utils/meals.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
 import { createFdBooking } from '../services/booking.service.js';
@@ -131,10 +130,8 @@ async function buildDepartureDetail(fdPackage) {
   return {
     ...toPublicPackage(fdPackage, resolveRatePerPax(fdPackage, itinerary.items, pools), hotel),
     itinerary: composeItinerary(itinerary.days, itinerary.items, pools),
-    // Read-only breakdown for the "Meals" section below the itinerary
-    // (DepartureDetail.jsx) — already folded into ratePerPax above via
-    // resolveRatePerPax, this is purely informational.
-    meals: resolveMealsSummary(fdPackage, pools.meal),
+    // Meals (lunch/dinner) are opt-in fd_addons rows now (0075) — they come
+    // back in `addons` below with type 'meal', not as a separate section.
     // null unless flights are included directly on the package — the
     // "Flight Details" collapsible section (DepartureDetail.jsx) only
     // renders when this comes back non-null.
@@ -146,24 +143,35 @@ async function buildDepartureDetail(fdPackage) {
       seatsTotal: d.seats_total,
       location: d.location,
     })),
-    // `type` tells the agent-facing UI (DepartureDetail.jsx) which
-    // category heading an add-on belongs under (Activities/Tours/
-    // Transfers/Flights) — derived from whichever of the 4 mutually
-    // exclusive *_id columns is set (fd_addons_exactly_one_item CHECK
-    // constraint guarantees exactly one). `name` now falls back through
-    // all 4 joined name columns (listAddons), not just
-    // activity_name/tour_name — a transfer or flight add-on used to come
-    // back with name: null because of that.
+    // `type` tells the agent-facing UI (DepartureDetail.jsx) which category
+    // heading an add-on belongs under (Activities/Tours/Transfers/Flights/
+    // Meals) — derived from whichever of the 5 mutually exclusive *_id
+    // columns is set (fd_addons_exactly_one_item CHECK guarantees exactly
+    // one). `name` falls back through all 5 joined name columns (listAddons);
+    // a meal add-on has no per-row name, so it's labelled by meal type.
     addons: addons.map((a) => ({
       id: a.id,
-      type: a.activity_id ? 'activity' : a.tour_id ? 'tour' : a.transfer_id ? 'transfer' : 'flight',
+      type: a.activity_id
+        ? 'activity'
+        : a.tour_id
+          ? 'tour'
+          : a.transfer_id
+            ? 'transfer'
+            : a.flight_id
+              ? 'flight'
+              : 'meal',
       // The catalog row's own id (not `id` above, which is the fd_addons
       // join-row id) — lets the agent-facing "View Details" combobox
       // (DepartureDetail.jsx) fetch the full catalog record straight off
       // the existing generic GET /:entity/:id detail route
       // (catalog.routes.js) using this + `type`.
-      catalogId: a.activity_id || a.tour_id || a.transfer_id || a.flight_id,
-      name: a.activity_name || a.tour_name || a.transfer_name || a.flight_name,
+      catalogId: a.activity_id || a.tour_id || a.transfer_id || a.flight_id || a.meal_id,
+      name:
+        a.activity_name ||
+        a.tour_name ||
+        a.transfer_name ||
+        a.flight_name ||
+        (a.meal_type ? a.meal_type[0].toUpperCase() + a.meal_type.slice(1) : a.meal_name),
       pricePerPax: Number(a.price_per_pax),
     })),
     // Richer hotel detail for the "Hotel Information" section — the
