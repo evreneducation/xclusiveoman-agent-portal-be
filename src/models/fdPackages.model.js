@@ -1,14 +1,14 @@
 import { pool } from '../db/pool.js';
 import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel, visaModel, flightsModel } from './catalog.model.js';
 import { roomsForAdults } from '../utils/occupancy.js';
-import { parseDurationDays, computeFdMealsPerPax } from '../utils/meals.js';
+import { parseDurationDays } from '../utils/meals.js';
 
 const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
   'suitable_age_min', 'is_featured', 'is_bestseller', 'status',
   'images', 'hotel_id', 'rate_per_pax',
-  'lunch_meal_id', 'lunch_people', 'lunch_days',
-  'dinner_meal_id', 'dinner_people', 'dinner_days',
+  // Meals (lunch/dinner) are opt-in fd_addons rows now, not columns here —
+  // see 0075_fd_meal_addons.sql.
   // Task 5 — "included or not" (0062_fd_addons_transfer_visa.sql).
   'visa_enabled',
   // Flights section (0064_fd_package_flights.sql) — at most one Onward +
@@ -128,7 +128,11 @@ export async function updateFdPackage(id, fields) {
     `UPDATE fd_packages SET ${setClauses.join(', ')}, updated_at = now() WHERE id = $${values.length} RETURNING *`,
     values
   );
-  return rows[0] || null;
+  const updated = rows[0] || null;
+  if (updated && cols.includes('duration')) {
+    await repriceMealAddons(id, updated.duration);
+  }
+  return updated;
 }
 
 // --- Day-by-day itinerary builder ---
@@ -265,22 +269,17 @@ export function computeNetRatePerPax(items, pools) {
 }
 
 // The effective net rate: fdPackage.rate_per_pax when the admin has set an
-// override, else the itinerary total plus any included meals/visa (Task
-// 4/5 — both are checkbox-only inclusions, priced off the package's own
-// Duration/the visa catalog's flat per-person rate, not an admin-entered
-// headcount — see computeFdMealsPerPax, utils/meals.js — so unlike Custom
-// FIT's own computeMealsCost, which needs a real headcount that only exists
-// once a request is submitted, this is already a genuine per-pax figure
-// with nothing left to resolve at booking time). Shared by every reader
-// (admin catalog, agent listing/detail, booking) so they never disagree
-// about which price applies.
+// override, else the itinerary total plus any included visa (Task 5 — a
+// checkbox-only inclusion priced off the visa catalog's flat per-person
+// rate). Shared by every reader (admin catalog, agent listing/detail,
+// booking) so they never disagree about which price applies.
 // Flights (0064/0065_fd_package_flights*.sql) only ever contribute here when
 // flights_enabled — the direct-inclusion pick, not the add-on checkbox path.
 // A flight added as a fd_addons row instead is deliberately *not* folded in
 // here: add-ons are an opt-in a-la-carte charge the agent applies at booking
 // time (see booking.service.js), never part of the package's own advertised
-// net rate, same as Activities/Tours/Transfers offered as add-ons already
-// aren't. Only Onward/Return picked directly here behave like Meals/Visa
+// net rate, same as Activities/Tours/Transfers/Meals offered as add-ons
+// already aren't. Only Onward/Return picked directly here behave like Visa
 // above — an always-included cost baked into the rate.
 function resolveFlightsPerPax(fdPackage, pools) {
   if (!fdPackage.flights_enabled) return 0;
@@ -333,11 +332,11 @@ export function resolvePrimaryHotelId(fdPackage, items) {
 
 export function resolveRatePerPax(fdPackage, items, pools) {
   if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
-  const dayCount = parseDurationDays(fdPackage.duration);
-  const mealsPerPax = computeFdMealsPerPax(fdPackage, pools.meal, dayCount);
+  // Meals are opt-in fd_addons now (0075) — priced onto a booking's total at
+  // booking time, never part of the package's advertised net rate.
   const visaPerPax = fdPackage.visa_enabled ? Number(pools.visa?.[0]?.price_per_person || 0) : 0;
   const flightsPerPax = resolveFlightsPerPax(fdPackage, pools);
-  return computeNetRatePerPax(items, pools) + mealsPerPax + visaPerPax + flightsPerPax;
+  return computeNetRatePerPax(items, pools) + visaPerPax + flightsPerPax;
 }
 
 // Composes the persisted days/items rows into the [{dayNumber, notes, items:
@@ -414,12 +413,14 @@ export async function incrementSeatsBooked(client, departureDateId, pax) {
 export async function listAddons(fdPackageId) {
   const { rows } = await pool.query(
     `SELECT fd_addons.*, activities.name AS activity_name, tours.name AS tour_name,
-       transfers.name AS transfer_name, flights.name AS flight_name
+       transfers.name AS transfer_name, flights.name AS flight_name,
+       meals.name AS meal_name, meals.meal_type AS meal_type
      FROM fd_addons
      LEFT JOIN activities ON activities.id = fd_addons.activity_id
      LEFT JOIN tours ON tours.id = fd_addons.tour_id
      LEFT JOIN transfers ON transfers.id = fd_addons.transfer_id
      LEFT JOIN flights ON flights.id = fd_addons.flight_id
+     LEFT JOIN meals ON meals.id = fd_addons.meal_id
      WHERE fd_package_id = $1`,
     [fdPackageId]
   );
@@ -441,13 +442,27 @@ export async function findAddonsByIds(fdPackageId, addonIds) {
 // concept it existed for. flightId (0064_fd_package_flights.sql) always
 // resolves to a pricePerPax of 0 — the flights catalog has no rate column —
 // same as every other exclusive option here, just with nothing to charge.
-export async function addAddon(fdPackageId, { activityId, tourId, transferId, flightId, pricePerPax }) {
+export async function addAddon(fdPackageId, { activityId, tourId, transferId, flightId, mealId, pricePerPax }) {
   const { rows } = await pool.query(
-    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, transfer_id, flight_id, price_per_pax)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [fdPackageId, activityId || null, tourId || null, transferId || null, flightId || null, pricePerPax]
+    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, transfer_id, flight_id, meal_id, price_per_pax)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [fdPackageId, activityId || null, tourId || null, transferId || null, flightId || null, mealId || null, pricePerPax]
   );
   return rows[0];
+}
+
+// Meal add-on prices are price_per_day x the package's Duration, so a later
+// Duration change has to reprice them (activities/tours/transfers/flights
+// don't depend on Duration and keep their add-time snapshot). Called from
+// updateFdPackage whenever `duration` is in the update.
+async function repriceMealAddons(fdPackageId, duration) {
+  await pool.query(
+    `UPDATE fd_addons a
+     SET price_per_pax = COALESCE(m.price_per_day, 0) * $2
+     FROM meals m
+     WHERE m.id = a.meal_id AND a.fd_package_id = $1 AND a.meal_id IS NOT NULL`,
+    [fdPackageId, parseDurationDays(duration) || 0]
+  );
 }
 
 export async function removeAddon(id) {
