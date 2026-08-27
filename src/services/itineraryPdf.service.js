@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer';
+import sparticuzChromium from '@sparticuz/chromium';
 import { env } from '../config/env.js';
 import { signItineraryPdfToken, signFdItineraryPdfToken } from './auth.service.js';
 
@@ -24,23 +25,63 @@ import { signItineraryPdfToken, signFdItineraryPdfToken } from './auth.service.j
 // (crashed, killed by the OS under memory pressure, etc.).
 let browserPromise = null;
 
+// Puppeteer's own bundled Chromium (~170MB unpacked, full desktop build) gets
+// OOM-killed on Render's small instances the moment it launches, which is why
+// the PDF routes 502 there while working fine locally. We instead drive
+// @sparticuz/chromium — a stripped, brotli-compressed headless build (~50MB)
+// with memory-frugal flags baked into chromium.args — through the same
+// Puppeteer API.
+//
+// Which browser binary getBrowser() launches:
+//   1. PUPPETEER_EXECUTABLE_PATH, if set — always wins (a system- or
+//      container-provided Chromium/Chrome).
+//   2. PDF_CHROMIUM=sparticuz | bundled — explicit override of the default
+//      below (e.g. force the bundled full Chrome on a Linux box for headful
+//      debugging).
+//   3. Default: @sparticuz/chromium on Linux — that's Render *and* a
+//      Linux/WSL/Docker dev box, so local matches production exactly. On
+//      Windows/macOS it falls back to Puppeteer's bundled Chromium, since
+//      @sparticuz ships a Linux-only binary that can't execute there.
+const chromiumChoice =
+  process.env.PDF_CHROMIUM ||
+  (process.platform === 'linux' ? 'sparticuz' : 'bundled');
+
+async function getLaunchOptions() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return {
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+    };
+  }
+  if (chromiumChoice === 'sparticuz') {
+    // Disables WebGL/graphics stack — this only ever renders a static print
+    // page to PDF, and it shaves more resident memory on constrained hosts.
+    sparticuzChromium.setGraphicsMode = false;
+    return {
+      // The @sparticuz build is a headless-only Chromium (built from
+      // headless.gn, no GUI) — 'shell' is the mode it supports.
+      headless: 'shell',
+      // chromium.args already includes --no-sandbox, --disable-setuid-sandbox,
+      // --disable-dev-shm-usage, --disable-gpu, --single-process, etc.
+      args: sparticuzChromium.args,
+      executablePath: await sparticuzChromium.executablePath(),
+    };
+  }
+  return {
+    headless: true,
+    // --no-sandbox is the standard flag for running Chromium as root inside
+    // most containerized hosts (Docker et al.) — without it the sandbox setup
+    // Chromium wants often fails to initialize there. Safe here since this
+    // only ever renders our own frontend, never arbitrary/third-party URLs.
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  };
+}
+
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = puppeteer
-      .launch({
-        headless: true,
-        // --no-sandbox is the standard flag for running Chromium as root
-        // inside most containerized hosts (Docker et al.) — without it the
-        // sandbox setup Chromium wants often fails to initialize there. Safe
-        // here since this only ever renders our own frontend, never
-        // arbitrary/third-party URLs.
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        // Respected as-is by Puppeteer if set — lets a deployment point at a
-        // system-installed Chromium/Chrome instead of the bundled one (see
-        // the deployment notes in this task's summary) without any code
-        // change here.
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      })
+    browserPromise = getLaunchOptions()
+      .then((opts) => puppeteer.launch(opts))
       .catch((err) => {
         browserPromise = null; // let the next call retry instead of caching a rejected launch forever
         throw err;
