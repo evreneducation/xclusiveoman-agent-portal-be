@@ -134,20 +134,23 @@ function createPublishFieldsGate(model, { requiredFields, requireImages = false,
 }
 
 // Field lists mirror each entity's own admin/lib/*Form.js exactly
-// (TOUR_REQUIRED_FIELDS, ACTIVITY_REQUIRED_FIELDS, TRANSFER_REQUIRED_FIELDS) —
-// activities/transfers don't require images or a price even at publish
-// today (their client-side validators only check price *format* when one's
-// provided, never its presence), so both stay off for those two.
+// (TOUR_REQUIRED_FIELDS, ACTIVITY_REQUIRED_FIELDS, TRANSFER_REQUIRED_FIELDS).
+// Column names are snake_case — this gate runs after toSnakeCaseColumns.
+// Only enforced when the row is being published; drafts stay lenient.
 const requireTourPublishFields = createPublishFieldsGate(toursModel, {
   requiredFields: ['name', 'city', 'description', 'duration', 'category'],
   requireImages: true,
   priceFields: ['price'],
 });
 const requireActivityPublishFields = createPublishFieldsGate(activitiesModel, {
-  requiredFields: ['name', 'city'],
+  requiredFields: ['name', 'city', 'description', 'duration'],
+  requireImages: true,
+  priceFields: ['price_per_pax'],
 });
 const requireTransferPublishFields = createPublishFieldsGate(transfersModel, {
-  requiredFields: ['name', 'type'],
+  requiredFields: ['name', 'type', 'city', 'description', 'vehicle_class'],
+  requireImages: true,
+  priceFields: ['price'],
 });
 
 const ENTITIES = [
