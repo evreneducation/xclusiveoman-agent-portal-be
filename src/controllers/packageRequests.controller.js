@@ -572,6 +572,11 @@ export async function downloadItineraryPdf(req, res, next) {
     try {
       pdfBuffer = await generateItineraryPdf({ packageRequestId: id, userId: req.user.id });
     } catch (err) {
+      // Logged here, not left to errorHandler.js's own console.error — see
+      // departures.controller.js#downloadDepartureItineraryPdf's identical
+      // comment for why (this path returns directly instead of calling
+      // next(err), so the real underlying error was otherwise invisible).
+      console.error(`[itinerary.pdf] package request ${id} generation failed:`, err);
       // Distinguish "we couldn't render it" from a generic 500 — the agent
       // sees a clear "try again" message instead of a bare server error.
       err.status = 502;
