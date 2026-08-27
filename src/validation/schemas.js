@@ -33,6 +33,10 @@ export const registerSchema = z.object({
 // column their logic depended on no longer exists.
 export const requestOtpSchema = z.object({
   email: z.string().email(),
+  // Which login the request came from (LoginModal.jsx's restrictTo). When
+  // set, requestLoginOtp refuses to send a code for an email that doesn't
+  // belong to that portal — so an agent never receives an OTP from /admin.
+  portal: z.enum(['admin', 'agent']).optional(),
 });
 
 export const verifyOtpSchema = z.object({
@@ -380,12 +384,6 @@ const CATALOG_KEY_MAP = {
   shortDescription: 'short_description',
   isFeatured: 'is_featured',
   ratePerPax: 'rate_per_pax',
-  lunchMealId: 'lunch_meal_id',
-  lunchPeople: 'lunch_people',
-  lunchDays: 'lunch_days',
-  dinnerMealId: 'dinner_meal_id',
-  dinnerPeople: 'dinner_people',
-  dinnerDays: 'dinner_days',
   visaEnabled: 'visa_enabled',
   flightsEnabled: 'flights_enabled',
   onwardFlightId: 'onward_flight_id',
@@ -418,22 +416,9 @@ export const fdPackageSchema = z.object({
   // Admin override of the itinerary-computed net rate — null clears the
   // override and falls back to the itinerary total again.
   ratePerPax: z.number().nonnegative().nullable().optional(),
-  // Task 4/5 — lunch/dinner are now checkbox-only inclusions: lunchMealId/
-  // dinnerMealId non-null *is* "included" (the same one meals-catalog row
-  // per meal_type MealsManager already resolved automatically — nothing
-  // else to pick), no headcount/day-count collected here anymore. Their
-  // actual cost is computed later, at booking time, once a real pax is
-  // known (booking.service.js#createFdBooking, utils/meals.js#computeFdMealsPerPax)
-  // — a package's own Duration field stands in for "day count". The People/
-  // Days columns stay in the schema, still accepted but no longer sent by
-  // FdPackageEditor.jsx, purely so any already-saved package data survives
-  // being round-tripped through a PATCH untouched.
-  lunchMealId: z.string().uuid().nullable().optional(),
-  lunchPeople: z.number().int().nonnegative().nullable().optional(),
-  lunchDays: z.number().int().nonnegative().nullable().optional(),
-  dinnerMealId: z.string().uuid().nullable().optional(),
-  dinnerPeople: z.number().int().nonnegative().nullable().optional(),
-  dinnerDays: z.number().int().nonnegative().nullable().optional(),
+  // Meals (lunch/dinner) are opt-in fd_addons rows now (0075) — added via
+  // POST /admin/fd-packages/:id/addons with a `mealId` (see fdAddonSchema),
+  // not fields on the package.
   // Task 5 — Visa is a simple "included or not" checkbox (no catalog
   // picker, there's only ever one Visa product — see 0062_fd_addons_transfer_visa.sql).
   // Priced at booking time from the visa catalog's price_per_person, same
@@ -486,10 +471,15 @@ export const fdAddonSchema = z
     // entirely otherwise); nothing enforces that here, same as the rest of
     // the "not both at once" split living in FdPackageEditor.jsx.
     flightId: z.string().uuid().optional(),
+    // Meals as opt-in add-ons (0075) — the mealId is a meals-catalog row
+    // (one per meal_type); price is resolved server-side from
+    // price_per_day × the package's Duration (fdPackagesAdmin.controller.js).
+    mealId: z.string().uuid().optional(),
   })
-  .refine((v) => [v.activityId, v.tourId, v.transferId, v.flightId].filter(Boolean).length === 1, {
-    message: 'Provide exactly one of activityId, tourId, transferId, or flightId',
-  });
+  .refine(
+    (v) => [v.activityId, v.tourId, v.transferId, v.flightId, v.mealId].filter(Boolean).length === 1,
+    { message: 'Provide exactly one of activityId, tourId, transferId, flightId, or mealId' }
+  );
 
 // Reused by both the agent self-service booking schema (below) and the
 // Admin Manual Booking flow (Task 13, manualBookingSchema further down) —

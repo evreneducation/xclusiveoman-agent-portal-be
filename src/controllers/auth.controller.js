@@ -38,6 +38,19 @@ const OTP_RATE_WINDOW_MINUTES = 15;
 const REFRESH_COOKIE_NAME = 'xo_refresh';
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// Admin Console roles — mirrors the frontend's own allow-list
+// (admin/context/AuthContext.jsx#ADMIN_ROLES / LoginModal.jsx#ADMIN_ROLES).
+// Deliberately excludes the two team roles (relationship_manager,
+// sales_manager): they're staff (agency_id NULL) but sign in at /team, not
+// the Admin Console. Used by requestLoginOtp's `portal` gate below.
+const ADMIN_CONSOLE_ROLES = new Set(['ops_admin', 'super_admin', 'sales_marketing', 'support', 'finance']);
+
+function belongsToPortal(user, portal) {
+  if (portal === 'admin') return user.agency_id === null && ADMIN_CONSOLE_ROLES.has(user.role);
+  if (portal === 'agent') return user.agency_id !== null;
+  return true; // no portal scoping (e.g. /team/login)
+}
+
 function refreshCookieOptions() {
   const isProd = env.nodeEnv === 'production';
   return {
@@ -210,7 +223,7 @@ export async function register(req, res, next) {
 // gets a code generated + emailed.
 export async function requestLoginOtp(req, res, next) {
   try {
-    const { email } = req.body;
+    const { email, portal } = req.body;
     const user = await findUserByEmail(email);
 
     if (!user) {
@@ -224,6 +237,20 @@ export async function requestLoginOtp(req, res, next) {
       return res.status(403).json({
         error: 'account_inactive',
         message: 'This account is inactive. Please contact support.',
+      });
+    }
+
+    // Portal gate — refuse to generate/send a code at all for an email that
+    // doesn't belong to the login it came from (LoginModal.jsx's restrictTo).
+    // Runs before any OTP is created so an agent never receives a staff code
+    // and vice versa.
+    if (portal && !belongsToPortal(user, portal)) {
+      return res.status(403).json({
+        error: 'wrong_portal',
+        message:
+          portal === 'admin'
+            ? 'This login is for Xclusive Oman staff. Travel agents sign in at the Agent Portal.'
+            : 'This login is for travel agents. Xclusive Oman staff sign in at the staff login.',
       });
     }
 
