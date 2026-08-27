@@ -33,6 +33,10 @@ export const registerSchema = z.object({
 // column their logic depended on no longer exists.
 export const requestOtpSchema = z.object({
   email: z.string().email(),
+  // Which login the request came from (LoginModal.jsx's restrictTo). When
+  // set, requestLoginOtp refuses to send a code for an email that doesn't
+  // belong to that portal — so an agent never receives an OTP from /admin.
+  portal: z.enum(['admin', 'agent']).optional(),
 });
 
 export const verifyOtpSchema = z.object({
