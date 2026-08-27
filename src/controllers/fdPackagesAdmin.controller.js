@@ -139,6 +139,10 @@ function toPublicPackage(fdPackage, ratePerPax, hotelName) {
     inclusions: fdPackage.inclusions || '',
     exclusions: fdPackage.exclusions || '',
     createdAt: fdPackage.created_at,
+    // fd_packages.updated_at (0006_fd_packages.sql) — bumped to now() on every
+    // updateFdPackage. Surfaced for the Product Catalog table's "Updated"
+    // column; present on both list() (SELECT fd_packages.*) and get().
+    updatedAt: fdPackage.updated_at,
     // Only present on the admin list() row (listAllFdPackagesForAdmin's seat
     // rollup) — undefined here on the single-package get(), which loads the
     // full departureDates array separately instead.

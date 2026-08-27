@@ -135,5 +135,11 @@ export function toPublicUser(user) {
     whatsappNumber: user.whatsapp_number,
     status: user.status,
     permissions: user.permissions,
+    // Account audit timestamps (0003_users.sql; updated_at bumped by
+    // updateUser) — surfaced for the admin Employees table's Created /
+    // Updated columns. Additive: every other toPublicUser consumer just
+    // gains two ISO strings it can ignore.
+    createdAt: user.created_at,
+    updatedAt: user.updated_at,
   };
 }
