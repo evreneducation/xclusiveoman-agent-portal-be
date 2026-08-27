@@ -241,6 +241,14 @@ export async function downloadDepartureItineraryPdf(req, res, next) {
     try {
       pdfBuffer = await generateFdItineraryPdf({ departureId: id, userId: req.user.id });
     } catch (err) {
+      // Logged here, not left to errorHandler.js's own console.error — the
+      // res.status(...).json(...) below returns directly instead of calling
+      // next(err), so errorHandler.js's handler (and its logging) never runs
+      // for this path. Without this, the real Puppeteer failure (navigation
+      // timeout, CORS/network error surfaced via window.__PDF_ERROR__, etc.)
+      // was completely invisible in production — only the generic public
+      // message ever reached anywhere-visible.
+      console.error(`[itinerary.pdf] FD departure ${id} generation failed:`, err);
       // Distinguish "we couldn't render it" from a generic 500 — the agent
       // sees a clear "try again" message instead of a bare server error.
       err.status = 502;
