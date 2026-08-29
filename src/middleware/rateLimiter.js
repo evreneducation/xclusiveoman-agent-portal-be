@@ -16,3 +16,19 @@ export const otpRequestLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'rate_limited', message: 'Too many code requests from this device. Please try again later.' },
 });
+
+// IP-scoped throttle for the admin-console 2FA code checks — the extra
+// login step (POST /auth/verify-mfa) and the Security screen's own
+// enrol/activate/disable calls. A 6-digit TOTP has a million combinations
+// and the mfaToken lives 10 minutes, so without this an attacker who
+// cleared the email-OTP step could brute the second factor fast. A little
+// rounder than otpRequestLimiter's 10 (a fat-fingered admin retrying setup
+// shouldn't lock themselves out in a minute), still far below what a real
+// guessing run needs.
+export const mfaVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate_limited', message: 'Too many attempts from this device. Please try again later.' },
+});

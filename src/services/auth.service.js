@@ -90,6 +90,31 @@ export function verifyFdItineraryPdfToken(token) {
   return claims;
 }
 
+// Admin console 2FA — the bridge between the two login steps. When 2FA is
+// on, verify-otp doesn't issue a session; it hands back one of these
+// instead, and verify-mfa trades it (plus a valid authenticator code) for
+// the real tokens. Same narrow-purpose-token pattern as the PDF tokens
+// above: signed with the access secret but marked `purpose` so requireAuth
+// (middleware/auth.js) refuses it as a normal Bearer token — all it can
+// ever do is name which half-authenticated user is mid-login, for 10
+// minutes, to the one endpoint that finishes the job.
+const ADMIN_MFA_TOKEN_PURPOSE = 'admin_mfa';
+const ADMIN_MFA_TOKEN_EXPIRES_IN = '10m';
+
+export function signAdminMfaToken({ userId }) {
+  return jwt.sign({ sub: userId, purpose: ADMIN_MFA_TOKEN_PURPOSE }, env.jwtAccessSecret, {
+    expiresIn: ADMIN_MFA_TOKEN_EXPIRES_IN,
+  });
+}
+
+export function verifyAdminMfaToken(token) {
+  const claims = jwt.verify(token, env.jwtAccessSecret);
+  if (claims.purpose !== ADMIN_MFA_TOKEN_PURPOSE) {
+    throw new Error('Not an admin MFA token');
+  }
+  return claims;
+}
+
 // Still used by the OTP flow below (hashes the 6-digit code before storing
 // it) — generateRawToken (the old forgot-password reset-token generator)
 // was removed since nothing calls it anymore.

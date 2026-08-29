@@ -31,6 +31,7 @@ import reviewsAdminRoutes from './reviewsAdmin.routes.js';
 import cmsRoutes from './cms.routes.js';
 import cmsPublicRoutes from './cmsPublic.routes.js';
 import siteTermsRoutes, { adminSiteTermsRouter } from './siteTerms.routes.js';
+import adminSecurityRoutes from './adminSecurity.routes.js';
 
 const router = Router();
 
@@ -103,6 +104,12 @@ router.use('/admin/mice-rfqs', miceRfqsAdminRoutes);
 // router above (defensive — 'catalog' already passes adminCatalogRouter's
 // own identical gate today, but this keeps the ordering consistent).
 router.use('/admin/site-terms', adminSiteTermsRouter);
+// Admin console "Security" screen — the global authenticator-app (2FA)
+// toggle. GET is open to any staff role (renders the page's current state),
+// the mutations are super_admin-only (adminSecurity.routes.js). Registered
+// ahead of the bare-/admin trio, same specific-prefix-first convention as
+// every router above.
+router.use('/admin/security', adminSecurityRoutes);
 router.use('/admin', adminRoutes);
 router.use('/admin', adminCatalogRouter);
 router.use('/admin', adminPaymentsRouter);
