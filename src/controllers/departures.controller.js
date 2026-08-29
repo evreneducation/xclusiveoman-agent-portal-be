@@ -13,6 +13,7 @@ import {
   listAddons,
 } from '../models/fdPackages.model.js';
 import { findAgencyById } from '../models/agencies.model.js';
+import { siteTermsModel } from '../models/siteTerms.model.js';
 import { buildWhatsAppLink } from '../utils/whatsapp.js';
 import { getIo } from '../sockets/index.js';
 import { createFdBooking } from '../services/booking.service.js';
@@ -112,11 +113,12 @@ export async function listDepartures(req, res, next) {
 // packageRequests.controller.js's toPublicPackageRequest, reused the same
 // way by its own downloadItineraryPdf/getItineraryDataForPdf pair.
 async function buildDepartureDetail(fdPackage) {
-  const [itinerary, dates, addons, pools] = await Promise.all([
+  const [itinerary, dates, addons, pools, siteTerms] = await Promise.all([
     listItineraryForPackage(fdPackage.id),
     listDepartureDates(fdPackage.id),
     listAddons(fdPackage.id),
     loadCatalogPools(),
+    siteTermsModel.get(),
   ]);
 
   // pools.hotel already holds every hotel's full row (loadCatalogPools) —
@@ -174,6 +176,13 @@ async function buildDepartureDetail(fdPackage) {
         (a.meal_type ? a.meal_type[0].toUpperCase() + a.meal_type.slice(1) : a.meal_name),
       pricePerPax: Number(a.price_per_pax),
     })),
+    // Site-wide "Booking terms" (0067_site_terms.sql), admin-authored in the
+    // Terms & Conditions tab — the on-screen DepartureDetail.jsx fetches this
+    // itself from the authed GET /site-terms, but the Puppeteer print page
+    // (DepartureItineraryPrint.jsx) has only a pdfToken, not a login session,
+    // so it can't call that route — carry the HTML through here so the
+    // downloaded PDF can append the same terms section the web page shows.
+    terms: siteTerms?.body_html || null,
     // Richer hotel detail for the "Hotel Information" section — the
     // listing/toPublicPackage only carries hotelName for the card.
     hotel: hotel

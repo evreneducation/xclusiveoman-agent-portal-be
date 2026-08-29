@@ -205,11 +205,17 @@ export async function generateFdItineraryPdf({ departureId, userId }) {
       throw new Error(`Itinerary failed to render: ${renderError}`);
     }
 
+    // Real page margins (was 0 on all four sides) — the FD itinerary document
+    // (FdItineraryDocument.jsx) dropped its own outer p-8/p-6 padding in
+    // favour of these, so the frame is applied here once and therefore also
+    // on every multi-page continuation, not just page one. bottom is a little
+    // wider than top so a long day-by-day / terms section doesn't butt right
+    // up against the sheet edge where it breaks.
     const pdfData = await page.pdf({
       format: 'A4',
       printBackground: true,
       displayHeaderFooter: false,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      margin: { top: '14mm', right: '12mm', bottom: '16mm', left: '12mm' },
     });
 
     return Buffer.from(pdfData);
