@@ -95,11 +95,37 @@ async function getBrowser() {
   return browser;
 }
 
+// Warm the shared browser at boot so the first PDF request doesn't also pay
+// the cold Chromium launch — on Render the @sparticuz binary has to extract
+// to /tmp first (~3-5s), which alone could eat a chunk of the request
+// budget. Fire-and-forget; a failure just falls back to the lazy launch in
+// getBrowser() on the first real request. Linux only (= Render / a Linux
+// server) so local Windows/macOS dev doesn't spawn Chrome on every boot.
+if (process.platform === 'linux') {
+  getBrowser().catch(() => {});
+}
+
 // How long to wait for the print page to load + fetch its data + render +
 // finish loading images, before giving up. Generous but bounded — a hung
 // render (e.g. the data endpoint never responding) must fail the download
 // request rather than hold the connection open indefinitely.
-const RENDER_TIMEOUT_MS = 25000;
+//
+// 60s (not 25s): on Render the headless browser loads the *Vercel* print
+// page, which then fetches /api/*-itinerary-pdf/:id/data — a round trip that
+// Vercel rewrites straight back to this same Render service. On a cold /
+// small instance (first request after a spin-down, plus the @sparticuz
+// Chromium binary extracting to /tmp) 25s was routinely blown, surfacing as
+// the generic "Unable to generate the itinerary PDF" 502. Override with
+// PDF_RENDER_TIMEOUT_MS. Kept well under Render's ~100s request cap.
+const RENDER_TIMEOUT_MS = Number(process.env.PDF_RENDER_TIMEOUT_MS) || 60000;
+
+// `page.goto` waits for this before returning. 'networkidle0' (0 sockets for
+// 500ms) is fragile — any keep-alive/analytics/hanging request means it
+// never fires and goto times out even though the page is fine. 'domcontent-
+// loaded' returns as soon as the HTML is parsed; readiness is then proven
+// entirely by the explicit window.__PDF_READY__ signal the print page sets
+// once its data fetch + React render + image decode are all done.
+const GOTO_WAIT_UNTIL = 'domcontentloaded';
 
 /**
  * Renders agent/pages/ItineraryPrint.jsx for one package request and returns
@@ -121,13 +147,12 @@ export async function generateItineraryPdf({ packageRequestId, userId }) {
     // uses, rather than the mobile-narrow one.
     await page.setViewport({ width: 1240, height: 1754 });
 
-    await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: RENDER_TIMEOUT_MS });
+    await page.goto(printUrl, { waitUntil: GOTO_WAIT_UNTIL, timeout: RENDER_TIMEOUT_MS });
 
-    // networkidle0 only proves the network went quiet — it doesn't prove
-    // React finished rendering or every <img> finished loading. The print
-    // page sets window.__PDF_READY__ once both are true (see
-    // ItineraryPrint.jsx), so wait for that explicit signal on top rather
-    // than trusting network activity alone.
+    // domcontentloaded above only proves the HTML parsed. The print page
+    // sets window.__PDF_READY__ once its data fetch + React render + every
+    // <img> are all done (see ItineraryPrint.jsx/DepartureItineraryPrint.jsx)
+    // — that's the real readiness signal.
     await page.waitForFunction('window.__PDF_READY__ === true', { timeout: RENDER_TIMEOUT_MS });
 
     const renderError = await page.evaluate(() => window.__PDF_ERROR__ || null);
@@ -172,7 +197,7 @@ export async function generateFdItineraryPdf({ departureId, userId }) {
   const page = await browser.newPage();
   try {
     await page.setViewport({ width: 1240, height: 1754 });
-    await page.goto(printUrl, { waitUntil: 'networkidle0', timeout: RENDER_TIMEOUT_MS });
+    await page.goto(printUrl, { waitUntil: GOTO_WAIT_UNTIL, timeout: RENDER_TIMEOUT_MS });
     await page.waitForFunction('window.__PDF_READY__ === true', { timeout: RENDER_TIMEOUT_MS });
 
     const renderError = await page.evaluate(() => window.__PDF_ERROR__ || null);
