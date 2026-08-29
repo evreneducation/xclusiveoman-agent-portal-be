@@ -1,6 +1,13 @@
 import { findBookingById, listAgencyBookings, listBookingTravelers } from '../models/bookings.model.js';
 
 function toPublicBooking(b) {
+  const depositDue = Number(b.deposit_due);
+  // What's still due right now to hold the seat: the part-payment figure
+  // fixed at booking time (0077 — full price within 15 days of departure,
+  // otherwise a flat deposit) minus whatever's already been paid. Drops to
+  // zero once that first payment lands; the payment screen charges this,
+  // not the whole balance.
+  const amountDueNow = Math.max(0, depositDue - Number(b.deposit_paid));
   return {
     id: b.id,
     sourceType: b.source_type,
@@ -10,6 +17,9 @@ function toPublicBooking(b) {
     depositPaid: Number(b.deposit_paid),
     balanceDue: Number(b.balance_due),
     balanceDueDate: b.balance_due_date,
+    depositDue,
+    amountDueNow,
+    remainingBalance: Math.max(0, Number(b.balance_due) - amountDueNow),
     status: b.status,
     createdAt: b.created_at,
   };
