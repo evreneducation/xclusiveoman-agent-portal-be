@@ -44,6 +44,19 @@ export const verifyOtpSchema = z.object({
   otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
 });
 
+// Admin console 2FA (Security screen + the extra login step it adds). A
+// bare 6-digit authenticator code for the Security-screen enrol/disable
+// calls; the login step also carries the short-lived mfaToken verify-otp
+// handed back in place of a session (auth.controller.js#verifyLoginMfa).
+export const totpCodeSchema = z.object({
+  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+});
+
+export const verifyMfaSchema = z.object({
+  mfaToken: z.string().min(1),
+  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+});
+
 export const patchAgencyMeSchema = z.object({
   name: z.string().min(2).max(200).optional(),
   country: z.string().min(2).max(100).optional(),

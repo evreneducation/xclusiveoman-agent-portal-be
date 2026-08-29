@@ -8,7 +8,11 @@ import {
   verifyRefreshToken,
   hashRawToken,
   generateNumericOtp,
+  signAdminMfaToken,
+  verifyAdminMfaToken,
 } from '../services/auth.service.js';
+import { adminSecurityModel } from '../models/adminSecurity.model.js';
+import { verifyTotpStep } from '../services/totp.service.js';
 import { sendEmail, sendOtpEmail } from '../services/email.service.js';
 import { buildAgentRegistrationReceivedEmailHtml } from '../services/emailTemplate.service.js';
 import { createNotification } from '../services/notification.service.js';
@@ -347,6 +351,71 @@ export async function verifyLoginOtp(req, res, next) {
     }
 
     await pool.query('UPDATE login_otps SET used_at = now() WHERE id = $1', [record.id]);
+
+    // Admin console 2FA (Security screen). When the global authenticator
+    // toggle is on, an admin-console sign-in isn't finished yet — hand back
+    // a short-lived mfaToken instead of a session and let verify-mfa below
+    // trade it for the real tokens once a valid authenticator code lands.
+    // Everyone else (agents, team) is unaffected.
+    if (belongsToPortal(user, 'admin')) {
+      const security = await adminSecurityModel.get();
+      if (security?.totp_enabled) {
+        return res.json({ mfaRequired: true, mfaToken: signAdminMfaToken({ userId: user.id }) });
+      }
+    }
+
+    const accessToken = issueTokens(res, user);
+    res.json({ accessToken, user: toPublicUser(user) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/auth/verify-mfa — Email OTP login, step 3, only for admin-console
+// users when the global 2FA toggle is on. Trades the mfaToken from
+// verify-otp (proof step 1 & 2 passed) plus a live authenticator code for
+// the same {accessToken, user} session every other sign-in path issues.
+export async function verifyLoginMfa(req, res, next) {
+  try {
+    const { mfaToken, code } = req.body;
+
+    let claims;
+    try {
+      claims = verifyAdminMfaToken(mfaToken);
+    } catch {
+      return res.status(401).json({
+        error: 'mfa_session_expired',
+        message: 'This sign-in step timed out. Start again from your email.',
+      });
+    }
+
+    const user = await findUserById(claims.sub);
+    if (!user || user.status !== 'active') {
+      return res.status(401).json({ error: 'invalid_mfa', message: 'Invalid authentication code' });
+    }
+
+    const security = await adminSecurityModel.get();
+    // 2FA was turned off between step 2 and now — nothing left to check,
+    // just finish the sign-in rather than stranding the user.
+    if (!security?.totp_enabled || !security.totp_secret) {
+      const accessToken = issueTokens(res, user);
+      return res.json({ accessToken, user: toPublicUser(user) });
+    }
+
+    // Must be exactly the code on screen now, and a step not already spent.
+    const step = verifyTotpStep(security.totp_secret, code, security.last_totp_step);
+    if (step === null) {
+      return res.status(401).json({ error: 'invalid_mfa', message: 'Invalid authentication code' });
+    }
+    // Claim that step. If another concurrent sign-in already took it, this
+    // request loses the race and the code counts as spent for it too.
+    const claimed = await adminSecurityModel.recordUsedStep(step);
+    if (!claimed) {
+      return res.status(401).json({
+        error: 'code_already_used',
+        message: 'That code was just used. Wait for your authenticator app to show the next one.',
+      });
+    }
 
     const accessToken = issueTokens(res, user);
     res.json({ accessToken, user: toPublicUser(user) });
