@@ -76,6 +76,29 @@ async function assertOwnsBooking(req, res, bookingId) {
   return booking;
 }
 
+// Part-payment guard (0077_booking_deposit_due.sql). The first payment on a
+// booking must clear "amount due now" — the full price within 15 days of
+// departure, otherwise the flat deposit — and no payment may exceed what's
+// still outstanding. Returns a message string to reject with, or null if
+// `amount` is acceptable. Kept here (not the zod schema) because the bounds
+// depend on the specific booking's state, not just the shape of the input.
+function rejectPaymentAmount(booking, amount) {
+  const EPSILON = 0.01; // NUMERIC round-trips as a float; don't reject a legit exact payment on the 15th decimal
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) return 'Enter a valid payment amount.';
+
+  const balanceDue = Number(booking.balance_due);
+  if (amt > balanceDue + EPSILON) {
+    return `That is more than the outstanding balance of ${balanceDue}.`;
+  }
+
+  const amountDueNow = Math.max(0, Number(booking.deposit_due) - Number(booking.deposit_paid));
+  if (amountDueNow > 0 && amt + EPSILON < amountDueNow) {
+    return `A payment of at least ${amountDueNow} is required to confirm this booking.`;
+  }
+  return null;
+}
+
 // Fast UI signal (spec M). Webhook + GET /api/payments/:id polling stay the
 // authoritative / fallback mechanisms — this is best-effort on top.
 async function emitPaymentStatusChanged({ agencyId, bookingId, paymentId, status }) {
@@ -158,6 +181,9 @@ export async function createCashfreeOrder(req, res, next) {
     const { bookingId, amount, clientAttemptToken } = req.body;
     const booking = await assertOwnsBooking(req, res, bookingId);
     if (!booking) return;
+
+    const amountError = rejectPaymentAmount(booking, amount);
+    if (amountError) return res.status(400).json({ error: 'invalid_amount', message: amountError });
 
     // 1) Idempotent replay — the same intent token already produced a row
     // (network retry / double request). Return it, don't create a second.
@@ -456,6 +482,9 @@ export async function uploadNeftSlip(req, res, next) {
     if (!req.file) {
       return res.status(400).json({ error: 'missing_file', message: 'Upload the NEFT transfer slip' });
     }
+
+    const amountError = rejectPaymentAmount(booking, req.body.amount);
+    if (amountError) return res.status(400).json({ error: 'invalid_amount', message: amountError });
 
     const upload = await uploadBuffer(req.file.buffer, {
       folderParts: ['bookings', bookingId, 'neft-slips'],

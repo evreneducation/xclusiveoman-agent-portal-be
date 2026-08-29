@@ -23,6 +23,23 @@ import { findBookingBySource } from '../models/bookings.model.js';
 // departures.controller.js, its only previous home).
 const DEFAULT_BALANCE_DUE_DAYS_BEFORE = 30;
 
+// Part-payment policy for FD departures (0077_booking_deposit_due.sql):
+// inside this many days of departure the whole booking value is due up
+// front; earlier than that, only a flat deposit is due now and the rest is
+// collected later.
+const FD_FULL_PAYMENT_LEAD_DAYS = 15;
+const FD_DEPOSIT_AMOUNT = 5000;
+
+// The "pay this now to hold the seat" figure, fixed at booking time.
+// `departureDateISO` is the fd_departure_dates.date value.
+function computeFdDepositDue(departureDateISO, totalPrice) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysUntilDeparture = Math.ceil((new Date(departureDateISO).getTime() - Date.now()) / msPerDay);
+  if (daysUntilDeparture < FD_FULL_PAYMENT_LEAD_DAYS) return totalPrice;
+  // Never ask for more deposit than the booking is even worth.
+  return Math.min(FD_DEPOSIT_AMOUNT, totalPrice);
+}
+
 // depositPaid=0 → pending_payment (self-service's own default, and an admin
 // manual booking recorded with no offline deposit yet); a partial deposit →
 // confirmed; a deposit covering the full price → fully_paid. Mirrors
@@ -97,6 +114,12 @@ export async function createFdBooking({
     const balanceDueDate = new Date(
       new Date(departureDate.date).getTime() - DEFAULT_BALANCE_DUE_DAYS_BEFORE * 24 * 60 * 60 * 1000
     );
+    // How much of `totalPrice` must be paid now for this booking to be
+    // held: the full amount within 15 days of departure, otherwise a flat
+    // deposit. An admin manual booking may already carry an offline
+    // depositPaid — this stays the gross policy figure regardless; "still
+    // due now" is deposit_due - deposit_paid, computed where it's shown.
+    const depositDue = computeFdDepositDue(departureDate.date, totalPrice);
 
     await client.query('BEGIN');
 
@@ -117,12 +140,12 @@ export async function createFdBooking({
     const { rows: bookingRows } = await client.query(
       `INSERT INTO bookings
         (source_type, source_id, fd_departure_date_id, agency_id, created_by_user_id,
-         pax, total_price, deposit_paid, balance_due, balance_due_date, status, created_via)
-       VALUES ('fd_package', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         pax, total_price, deposit_paid, balance_due, balance_due_date, deposit_due, status, created_via)
+       VALUES ('fd_package', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         fdPackage.id, departureDate.id, agencyId, createdByUserId,
-        pax, totalPrice, depositPaid, balanceDue, balanceDueDate, status, createdVia,
+        pax, totalPrice, depositPaid, balanceDue, balanceDueDate, depositDue, status, createdVia,
       ]
     );
     const booking = bookingRows[0];
@@ -191,15 +214,18 @@ export async function createBookingFromPackageRequest(packageRequest) {
 
     await client.query('BEGIN');
 
+    // FIT quotes keep the "full amount due now" behaviour — the 15-day
+    // part-payment policy (computeFdDepositDue) is an FD-departure rule
+    // only, so deposit_due mirrors total_price here.
     const { rows: bookingRows } = await client.query(
       `INSERT INTO bookings
         (source_type, source_id, agency_id, created_by_user_id,
-         pax, total_price, deposit_paid, balance_due, balance_due_date, status, created_via)
-       VALUES ('package_request', $1, $2, $3, $4, $5, $6, $7, $8, $9, 'self_service')
+         pax, total_price, deposit_paid, balance_due, balance_due_date, deposit_due, status, created_via)
+       VALUES ('package_request', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'self_service')
        RETURNING *`,
       [
         packageRequest.id, packageRequest.agency_id, packageRequest.created_by_user_id,
-        pax, totalPrice, depositPaid, balanceDue, balanceDueDate, status,
+        pax, totalPrice, depositPaid, balanceDue, balanceDueDate, totalPrice, status,
       ]
     );
     const booking = bookingRows[0];
