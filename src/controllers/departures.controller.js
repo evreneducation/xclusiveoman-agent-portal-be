@@ -324,6 +324,8 @@ export async function createBooking(req, res, next) {
       status: booking.status,
     });
 
+    const depositDue = Number(booking.deposit_due);
+    const amountDueNow = Math.max(0, depositDue - Number(booking.deposit_paid));
     res.status(201).json({
       booking: {
         id: booking.id,
@@ -332,6 +334,12 @@ export async function createBooking(req, res, next) {
         totalPrice: Number(booking.total_price),
         balanceDue: Number(booking.balance_due),
         balanceDueDate: booking.balance_due_date,
+        // Part-payment (0077): what must be paid now to hold the seat (full
+        // price inside 15 days of departure, otherwise the flat deposit),
+        // and the still-outstanding remainder collected later.
+        depositDue,
+        amountDueNow,
+        remainingBalance: Math.max(0, Number(booking.balance_due) - amountDueNow),
       },
     });
   } catch (err) {
