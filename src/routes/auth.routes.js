@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import * as authController from '../controllers/auth.controller.js';
 import { requireAuth } from '../middleware/auth.js';
-import { otpRequestLimiter } from '../middleware/rateLimiter.js';
+import { otpRequestLimiter, mfaVerifyLimiter } from '../middleware/rateLimiter.js';
 import { upload } from '../middleware/upload.js';
-import { validateBody, registerSchema, requestOtpSchema, verifyOtpSchema } from '../validation/schemas.js';
+import { validateBody, registerSchema, requestOtpSchema, verifyOtpSchema, verifyMfaSchema } from '../validation/schemas.js';
 
 const router = Router();
 
@@ -21,6 +21,10 @@ router.post('/register', validateBody(registerSchema), authController.register);
 // bodies is throttled too, not just well-formed ones.
 router.post('/request-otp', otpRequestLimiter, validateBody(requestOtpSchema), authController.requestLoginOtp);
 router.post('/verify-otp', validateBody(verifyOtpSchema), authController.verifyLoginOtp);
+// Admin console 2FA step 3 (only reached when the global authenticator
+// toggle is on). mfaVerifyLimiter throttles brute-forcing the 6-digit code
+// by IP, same posture otpRequestLimiter takes on the send step above.
+router.post('/verify-mfa', mfaVerifyLimiter, validateBody(verifyMfaSchema), authController.verifyLoginMfa);
 router.post('/refresh', authController.refresh);
 router.post('/logout', requireAuth, authController.logout);
 router.get('/me', requireAuth, authController.me);
