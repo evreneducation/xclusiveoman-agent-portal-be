@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { catalogHandlersFor, uploadImagesHandlerFor } from '../controllers/catalog.controller.js';
+import { catalogHandlersFor, uploadImagesHandlerFor, uploadOmanOverviewPdf } from '../controllers/catalog.controller.js';
 import { hotelsModel, toursModel, activitiesModel, transfersModel } from '../models/catalog.model.js';
 import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
@@ -14,6 +14,7 @@ import {
   nameOnlyCatalogSchema,
   visaSchema,
   flightSchema,
+  omanOverviewSchema,
   toSnakeCaseColumns,
 } from '../validation/schemas.js';
 
@@ -167,6 +168,10 @@ const ENTITIES = [
   { path: 'exclusions', schema: nameOnlyCatalogSchema },
   { path: 'visas', schema: visaSchema },
   { path: 'flights', schema: flightSchema },
+  // Content Hub "Oman Overview" (0081_oman_overviews.sql) — no publish gate
+  // in EXTRA_MIDDLEWARE below since omanOverviewSchema already requires
+  // every field up front (same posture as flightSchema above).
+  { path: 'oman-overviews', schema: omanOverviewSchema },
 ];
 
 // Public-to-agents listing/detail (doc §12.3) — any authenticated user, agent or staff.
@@ -212,5 +217,10 @@ adminCatalogRouter.post('/hotels/images', upload.array('images', 10), uploadImag
 adminCatalogRouter.post('/tours/images', upload.array('images', 10), uploadImagesHandlerFor('tours'));
 adminCatalogRouter.post('/activities/images', upload.array('images', 10), uploadImagesHandlerFor('activities'));
 adminCatalogRouter.post('/transfers/images', upload.array('images', 10), uploadImagesHandlerFor('transfers'));
+// Single-file PDF upload for Content Hub "Oman Overview" — a distinct path
+// (not /oman-overviews) for the same collision-avoidance reason as the
+// image uploads above, one file (`upload.single`) instead of an array since
+// each entry carries exactly one PDF.
+adminCatalogRouter.post('/oman-overviews/pdf', upload.single('pdf'), uploadOmanOverviewPdf);
 
 export default router;

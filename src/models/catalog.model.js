@@ -195,3 +195,10 @@ export const visaModel = createCrudModel('visa', ['price_per_person']);
 export const flightsModel = createCrudModel('flights', [
   'name', 'source', 'destination', 'departure_date', 'departure_time', 'is_flight_onward', 'price',
 ]);
+
+// Content Hub "Oman Overview" (see 0081_oman_overviews.sql) — admin-uploaded
+// PDF + a substantial written overview. A plain growable list, same
+// "add form + list with delete" shape as flightsModel above; no
+// is_mice_enabled/status columns since (unlike hotels/tours/activities/
+// transfers) it's shown to every agent unconditionally, not curated per-item.
+export const omanOverviewsModel = createCrudModel('oman_overviews', ['name', 'description', 'pdf_url']);

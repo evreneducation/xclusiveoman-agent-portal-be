@@ -382,6 +382,36 @@ export const flightSchema = z.object({
   price: z.number().nonnegative('Price must be a positive number').optional(),
 });
 
+// Content Hub "Oman Overview" tab (see 0081_oman_overviews.sql) — a plain
+// growable list, same posture as flightSchema above (every field required
+// up front, no draft state). `description` is meant to be a substantial
+// written piece alongside the uploaded PDF, not a one-line blurb — this
+// strips HTML tags/entities then counts the remaining characters, mirrored
+// client-side (admin/lib/omanOverviewForm.js) for the same live
+// character-count feedback rather than only finding out on submit.
+const OMAN_OVERVIEW_MIN_CHARS = 500;
+function countChars(html) {
+  const text = String(html || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&[a-zA-Z0-9#]+;/g, ' ')
+    .trim();
+  return text.length;
+}
+
+export const omanOverviewSchema = z.object({
+  name: z.string().min(2, 'Name is required').max(200),
+  description: z
+    .string()
+    .max(50000)
+    .refine((v) => countChars(v) >= OMAN_OVERVIEW_MIN_CHARS, {
+      message: `Description must be at least ${OMAN_OVERVIEW_MIN_CHARS} characters`,
+    }),
+  // Uploaded separately first (POST /admin/oman-overviews/pdf), same
+  // "upload returns a URL, the create/update call just carries it" flow
+  // every catalog image upload already uses.
+  pdfUrl: z.string().url('Upload a PDF document'),
+});
+
 // camelCase request bodies -> snake_case DB columns for the catalog CRUD models.
 const CATALOG_KEY_MAP = {
   boardBasisOptions: 'board_basis_options',
@@ -404,6 +434,7 @@ const CATALOG_KEY_MAP = {
   pricePerDay: 'price_per_day',
   departureDate: 'departure_date',
   departureTime: 'departure_time',
+  pdfUrl: 'pdf_url',
   isFlightOnward: 'is_flight_onward',
   pickupTime: 'pickup_time',
   // FD packages (fdPackageSchema) — these were missing, which silently dropped
