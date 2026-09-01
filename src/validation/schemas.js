@@ -410,6 +410,11 @@ export const omanOverviewSchema = z.object({
   // "upload returns a URL, the create/update call just carries it" flow
   // every catalog image upload already uses.
   pdfUrl: z.string().url('Upload a PDF document'),
+  // cover_image_url (0083_oman_overview_cover_image.sql) — shown on the
+  // agent-facing card in place of the plain PDF-icon placeholder. Same
+  // "upload first, the create/update call just carries the URL" flow as
+  // pdfUrl above, its own POST /admin/oman-overviews/cover-image endpoint.
+  coverImageUrl: z.string().url('Upload a cover image'),
 });
 
 // Admin sidebar "Deals" tab (see 0082_deals.sql) — admin-uploaded promo card
@@ -450,6 +455,7 @@ const CATALOG_KEY_MAP = {
   departureDate: 'departure_date',
   departureTime: 'departure_time',
   pdfUrl: 'pdf_url',
+  coverImageUrl: 'cover_image_url',
   imageUrl: 'image_url',
   isFlightOnward: 'is_flight_onward',
   pickupTime: 'pickup_time',

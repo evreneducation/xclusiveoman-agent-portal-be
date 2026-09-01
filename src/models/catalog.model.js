@@ -201,7 +201,11 @@ export const flightsModel = createCrudModel('flights', [
 // "add form + list with delete" shape as flightsModel above; no
 // is_mice_enabled/status columns since (unlike hotels/tours/activities/
 // transfers) it's shown to every agent unconditionally, not curated per-item.
-export const omanOverviewsModel = createCrudModel('oman_overviews', ['name', 'description', 'pdf_url']);
+// cover_image_url (0083_oman_overview_cover_image.sql) — a photo shown on
+// the agent-facing card in place of the plain PDF-icon placeholder.
+export const omanOverviewsModel = createCrudModel('oman_overviews', [
+  'name', 'description', 'pdf_url', 'cover_image_url',
+]);
 
 // Admin sidebar "Deals" tab (see 0082_deals.sql) — admin-uploaded card photos
 // for the agent dashboard's "Deals For You" carousel (agent/pages/
