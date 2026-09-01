@@ -306,7 +306,7 @@ export async function createBooking(req, res, next) {
     }
 
     const agency = await findAgencyById(req.user.agency_id);
-    const { pax, addonIds = [], travelers = [] } = req.body;
+    const { pax, addonIds = [], addonDayNumbers = {}, travelers = [] } = req.body;
 
     const { booking } = await createFdBooking({
       fdPackage,
@@ -316,6 +316,7 @@ export async function createBooking(req, res, next) {
       createdVia: 'self_service',
       pax,
       addonIds,
+      addonDayNumbers,
       travelers,
     });
 
