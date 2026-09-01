@@ -19,7 +19,6 @@ function toAdminAgency(agency, owner) {
     type: agency.type,
     licenseNumber: agency.license_number,
     country: agency.country,
-    tier: agency.tier,
     status: agency.status,
     creditLimit: agency.credit_limit,
     currencyPreference: agency.currency_preference,
@@ -32,13 +31,13 @@ function toAdminAgency(agency, owner) {
   };
 }
 
-// GET /api/admin/agencies?status=&tier=&country=&inactiveSinceDays=&search=&page=&pageSize=
-// — tier/country/inactiveSinceDays back Marketing Center's four audience
-// segments. listAgencies() already accepted tier/country (added for, and
-// still shared with, services/marketingSend.service.js#resolveAudience —
-// the same function that resolves an actual campaign's real recipients);
-// this handler simply forwards them from the query string now too (Task 10
-// — Audience Segments), same as `status`/`inactiveSinceDays` already were.
+// GET /api/admin/agencies?status=&country=&inactiveSinceDays=&search=&page=&pageSize=
+// — country/inactiveSinceDays back Marketing Center's three audience
+// segments. listAgencies() already accepted country (added for, and still
+// shared with, services/marketingSend.service.js#resolveAudience — the same
+// function that resolves an actual campaign's real recipients); this
+// handler simply forwards them from the query string now too (Task 10 —
+// Audience Segments), same as `status`/`inactiveSinceDays` already were.
 // A segment's shown count/members can therefore never drift from what
 // sending to it would actually do — both read the exact same WHERE clauses.
 //
@@ -62,7 +61,7 @@ export async function getAgencies(req, res, next) {
     // harmless-but-pointless 304). Same pattern as
     // marketingTracking.controller.js's own Cache-Control header.
     res.set('Cache-Control', 'no-store');
-    const { status, tier, country, search } = req.query;
+    const { status, country, search } = req.query;
     const inactiveSinceDaysNum = Number(req.query.inactiveSinceDays);
     const inactiveSinceDays = Number.isInteger(inactiveSinceDaysNum) && inactiveSinceDaysNum > 0 ? inactiveSinceDaysNum : undefined;
 
@@ -78,7 +77,7 @@ export async function getAgencies(req, res, next) {
       agencyIds = own.map((a) => a.id);
     }
 
-    const rows = agencyIds && agencyIds.length === 0 ? [] : await listAgencies({ status, tier, country, inactiveSinceDays, agencyIds });
+    const rows = agencyIds && agencyIds.length === 0 ? [] : await listAgencies({ status, country, inactiveSinceDays, agencyIds });
 
     // Task 10 — each agency's real send target (its active owner's
     // name/email — the same account resolveRecipients() would actually
@@ -103,7 +102,7 @@ export async function getAgencies(req, res, next) {
     // same param names and { total, page, pageSize, totalPages } response
     // shape as supportTicketsAdmin.controller.js's own pagination, for
     // consistency across the admin API rather than a one-off shape here.
-    // Applied last, after every filter above (status/tier/country/
+    // Applied last, after every filter above (status/country/
     // inactiveSinceDays are SQL WHERE clauses in listAgencies; search is
     // JS-side here since it needs the owner join). Every *other* existing
     // caller of this same endpoint — Team Portal's Approved Agents page,
@@ -127,7 +126,7 @@ export async function getAgencies(req, res, next) {
   }
 }
 
-// PATCH /api/admin/agencies/:id — ADM-6 / AUTH-2: approve/reject + tier + credit + RM, in one step.
+// PATCH /api/admin/agencies/:id — ADM-6 / AUTH-2: approve/reject + credit + RM, in one step.
 export async function patchAgency(req, res, next) {
   try {
     const { id } = req.params;
@@ -177,14 +176,13 @@ export async function patchAgency(req, res, next) {
           const { html, attachments } = buildAgentApprovedEmailHtml({
             fullName: owner.full_name,
             agencyName: agency.name,
-            tier: agency.tier,
             loginUrl: env.agentLoginUrl,
             rm: rmDetails,
           });
           await sendEmail({
             to: owner.email,
             subject: 'Your Xclusive Oman agency has been approved',
-            text: `Good news — ${agency.name} has been approved${agency.tier ? ` at ${agency.tier} tier` : ''}. Sign in at ${env.agentLoginUrl}.${rmDetails ? ` Your Relationship Manager: ${rmDetails.fullName} (${rmDetails.email}).` : ''}`,
+            text: `Good news — ${agency.name} has been approved. Sign in at ${env.agentLoginUrl}.${rmDetails ? ` Your Relationship Manager: ${rmDetails.fullName} (${rmDetails.email}).` : ''}`,
             html,
             attachments,
           });
@@ -194,7 +192,7 @@ export async function patchAgency(req, res, next) {
         getIo()?.to(`user:${owner.id}`).emit('notification:new', {
           type: 'agency_approved',
           title: 'Agency approved',
-          body: `Welcome to Xclusive Oman, tier: ${agency.tier || 'unassigned'}`,
+          body: `Welcome to Xclusive Oman, ${agency.name} has been approved.`,
         });
       }
     }

@@ -23,22 +23,22 @@ export async function findAgencyById(id) {
 // segment) filters down to agencies with no booking, FIT package request, or
 // MICE RFQ created in that many days (or ever) — the three tables that
 // actually record "this agency did something"; there's no last_login_at or
-// similar on agencies/users to check instead. `tier`/`country` are the same
-// idea for the "By Tier"/"By Country" segments — plain equality filters, so
-// this one function is the single source of truth for every Marketing
-// Center audience segment (Task 3's UI counts and Task 5's server-side send
-// audience resolution both call this, and so can never disagree). Kept as
-// extra optional WHERE clauses on this same list rather than a separate
-// endpoint, matching how `status` already narrows this list and how the
-// Product/MICE catalog list endpoints take extra filter query params
-// instead of growing new single-purpose routes.
+// similar on agencies/users to check instead. `country` is the same idea for
+// the "By Country" segment — a plain equality filter, so this one function
+// is the single source of truth for every Marketing Center audience segment
+// (Task 3's UI counts and Task 5's server-side send audience resolution both
+// call this, and so can never disagree). Kept as extra optional WHERE
+// clauses on this same list rather than a separate endpoint, matching how
+// `status` already narrows this list and how the Product/MICE catalog list
+// endpoints take extra filter query params instead of growing new
+// single-purpose routes.
 // `agencyIds` (Team Portal's Approved Agents page, relationshipManagers
 // scoping — admin.controller.js#getAgencies) restricts the list to a
 // specific RM's own assigned agencies (agencies.rm_user_id) — set
 // server-side from the requesting RM's own id, never a client-supplied
 // filter, so one RM can never page through another RM's book by tampering
 // with a query param.
-export async function listAgencies({ status, tier, country, inactiveSinceDays, agencyIds } = {}) {
+export async function listAgencies({ status, country, inactiveSinceDays, agencyIds } = {}) {
   const params = [];
   const conditions = [];
   if (status) {
@@ -48,10 +48,6 @@ export async function listAgencies({ status, tier, country, inactiveSinceDays, a
   if (agencyIds) {
     params.push(agencyIds);
     conditions.push(`a.id = ANY($${params.length}::uuid[])`);
-  }
-  if (tier) {
-    params.push(tier);
-    conditions.push(`a.tier = $${params.length}`);
   }
   if (country) {
     params.push(country);
@@ -114,7 +110,6 @@ export async function updateAgency(id, fields) {
 
   const columnMap = {
     status: 'status',
-    tier: 'tier',
     creditLimit: 'credit_limit',
     rmUserId: 'rm_user_id',
     name: 'name',

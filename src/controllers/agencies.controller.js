@@ -9,7 +9,6 @@ function toPublicAgency(agency, rm) {
     type: agency.type,
     licenseNumber: agency.license_number,
     country: agency.country,
-    tier: agency.tier,
     status: agency.status,
     creditLimit: agency.credit_limit,
     currencyPreference: agency.currency_preference,
@@ -39,7 +38,7 @@ export async function getMyAgency(req, res, next) {
   }
 }
 
-// PATCH /api/agencies/me — self-service profile edits only (not status/tier/credit).
+// PATCH /api/agencies/me — self-service profile edits only (not status/credit).
 export async function patchMyAgency(req, res, next) {
   try {
     const { name, country, logoAssetUrl, currencyPreference } = req.body;
