@@ -31,13 +31,16 @@ const FD_FULL_PAYMENT_LEAD_DAYS = 15;
 const FD_DEPOSIT_AMOUNT = 5000;
 
 // The "pay this now to hold the seat" figure, fixed at booking time.
-// `departureDateISO` is the fd_departure_dates.date value.
-function computeFdDepositDue(departureDateISO, totalPrice) {
+// `departureDateISO` is the fd_departure_dates.date value. The flat deposit
+// is per-pax (₹5,000 × pax, not a single flat ₹5,000 regardless of group
+// size) — a 4-pax booking holds 4 seats, so the "hold this seat" charge
+// scales with how many seats are actually being held.
+function computeFdDepositDue(departureDateISO, totalPrice, pax) {
   const msPerDay = 24 * 60 * 60 * 1000;
   const daysUntilDeparture = Math.ceil((new Date(departureDateISO).getTime() - Date.now()) / msPerDay);
   if (daysUntilDeparture < FD_FULL_PAYMENT_LEAD_DAYS) return totalPrice;
   // Never ask for more deposit than the booking is even worth.
-  return Math.min(FD_DEPOSIT_AMOUNT, totalPrice);
+  return Math.min(FD_DEPOSIT_AMOUNT * pax, totalPrice);
 }
 
 // depositPaid=0 → pending_payment (self-service's own default, and an admin
@@ -142,7 +145,7 @@ export async function createFdBooking({
     // deposit. An admin manual booking may already carry an offline
     // depositPaid — this stays the gross policy figure regardless; "still
     // due now" is deposit_due - deposit_paid, computed where it's shown.
-    const depositDue = computeFdDepositDue(departureDate.date, totalPrice);
+    const depositDue = computeFdDepositDue(departureDate.date, totalPrice, pax);
 
     await client.query('BEGIN');
 
