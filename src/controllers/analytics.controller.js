@@ -11,24 +11,24 @@ function toYmd(date) {
   return date.toISOString().slice(0, 10);
 }
 
-// GET /api/admin/analytics/summary?dateFrom=&dateTo=&agencyId=&tier=&country=
+// GET /api/admin/analytics/summary?dateFrom=&dateTo=&agencyId=&country=
 export async function summary(req, res, next) {
   try {
-    const { dateFrom, dateTo, agencyId, tier, country } = req.query;
-    const data = await getSummary({ dateFrom, dateTo, agencyId, tier, country });
+    const { dateFrom, dateTo, agencyId, country } = req.query;
+    const data = await getSummary({ dateFrom, dateTo, agencyId, country });
     res.json({ range: { dateFrom: dateFrom || null, dateTo: dateTo || null }, ...data });
   } catch (err) {
     next(err);
   }
 }
 
-// GET /api/admin/analytics/revenue-by-month?dateFrom=&dateTo=&agencyId=&tier=&country=
+// GET /api/admin/analytics/revenue-by-month?dateFrom=&dateTo=&agencyId=&country=
 // Defaults to the last 12 calendar months (inclusive of the current one)
 // when no range is given — a chart needs a concrete range to bucket, unlike
 // summary/top-agencies which can meaningfully mean "all time" with no filter.
 export async function revenueByMonth(req, res, next) {
   try {
-    const { agencyId, tier, country } = req.query;
+    const { agencyId, country } = req.query;
     let { dateFrom, dateTo } = req.query;
 
     if (!dateFrom || !dateTo) {
@@ -39,22 +39,21 @@ export async function revenueByMonth(req, res, next) {
       dateTo = dateTo || toYmd(now);
     }
 
-    const months = await getRevenueByMonth({ dateFrom, dateTo, agencyId, tier, country });
+    const months = await getRevenueByMonth({ dateFrom, dateTo, agencyId, country });
     res.json({ range: { dateFrom, dateTo }, months });
   } catch (err) {
     next(err);
   }
 }
 
-// GET /api/admin/analytics/top-agencies?dateFrom=&dateTo=&agencyId=&tier=&country=&page=&pageSize=
+// GET /api/admin/analytics/top-agencies?dateFrom=&dateTo=&agencyId=&country=&page=&pageSize=
 export async function topAgencies(req, res, next) {
   try {
-    const { dateFrom, dateTo, agencyId, tier, country, page, pageSize } = req.query;
+    const { dateFrom, dateTo, agencyId, country, page, pageSize } = req.query;
     const { rows, total, page: currentPage, pageSize: limit } = await getTopAgencies({
       dateFrom,
       dateTo,
       agencyId,
-      tier,
       country,
       page,
       pageSize,
