@@ -526,6 +526,14 @@ export const createBookingSchema = z.object({
   departureDateId: z.string().uuid(),
   pax: z.number().int().positive(),
   addonIds: z.array(z.string().uuid()).optional(),
+  // Which itinerary days a selected Lunch/Dinner add-on applies to
+  // (0080_booking_addon_days.sql) — keyed by the fd_addons id already present
+  // in addonIds above, valued with the itinerary day numbers checked in
+  // DepartureDetail.jsx's day-picker. Only meaningful for meal-type addons;
+  // ignored server-side for every other type. Never trusted as-is —
+  // booking.service.js#createFdBooking re-validates every day number against
+  // the package's real itinerary before pricing or persisting anything.
+  addonDayNumbers: z.record(z.array(z.number().int().positive())).optional(),
   travelers: z.array(bookingTravelerSchema).optional(),
 });
 

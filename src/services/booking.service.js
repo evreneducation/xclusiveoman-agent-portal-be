@@ -31,13 +31,16 @@ const FD_FULL_PAYMENT_LEAD_DAYS = 15;
 const FD_DEPOSIT_AMOUNT = 5000;
 
 // The "pay this now to hold the seat" figure, fixed at booking time.
-// `departureDateISO` is the fd_departure_dates.date value.
-function computeFdDepositDue(departureDateISO, totalPrice) {
+// `departureDateISO` is the fd_departure_dates.date value. The flat deposit
+// is per-pax (₹5,000 × pax, not a single flat ₹5,000 regardless of group
+// size) — a 4-pax booking holds 4 seats, so the "hold this seat" charge
+// scales with how many seats are actually being held.
+function computeFdDepositDue(departureDateISO, totalPrice, pax) {
   const msPerDay = 24 * 60 * 60 * 1000;
   const daysUntilDeparture = Math.ceil((new Date(departureDateISO).getTime() - Date.now()) / msPerDay);
   if (daysUntilDeparture < FD_FULL_PAYMENT_LEAD_DAYS) return totalPrice;
   // Never ask for more deposit than the booking is even worth.
-  return Math.min(FD_DEPOSIT_AMOUNT, totalPrice);
+  return Math.min(FD_DEPOSIT_AMOUNT * pax, totalPrice);
 }
 
 // depositPaid=0 → pending_payment (self-service's own default, and an admin
@@ -66,6 +69,8 @@ function deriveStatusFromDeposit(depositPaid, totalPrice) {
  * @param {'self_service'|'manual_admin'} createdVia
  * @param {number} pax
  * @param {string[]} [addonIds]
+ * @param {Object<string, number[]>} [addonDayNumbers] - fd_addons id -> itinerary day numbers,
+ *   for meal-type addons limited to specific days (0080_booking_addon_days.sql).
  * @param {Array<{name:string, passportNo?:string, dob?:string, roomShareGroup?:string}>} [travelers]
  * @param {number} [agreedTotalPrice] - Admin Manual Booking's MAN-3 override (agreed sell price).
  *   Deliberately bypasses server-computed pricing when present — the whole
@@ -87,6 +92,7 @@ export async function createFdBooking({
   createdVia,
   pax,
   addonIds = [],
+  addonDayNumbers = {},
   travelers = [],
   agreedTotalPrice,
   depositPaid = 0,
@@ -99,6 +105,26 @@ export async function createFdBooking({
       loadCatalogPools(),
     ]);
 
+    // Lunch/Dinner add-ons can be limited to specific itinerary days
+    // (0080_booking_addon_days.sql) instead of always covering the whole
+    // package — never trust the client's day numbers: re-validated here
+    // against this package's real fd_itinerary_days, and priced per selected
+    // day (meal.price_per_day × count) instead of the fd_addons row's
+    // full-duration snapshot. Any addon with no day numbers submitted (every
+    // non-meal type, or a meal added with none picked) keeps the existing
+    // whole-package snapshot behavior unchanged.
+    const validDayNumbers = new Set(itinerary.days.map((d) => d.day_number));
+    function priceAndDaysFor(addon) {
+      const days = addon.meal_id ? addonDayNumbers[addon.id] || [] : [];
+      if (days.length === 0) return { pricePerPax: Number(addon.price_per_pax), days: [] };
+      if (!days.every((d) => validDayNumbers.has(d))) {
+        throw Object.assign(new Error('Selected day is not part of this package\'s itinerary'), { status: 400 });
+      }
+      const meal = pools.meal.find((m) => m.id === addon.meal_id);
+      return { pricePerPax: Number(meal?.price_per_day || 0) * days.length, days };
+    }
+    const addonPricing = new Map(addons.map((a) => [a.id, priceAndDaysFor(a)]));
+
     // ratePerPax (resolveRatePerPax) folds in any included visa (Task 5 — a
     // checkbox inclusion priced off the visa catalog, a real per-pax figure
     // with nothing left to resolve here). Meals are opt-in fd_addons rows
@@ -106,7 +132,7 @@ export async function createFdBooking({
     // add-on. This only ever multiplies by the one thing that can't be known
     // before now: real pax.
     const ratePerPax = resolveRatePerPax(fdPackage, itinerary.items, pools);
-    const addonsPerPax = addons.reduce((sum, a) => sum + Number(a.price_per_pax), 0);
+    const addonsPerPax = addons.reduce((sum, a) => sum + addonPricing.get(a.id).pricePerPax, 0);
     const computedTotalPrice = (ratePerPax + addonsPerPax) * pax;
     const totalPrice = agreedTotalPrice != null ? agreedTotalPrice : computedTotalPrice;
 
@@ -119,7 +145,7 @@ export async function createFdBooking({
     // deposit. An admin manual booking may already carry an offline
     // depositPaid — this stays the gross policy figure regardless; "still
     // due now" is deposit_due - deposit_paid, computed where it's shown.
-    const depositDue = computeFdDepositDue(departureDate.date, totalPrice);
+    const depositDue = computeFdDepositDue(departureDate.date, totalPrice, pax);
 
     await client.query('BEGIN');
 
@@ -159,9 +185,10 @@ export async function createFdBooking({
     }
 
     for (const addon of addons) {
+      const { pricePerPax, days } = addonPricing.get(addon.id);
       await client.query(
-        `INSERT INTO booking_addons (booking_id, fd_addon_id, price_per_pax) VALUES ($1, $2, $3)`,
-        [booking.id, addon.id, addon.price_per_pax]
+        `INSERT INTO booking_addons (booking_id, fd_addon_id, price_per_pax, day_numbers) VALUES ($1, $2, $3, $4)`,
+        [booking.id, addon.id, pricePerPax, days]
       );
     }
 
