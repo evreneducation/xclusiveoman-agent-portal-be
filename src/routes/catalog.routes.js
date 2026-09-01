@@ -138,15 +138,18 @@ function createPublishFieldsGate(model, { requiredFields, requireImages = false,
 // Column names are snake_case — this gate runs after toSnakeCaseColumns.
 // Only enforced when the row is being published; drafts stay lenient.
 const requireTourPublishFields = createPublishFieldsGate(toursModel, {
-  requiredFields: ['name', 'city', 'description', 'duration', 'category'],
+  requiredFields: ['name', 'city', 'description', 'duration', 'category', 'pickup_time'],
   requireImages: true,
   priceFields: ['price'],
 });
 const requireActivityPublishFields = createPublishFieldsGate(activitiesModel, {
-  requiredFields: ['name', 'city', 'description', 'duration'],
+  requiredFields: ['name', 'city', 'description', 'duration', 'pickup_time'],
   requireImages: true,
   priceFields: ['price_per_pax'],
 });
+// pickup_time deliberately left out of transfers' requiredFields — Pickup
+// Time is optional for Transfers, unlike Tours/Activities above
+// (0078_pickup_time.sql).
 const requireTransferPublishFields = createPublishFieldsGate(transfersModel, {
   requiredFields: ['name', 'type', 'city', 'description', 'vehicle_class'],
   requireImages: true,

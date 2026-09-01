@@ -242,7 +242,7 @@ export async function listPaxManifest(departureDateId) {
   const { rows: bookings } = await pool.query(
     `SELECT
        b.id, b.pax, b.status, b.total_price, b.deposit_paid, b.balance_due, b.created_at,
-       a.id AS agency_id, a.name AS agency_name, a.tier AS agency_tier,
+       a.id AS agency_id, a.name AS agency_name,
        u.full_name AS created_by_name, u.email AS created_by_email
      FROM bookings b
      JOIN agencies a ON a.id = b.agency_id

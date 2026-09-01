@@ -8,15 +8,12 @@ import { listAgencies } from './agencies.model.js';
 //
 // "Eligible" always means status = 'approved' — pending/rejected/suspended
 // agencies are never real send targets, same rule the Task 3 UI's Audience
-// card counts already apply. Mirrors that same four-segment mapping exactly
-// (all / by tier / by country / inactive 30+ days) so the count an admin
-// saw before confirming a send can never come back different here.
+// card counts already apply. Mirrors that same three-segment mapping exactly
+// (all / by country / inactive 30+ days) so the count an admin saw before
+// confirming a send can never come back different here.
 const INACTIVE_SINCE_DAYS = 30;
 
 export async function resolveAudience({ audienceType, audienceValue }) {
-  if (audienceType === 'tier') {
-    return listAgencies({ status: 'approved', tier: audienceValue });
-  }
   if (audienceType === 'country') {
     return listAgencies({ status: 'approved', country: audienceValue });
   }

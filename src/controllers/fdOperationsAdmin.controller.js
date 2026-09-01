@@ -71,7 +71,6 @@ function toPublicManifestRow(row) {
     createdAt: row.created_at,
     agencyId: row.agency_id,
     agencyName: row.agency_name,
-    agencyTier: row.agency_tier,
     createdByName: row.created_by_name,
     createdByEmail: row.created_by_email,
     // Name + room-sharing only — never passport_no/dob (see

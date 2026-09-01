@@ -21,9 +21,9 @@ import { generateFdItineraryPdf } from '../services/itineraryPdf.service.js';
 
 // ratePerPax is fdPackage.rate_per_pax (an admin override) when set, else the
 // sum of the package's day-by-day itinerary (see resolveRatePerPax) — the
-// same price for every agency, regardless of tier. Agency tier still exists
-// for other purposes (approvals, marketing), it just no longer drives FD
-// package pricing. `hotel` is the resolved primary hotel's own catalog row
+// same price for every agency (agency tier was removed entirely — it no
+// longer exists anywhere in this app, not just as a pricing input).
+// `hotel` is the resolved primary hotel's own catalog row
 // (resolvePrimaryHotelId + a pools.hotel lookup — see both call sites below),
 // not fdPackage.hotel_city/hotel_name off the now-legacy hotel_id join,
 // which stays null forever for a package whose hotel was placed on the

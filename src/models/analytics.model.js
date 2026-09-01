@@ -31,18 +31,13 @@ import { pool } from '../db/pool.js';
 // "successful" records.
 const REVENUE_STATUS_EXCLUSION = `b.status NOT IN ('cancelled', 'waitlisted')`;
 
-function buildAgencyFilters({ agencyId, tier, country }, startIndex) {
+function buildAgencyFilters({ agencyId, country }, startIndex) {
   const clauses = [];
   const values = [];
   let i = startIndex;
   if (agencyId) {
     clauses.push(`b.agency_id = $${i}`);
     values.push(agencyId);
-    i += 1;
-  }
-  if (tier) {
-    clauses.push(`a.tier = $${i}`);
-    values.push(tier);
     i += 1;
   }
   if (country) {
@@ -72,12 +67,12 @@ function buildDateFilters({ dateFrom, dateTo }, startIndex) {
 }
 
 // GET /admin/analytics/summary — KPI cards + sales mix. Only the FD-only,
-// source_type-scoped bookings table is touched (JOIN agencies for
-// tier/country filtering); source_type = 'fd_package' is filtered exactly
-// like every other admin analytics-adjacent query in this codebase.
-export async function getSummary({ dateFrom, dateTo, agencyId, tier, country } = {}) {
+// source_type-scoped bookings table is touched (JOIN agencies for country
+// filtering); source_type = 'fd_package' is filtered exactly like every
+// other admin analytics-adjacent query in this codebase.
+export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
   const dateFilters = buildDateFilters({ dateFrom, dateTo }, 1);
-  const agencyFilters = buildAgencyFilters({ agencyId, tier, country }, dateFilters.next);
+  const agencyFilters = buildAgencyFilters({ agencyId, country }, dateFilters.next);
   const values = [...dateFilters.values, ...agencyFilters.values];
   const where = `WHERE b.source_type = 'fd_package' ${dateFilters.clause} ${agencyFilters.clause}`;
 
@@ -156,8 +151,8 @@ export async function getSummary({ dateFrom, dateTo, agencyId, tier, country } =
 // [dateFrom, dateTo], zero-filled so the chart never has a gap for a month
 // with no bookings. generate_series + LEFT JOIN, not a JS loop patching
 // gaps — the zero-fill itself is server-side aggregation too.
-export async function getRevenueByMonth({ dateFrom, dateTo, agencyId, tier, country }) {
-  const agencyFilters = buildAgencyFilters({ agencyId, tier, country }, 3);
+export async function getRevenueByMonth({ dateFrom, dateTo, agencyId, country }) {
+  const agencyFilters = buildAgencyFilters({ agencyId, country }, 3);
   const values = [dateFrom, dateTo, ...agencyFilters.values];
 
   const { rows } = await pool.query(
@@ -190,9 +185,9 @@ export async function getRevenueByMonth({ dateFrom, dateTo, agencyId, tier, coun
 // GET /admin/analytics/top-agencies — ranked by recognized revenue, ties
 // broken by booking count. SQL-side ORDER BY + LIMIT/OFFSET — never fetch
 // every agency and sort in JS.
-export async function getTopAgencies({ dateFrom, dateTo, agencyId, tier, country, page, pageSize } = {}) {
+export async function getTopAgencies({ dateFrom, dateTo, agencyId, country, page, pageSize } = {}) {
   const dateFilters = buildDateFilters({ dateFrom, dateTo }, 1);
-  const agencyFilters = buildAgencyFilters({ agencyId, tier, country }, dateFilters.next);
+  const agencyFilters = buildAgencyFilters({ agencyId, country }, dateFilters.next);
   const values = [...dateFilters.values, ...agencyFilters.values];
   const where = `WHERE b.source_type = 'fd_package' ${dateFilters.clause} ${agencyFilters.clause}`;
 
@@ -213,14 +208,13 @@ export async function getTopAgencies({ dateFrom, dateTo, agencyId, tier, country
     `SELECT
        a.id AS agency_id,
        a.name AS agency_name,
-       a.tier,
        a.country,
        COUNT(*)::int AS booking_count,
        COALESCE(SUM(b.deposit_paid) FILTER (WHERE ${REVENUE_STATUS_EXCLUSION}), 0) AS revenue
      FROM bookings b
      JOIN agencies a ON a.id = b.agency_id
      ${where}
-     GROUP BY a.id, a.name, a.tier, a.country
+     GROUP BY a.id, a.name, a.country
      ORDER BY revenue DESC, booking_count DESC
      LIMIT $${agencyFilters.next} OFFSET $${agencyFilters.next + 1}`,
     [...values, limit, offset]
@@ -230,7 +224,6 @@ export async function getTopAgencies({ dateFrom, dateTo, agencyId, tier, country
     rows: rows.map((r) => ({
       agencyId: r.agency_id,
       agencyName: r.agency_name,
-      tier: r.tier,
       country: r.country,
       bookingCount: r.booking_count,
       revenue: Number(r.revenue),

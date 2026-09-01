@@ -346,14 +346,12 @@ export function buildAgentRegistrationReceivedEmailHtml({ fullName, agencyName }
 // Sent once an agency's status flips to 'approved' (admin.controller.js
 // #patchAgency) — replaces that handler's previous plain-text sendEmail
 // call with this same branded shell every other account-lifecycle email
-// here uses. `tier` is optional (an approval doesn't have to set one in the
-// same request) and simply omitted from the sentence when absent, same as
-// the plain-text version it replaces. `rm` (the RM round-robin-assigned in
-// that same approval — REL-1, pickNextRoundRobinRm) is optional too: an
-// approval can go through with no RM pool configured yet
-// (patchAgency's own `if (rmUserId)` guard), in which case this simply
-// omits the card below rather than showing a broken "assigned to nobody".
-export function buildAgentApprovedEmailHtml({ fullName, agencyName, tier, loginUrl, rm }) {
+// here uses. `rm` (the RM round-robin-assigned in that same approval —
+// REL-1, pickNextRoundRobinRm) is optional: an approval can go through with
+// no RM pool configured yet (patchAgency's own `if (rmUserId)` guard), in
+// which case this simply omits the card below rather than showing a broken
+// "assigned to nobody".
+export function buildAgentApprovedEmailHtml({ fullName, agencyName, loginUrl, rm }) {
   const rmCardHtml = rm
     ? `
     <div style="margin:0 0 24px; padding:16px 20px; background:${ACCENT_SOFT}; border:1px solid ${ACCENT}; border-radius:8px;">
@@ -367,7 +365,7 @@ export function buildAgentApprovedEmailHtml({ fullName, agencyName, tier, loginU
   const bodyHtml = `
     <h1 style="margin:0 0 12px; font-size:20px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">You're approved, ${escapeHtml(fullName)}</h1>
     <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:${INK};">
-      Good news — <strong>${escapeHtml(agencyName)}</strong> has been approved${tier ? ` at <strong>${escapeHtml(tier)}</strong> tier` : ''} on the Xclusive Oman B2B &amp; MICE Trade Portal.
+      Good news — <strong>${escapeHtml(agencyName)}</strong> has been approved on the Xclusive Oman B2B &amp; MICE Trade Portal.
     </p>
     ${rmCardHtml}
     <p style="margin:0 0 24px; font-size:14px; line-height:1.6; color:${INK};">

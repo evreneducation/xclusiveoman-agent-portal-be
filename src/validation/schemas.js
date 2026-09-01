@@ -73,7 +73,6 @@ export const createSubUserSchema = z.object({
 
 export const patchAdminAgencySchema = z.object({
   status: z.enum(['pending', 'approved', 'rejected', 'suspended']).optional(),
-  tier: z.enum(['gold', 'silver', 'bronze']).optional(),
   creditLimit: z.number().nonnegative().optional(),
   rmUserId: z.string().uuid().nullable().optional(),
 });
@@ -253,6 +252,17 @@ export const hotelSchema = z.object({
 // comment above) — 0072_tours_activities_transfers_status.sql moves
 // "must be complete" to a publish-time gate instead (requireCatalogPublishFields,
 // catalog.routes.js), each field still validating its own format when present.
+// pickupTime — "HH:MM" (same <input type="time"> + regex convention as
+// flightSchema.departureTime below) — is mandatory-on-publish for Tours and
+// Activities but optional for Transfers (0078_pickup_time.sql); kept
+// optional at this schema level for all three so drafts stay lenient, same
+// as every other publish-only-required field here. The mandatory/optional
+// split itself lives in catalog.routes.js's per-entity publish-fields gate.
+const pickupTimeField = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Pickup time must be a valid HH:MM time')
+  .optional();
+
 export const tourSchema = z.object({
   name: z.string().min(2).max(200).optional(),
   city: z.string().min(2).max(100).optional(),
@@ -263,6 +273,7 @@ export const tourSchema = z.object({
   price: z.number().positive('Price must be a positive number').optional(),
   groupSuitability: z.string().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
+  pickupTime: pickupTimeField,
   isBestseller: z.boolean().optional(),
   isMiceEnabled: z.boolean().optional(),
   // 0072_tours_activities_transfers_status.sql — same status story as
@@ -278,6 +289,7 @@ export const activitySchema = z.object({
   images: z.array(z.string()).optional(),
   pricePerPax: z.number().nonnegative().optional(),
   suitableAgeMin: z.number().int().nonnegative().optional(),
+  pickupTime: pickupTimeField,
   isBestseller: z.boolean().optional(),
   isMiceEnabled: z.boolean().optional(),
   status: z.enum(['draft', 'published']).optional(),
@@ -295,6 +307,9 @@ export const transferSchema = z.object({
   // Optional like activities' images (0029_transfer_images.sql) — unlike
   // hotel/tour images, not required, since existing transfers predate it.
   images: z.array(z.string()).optional(),
+  // Unlike Tours/Activities, never required-on-publish for Transfers — see
+  // pickupTimeField's own comment above.
+  pickupTime: pickupTimeField,
   isMiceEnabled: z.boolean().optional(),
   status: z.enum(['draft', 'published']).optional(),
 });
@@ -390,6 +405,7 @@ const CATALOG_KEY_MAP = {
   departureDate: 'departure_date',
   departureTime: 'departure_time',
   isFlightOnward: 'is_flight_onward',
+  pickupTime: 'pickup_time',
   // FD packages (fdPackageSchema) — these were missing, which silently dropped
   // them from every create/update since FD_COLUMNS looks up the snake_case key.
   heroImageUrl: 'hero_image_url',
@@ -885,7 +901,7 @@ export const miceRfqCostingSchema = z.object({
 
 const MARKETING_CHANNELS = ['email', 'whatsapp'];
 const MARKETING_PROVIDERS = ['mailchimp', 'zoho', 'built_in', 'whatsapp_business_api'];
-const MARKETING_AUDIENCE_TYPES = ['all', 'tier', 'country', 'inactive_30d'];
+const MARKETING_AUDIENCE_TYPES = ['all', 'country', 'inactive_30d'];
 // Only 'built_in' has a real send path today (no Mailchimp/Zoho/WhatsApp
 // Business API integration exists — see marketing.controller.js); the
 // schema still accepts every enum value so an unconfigured provider gets a
@@ -935,10 +951,6 @@ export const createMarketingCampaignSchema = withMarketingCrossFieldRules(
       body: z.string().min(1, 'Message body is required').max(20000),
       replyToAccountManager: z.boolean().optional().default(false),
     })
-    .refine((v) => v.audienceType !== 'tier' || ['gold', 'silver', 'bronze'].includes(v.audienceValue), {
-      message: 'Select a valid tier',
-      path: ['audienceValue'],
-    })
     .refine((v) => v.audienceType !== 'country' || !!v.audienceValue?.trim(), {
       message: 'Select a country',
       path: ['audienceValue'],
@@ -968,10 +980,6 @@ export const scheduleMarketingCampaignSchema = withMarketingCrossFieldRules(
       scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a valid date'),
       scheduledTime: z.string().regex(/^\d{2}:\d{2}$/, 'Enter a valid time'),
       scheduledTimezone: z.string().min(1, 'Select a timezone'),
-    })
-    .refine((v) => v.audienceType !== 'tier' || ['gold', 'silver', 'bronze'].includes(v.audienceValue), {
-      message: 'Select a valid tier',
-      path: ['audienceValue'],
     })
     .refine((v) => v.audienceType !== 'country' || !!v.audienceValue?.trim(), {
       message: 'Select a country',
