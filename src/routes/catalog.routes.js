@@ -1,5 +1,11 @@
 import { Router } from 'express';
-import { catalogHandlersFor, uploadImagesHandlerFor, uploadOmanOverviewPdf, uploadDealImage } from '../controllers/catalog.controller.js';
+import {
+  catalogHandlersFor,
+  uploadImagesHandlerFor,
+  uploadOmanOverviewPdf,
+  uploadOmanOverviewCoverImage,
+  uploadDealImage,
+} from '../controllers/catalog.controller.js';
 import { hotelsModel, toursModel, activitiesModel, transfersModel } from '../models/catalog.model.js';
 import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
@@ -227,6 +233,7 @@ adminCatalogRouter.post('/transfers/images', upload.array('images', 10), uploadI
 // image uploads above, one file (`upload.single`) instead of an array since
 // each entry carries exactly one PDF.
 adminCatalogRouter.post('/oman-overviews/pdf', upload.single('pdf'), uploadOmanOverviewPdf);
+adminCatalogRouter.post('/oman-overviews/cover-image', upload.single('image'), uploadOmanOverviewCoverImage);
 // Single-file image upload for the Deals tab — same one-file convention as
 // the PDF route above, field name 'image' instead of 'pdf'.
 adminCatalogRouter.post('/deals/image', upload.single('image'), uploadDealImage);
