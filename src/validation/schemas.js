@@ -384,18 +384,19 @@ export const flightSchema = z.object({
 
 // Content Hub "Oman Overview" tab (see 0081_oman_overviews.sql) — a plain
 // growable list, same posture as flightSchema above (every field required
-// up front, no draft state). `description` is meant to be a substantial
-// written piece alongside the uploaded PDF, not a one-line blurb — this
-// strips HTML tags/entities then counts the remaining characters, mirrored
-// client-side (admin/lib/omanOverviewForm.js) for the same live
-// character-count feedback rather than only finding out on submit.
-const OMAN_OVERVIEW_MIN_CHARS = 500;
-function countChars(html) {
+// up front, no draft state). `description` needs to be a real written piece
+// alongside the uploaded PDF, not a one-line blurb, but not an unbounded
+// wall of text either — this strips HTML tags/entities then counts words,
+// mirrored client-side (admin/lib/omanOverviewForm.js) for the same live
+// word-count feedback rather than only finding out on submit.
+const OMAN_OVERVIEW_MIN_WORDS = 10;
+const OMAN_OVERVIEW_MAX_WORDS = 500;
+function countWords(html) {
   const text = String(html || '')
     .replace(/<[^>]*>/g, ' ')
     .replace(/&[a-zA-Z0-9#]+;/g, ' ')
     .trim();
-  return text.length;
+  return text ? text.split(/\s+/).length : 0;
 }
 
 export const omanOverviewSchema = z.object({
@@ -403,8 +404,11 @@ export const omanOverviewSchema = z.object({
   description: z
     .string()
     .max(50000)
-    .refine((v) => countChars(v) >= OMAN_OVERVIEW_MIN_CHARS, {
-      message: `Description must be at least ${OMAN_OVERVIEW_MIN_CHARS} characters`,
+    .refine((v) => {
+      const words = countWords(v);
+      return words >= OMAN_OVERVIEW_MIN_WORDS && words <= OMAN_OVERVIEW_MAX_WORDS;
+    }, {
+      message: `Description must be between ${OMAN_OVERVIEW_MIN_WORDS} and ${OMAN_OVERVIEW_MAX_WORDS} words`,
     }),
   // Uploaded separately first (POST /admin/oman-overviews/pdf), same
   // "upload returns a URL, the create/update call just carries it" flow
