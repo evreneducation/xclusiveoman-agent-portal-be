@@ -9,6 +9,8 @@ import {
   exclusionsModel,
   visaModel,
   flightsModel,
+  omanOverviewsModel,
+  dealsModel,
 } from '../models/catalog.model.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -27,6 +29,8 @@ const MODELS = {
   // list-style catalog entity.
   visas: visaModel,
   flights: flightsModel,
+  'oman-overviews': omanOverviewsModel,
+  deals: dealsModel,
 };
 
 // Naive `entity.slice(0, -1)` mis-singularizes "activities" -> "activitie"
@@ -153,4 +157,47 @@ export function uploadImagesHandlerFor(entity) {
       next(err);
     }
   };
+}
+
+// POST /api/admin/oman-overviews/pdf — single-file, mirrors
+// auth.controller.js#uploadLicenseDocument exactly: upload first, then the
+// actual create/update call just carries the resulting URL as a plain
+// string field (omanOverviewSchema.pdfUrl), same "upload returns a URL"
+// convention every catalog image upload above already uses, just one file
+// instead of an array and a `resourceType: 'raw'` since Cloudinary doesn't
+// treat a PDF as an image to transform.
+export async function uploadOmanOverviewPdf(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'missing_file', message: 'Upload a PDF document' });
+    }
+    if (req.file.mimetype !== 'application/pdf') {
+      return res.status(400).json({ error: 'invalid_file_type', message: 'Only PDF files are allowed' });
+    }
+    const uploaded = await uploadBuffer(req.file.buffer, {
+      folderParts: ['oman-overviews', 'pdfs'],
+      resourceType: 'raw',
+    });
+    res.status(201).json({ url: uploaded.secure_url });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/admin/deals/image — single-file, mirrors uploadOmanOverviewPdf
+// above exactly, just an image (default resourceType — Cloudinary treats it
+// normally, unlike the PDF's forced 'raw') instead of a PDF.
+export async function uploadDealImage(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'missing_file', message: 'Upload a photo' });
+    }
+    if (!req.file.mimetype.startsWith('image/')) {
+      return res.status(400).json({ error: 'invalid_file_type', message: 'Only image files are allowed' });
+    }
+    const uploaded = await uploadBuffer(req.file.buffer, { folderParts: ['deals', 'images'] });
+    res.status(201).json({ url: uploaded.secure_url });
+  } catch (err) {
+    next(err);
+  }
 }
