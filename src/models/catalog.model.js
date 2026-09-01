@@ -202,3 +202,11 @@ export const flightsModel = createCrudModel('flights', [
 // is_mice_enabled/status columns since (unlike hotels/tours/activities/
 // transfers) it's shown to every agent unconditionally, not curated per-item.
 export const omanOverviewsModel = createCrudModel('oman_overviews', ['name', 'description', 'pdf_url']);
+
+// Admin sidebar "Deals" tab (see 0082_deals.sql) — admin-uploaded card photos
+// for the agent dashboard's "Deals For You" carousel (agent/pages/
+// Dashboard.jsx's own PLACEHOLDER_DEAL, swapped out for this once real
+// content exists). Plain growable list, same shape as omanOverviewsModel
+// above — no is_mice_enabled/status columns, shown to every agent
+// unconditionally.
+export const dealsModel = createCrudModel('deals', ['title', 'duration', 'image_url']);

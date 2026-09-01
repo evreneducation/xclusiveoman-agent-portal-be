@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { catalogHandlersFor, uploadImagesHandlerFor, uploadOmanOverviewPdf } from '../controllers/catalog.controller.js';
+import { catalogHandlersFor, uploadImagesHandlerFor, uploadOmanOverviewPdf, uploadDealImage } from '../controllers/catalog.controller.js';
 import { hotelsModel, toursModel, activitiesModel, transfersModel } from '../models/catalog.model.js';
 import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
@@ -15,6 +15,7 @@ import {
   visaSchema,
   flightSchema,
   omanOverviewSchema,
+  dealSchema,
   toSnakeCaseColumns,
 } from '../validation/schemas.js';
 
@@ -172,6 +173,10 @@ const ENTITIES = [
   // in EXTRA_MIDDLEWARE below since omanOverviewSchema already requires
   // every field up front (same posture as flightSchema above).
   { path: 'oman-overviews', schema: omanOverviewSchema },
+  // Admin sidebar "Deals" tab (0082_deals.sql) — no publish gate below, same
+  // reasoning as Oman Overview above (dealSchema already requires everything
+  // up front).
+  { path: 'deals', schema: dealSchema },
 ];
 
 // Public-to-agents listing/detail (doc §12.3) — any authenticated user, agent or staff.
@@ -222,5 +227,8 @@ adminCatalogRouter.post('/transfers/images', upload.array('images', 10), uploadI
 // image uploads above, one file (`upload.single`) instead of an array since
 // each entry carries exactly one PDF.
 adminCatalogRouter.post('/oman-overviews/pdf', upload.single('pdf'), uploadOmanOverviewPdf);
+// Single-file image upload for the Deals tab — same one-file convention as
+// the PDF route above, field name 'image' instead of 'pdf'.
+adminCatalogRouter.post('/deals/image', upload.single('image'), uploadDealImage);
 
 export default router;

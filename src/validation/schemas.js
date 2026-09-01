@@ -412,6 +412,21 @@ export const omanOverviewSchema = z.object({
   pdfUrl: z.string().url('Upload a PDF document'),
 });
 
+// Admin sidebar "Deals" tab (see 0082_deals.sql) — admin-uploaded promo card
+// photos for the agent dashboard's "Deals For You" carousel. Plain growable
+// list, same posture as flightSchema/omanOverviewSchema above (every field
+// required up front except duration, no draft state).
+export const dealSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200),
+  // "4N | 5D" style duration badge overlaid on the photo — optional, a deal
+  // photo can stand alone without one.
+  duration: z.string().max(50).optional(),
+  // Uploaded separately first (POST /admin/deals/image), same "upload
+  // returns a URL, the create/update call just carries it" flow every
+  // catalog image upload already uses.
+  imageUrl: z.string().url('Upload a photo'),
+});
+
 // camelCase request bodies -> snake_case DB columns for the catalog CRUD models.
 const CATALOG_KEY_MAP = {
   boardBasisOptions: 'board_basis_options',
@@ -435,6 +450,7 @@ const CATALOG_KEY_MAP = {
   departureDate: 'departure_date',
   departureTime: 'departure_time',
   pdfUrl: 'pdf_url',
+  imageUrl: 'image_url',
   isFlightOnward: 'is_flight_onward',
   pickupTime: 'pickup_time',
   // FD packages (fdPackageSchema) — these were missing, which silently dropped

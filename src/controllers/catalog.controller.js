@@ -10,6 +10,7 @@ import {
   visaModel,
   flightsModel,
   omanOverviewsModel,
+  dealsModel,
 } from '../models/catalog.model.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
@@ -29,6 +30,7 @@ const MODELS = {
   visas: visaModel,
   flights: flightsModel,
   'oman-overviews': omanOverviewsModel,
+  deals: dealsModel,
 };
 
 // Naive `entity.slice(0, -1)` mis-singularizes "activities" -> "activitie"
@@ -176,6 +178,24 @@ export async function uploadOmanOverviewPdf(req, res, next) {
       folderParts: ['oman-overviews', 'pdfs'],
       resourceType: 'raw',
     });
+    res.status(201).json({ url: uploaded.secure_url });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/admin/deals/image — single-file, mirrors uploadOmanOverviewPdf
+// above exactly, just an image (default resourceType — Cloudinary treats it
+// normally, unlike the PDF's forced 'raw') instead of a PDF.
+export async function uploadDealImage(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'missing_file', message: 'Upload a photo' });
+    }
+    if (!req.file.mimetype.startsWith('image/')) {
+      return res.status(400).json({ error: 'invalid_file_type', message: 'Only image files are allowed' });
+    }
+    const uploaded = await uploadBuffer(req.file.buffer, { folderParts: ['deals', 'images'] });
     res.status(201).json({ url: uploaded.secure_url });
   } catch (err) {
     next(err);
