@@ -184,6 +184,24 @@ export async function uploadOmanOverviewPdf(req, res, next) {
   }
 }
 
+// POST /api/admin/oman-overviews/cover-image — single-file, mirrors
+// uploadDealImage below exactly (default resourceType — a normal image, not
+// the PDF's forced 'raw') just scoped to the oman-overviews folder.
+export async function uploadOmanOverviewCoverImage(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'missing_file', message: 'Upload a cover image' });
+    }
+    if (!req.file.mimetype.startsWith('image/')) {
+      return res.status(400).json({ error: 'invalid_file_type', message: 'Only image files are allowed' });
+    }
+    const uploaded = await uploadBuffer(req.file.buffer, { folderParts: ['oman-overviews', 'cover-images'] });
+    res.status(201).json({ url: uploaded.secure_url });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // POST /api/admin/deals/image — single-file, mirrors uploadOmanOverviewPdf
 // above exactly, just an image (default resourceType — Cloudinary treats it
 // normally, unlike the PDF's forced 'raw') instead of a PDF.
