@@ -16,10 +16,20 @@ import { createNotification } from '../services/notification.service.js';
 import { sendEmail } from '../services/email.service.js';
 import { getIo } from '../sockets/index.js';
 
-// Admin Client Documents & Visa Processing (Task 14 — Screen 23, DOC-2..6).
-// Mounted into the existing bookingsAdmin.routes.js router (same
+// Admin Booking & Visa Processing (Task 14 — Screen 23, DOC-2..6). Mounted
+// into the existing bookingsAdmin.routes.js router (same
 // requireAuth/requireRole('ops_admin','super_admin') gate Task 13 already
 // established — this file adds handlers, not a new RBAC boundary).
+//
+// DOC-6's original design gated every admin-uploaded document (visa copy,
+// voucher) behind a separate, manual "Notify Agent" click before an agent
+// could see or download it — see travelerDocumentsAgent.controller.js's own
+// history. That manual release step is gone: uploadVisaCopy/uploadVoucher
+// below now unlock immediately (travelerDocumentsAgent.controller.js no
+// longer checks documents_notified_at at all) and fire the one-time
+// "documents ready" notification/email themselves via
+// notifyAgentDocumentsReadyOnce, the first time anything becomes available
+// for a booking — no admin action required, and nothing to forget to click.
 
 const DOC_TYPE_COLUMN = {
   passport_scan: 'passport_scan_url',
@@ -271,6 +281,69 @@ export async function emailToSupplier(req, res, next) {
   }
 }
 
+// Fires automatically from uploadVisaCopy/uploadVoucher below, replacing the
+// old manual "Notify Agent" button (DOC-6) — every admin-uploaded document is
+// visible/downloadable to the agent the instant it's saved regardless (see
+// travelerDocumentsAgent.controller.js), so this is no longer a gate; it's
+// just the one-time "documents ready" in-app notification + email, sent the
+// first time *anything* becomes available for a booking so an agent doesn't
+// get one email per traveler as visas trickle in. markDocumentsNotified
+// itself stays idempotent (COALESCE) and is still called every time, purely
+// as the durable "have we sent the one-time notification yet" bookkeeping —
+// best-effort fan-out below, same posture as fdOperationsNotify.service.js /
+// bookingsAdmin.controller.js#createManualBooking's own notify step.
+async function notifyAgentDocumentsReadyOnce(booking, actorUserId) {
+  const alreadyNotified = !!booking.documents_notified_at;
+  const updated = await markDocumentsNotified(booking.id);
+  if (alreadyNotified) return updated;
+
+  await insertAuditLog({
+    actorUserId,
+    entity: 'booking',
+    entityId: booking.id,
+    field: 'documents_notified',
+    newValue: { documentsNotifiedAt: updated.documents_notified_at, trigger: 'auto' },
+  });
+
+  try {
+    const [owner] = await listAgencyOwnerEmails([booking.agency_id]);
+    if (owner) {
+      const message = `Your travel documents for ${booking.package_title} are ready to download.`;
+      try {
+        await createNotification({
+          recipientUserId: owner.id,
+          recipientRole: 'agency_owner',
+          type: 'documents_ready',
+          title: 'Documents ready',
+          message,
+          referenceType: 'booking',
+          referenceId: booking.id,
+        });
+      } catch (err) {
+        console.error(`[travelerDocumentsAdmin] Failed to notify user ${owner.id}`, err);
+      }
+      try {
+        await sendEmail({ to: owner.email, subject: 'Your travel documents are ready — Xclusive Oman', text: message });
+      } catch (err) {
+        console.error(`[travelerDocumentsAdmin] Failed to email ${owner.email}`, err);
+      }
+    }
+  } catch (err) {
+    console.error(`[travelerDocumentsAdmin] Failed to fan out documents-ready notification for booking ${booking.id}`, err);
+  }
+
+  return updated;
+}
+
+// Live-refreshes an agent who already has this booking's document page open
+// (BookingDetail.jsx's own socket listener) — fired on *every* upload, not
+// just the first, unlike notifyAgentDocumentsReadyOnce's one-time email/
+// in-app notification above; a page refresh isn't spam the way a repeated
+// email would be.
+function emitBookingDocumentsChanged(booking) {
+  getIo()?.to(`agency:${booking.agency_id}`).emit('booking:status_changed', { bookingId: booking.id, status: booking.status });
+}
+
 // POST /api/admin/bookings/:id/travelers/:travelerId/visa-copy — DOC-4.
 export async function uploadVisaCopy(req, res, next) {
   try {
@@ -294,7 +367,15 @@ export async function uploadVisaCopy(req, res, next) {
       newValue: { travelerId, travelerName: traveler.name },
     });
 
-    res.status(201).json({ travelerId, visaCopyUploaded: true, visaUploadedByAdminAt: docs.visa_uploaded_by_admin_at });
+    const updated = await notifyAgentDocumentsReadyOnce(booking, req.user.id);
+    emitBookingDocumentsChanged(booking);
+
+    res.status(201).json({
+      travelerId,
+      visaCopyUploaded: true,
+      visaUploadedByAdminAt: docs.visa_uploaded_by_admin_at,
+      documentsNotifiedAt: updated.documents_notified_at,
+    });
   } catch (err) {
     next(err);
   }
@@ -319,62 +400,10 @@ export async function uploadVoucher(req, res, next) {
       newValue: {},
     });
 
-    res.status(201).json({ uploaded: true, uploadedAt: voucher.uploaded_at });
-  } catch (err) {
-    next(err);
-  }
-}
+    const updated = await notifyAgentDocumentsReadyOnce(booking, req.user.id);
+    emitBookingDocumentsChanged(booking);
 
-// POST /api/admin/bookings/:id/documents/notify-agent — DOC-6. Best-effort
-// notification fan-out (same posture as fdOperationsNotify.service.js /
-// bookingsAdmin.controller.js#createManualBooking's own notify step) — the
-// unlock itself (markDocumentsNotified) is the durable, load-bearing part;
-// a notification/email hiccup must never leave the unlock half-applied, so
-// it's written first and unconditionally.
-export async function notifyAgent(req, res, next) {
-  try {
-    const booking = await loadBookingOr404(req, res);
-    if (!booking) return;
-
-    const updated = await markDocumentsNotified(booking.id);
-
-    await insertAuditLog({
-      actorUserId: req.user.id,
-      entity: 'booking',
-      entityId: booking.id,
-      field: 'documents_notified',
-      newValue: { documentsNotifiedAt: updated.documents_notified_at },
-    });
-
-    try {
-      const [owner] = await listAgencyOwnerEmails([booking.agency_id]);
-      if (owner) {
-        const message = `Your travel documents for ${booking.package_title} are ready to download.`;
-        getIo()?.to(`agency:${booking.agency_id}`).emit('booking:status_changed', { bookingId: booking.id, status: booking.status });
-        try {
-          await createNotification({
-            recipientUserId: owner.id,
-            recipientRole: 'agency_owner',
-            type: 'documents_ready',
-            title: 'Documents ready',
-            message,
-            referenceType: 'booking',
-            referenceId: booking.id,
-          });
-        } catch (err) {
-          console.error(`[travelerDocumentsAdmin] Failed to notify user ${owner.id}`, err);
-        }
-        try {
-          await sendEmail({ to: owner.email, subject: 'Your travel documents are ready — Xclusive Oman', text: message });
-        } catch (err) {
-          console.error(`[travelerDocumentsAdmin] Failed to email ${owner.email}`, err);
-        }
-      }
-    } catch (err) {
-      console.error(`[travelerDocumentsAdmin] Failed to fan out notify-agent for booking ${booking.id}`, err);
-    }
-
-    res.json({ documentsNotifiedAt: updated.documents_notified_at });
+    res.status(201).json({ uploaded: true, uploadedAt: voucher.uploaded_at, documentsNotifiedAt: updated.documents_notified_at });
   } catch (err) {
     next(err);
   }
