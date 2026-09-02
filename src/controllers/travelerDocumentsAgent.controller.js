@@ -163,7 +163,15 @@ export async function downloadTravelerDocument(req, res, next) {
 
     const buffer = await fetchDocumentBuffer(url);
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${type}.${extFromUrl(url)}"`);
+    // Traveler name included (not just the doc type) — matches
+    // travelerDocumentsAdmin.controller.js's own downloadTravelerDocument
+    // naming, and the frontend now trusts this header entirely
+    // (shared/documents/downloadDocument.js) rather than reconstructing a
+    // filename itself, so the two must actually agree.
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${type}_${traveler.name.replace(/[^a-z0-9]/gi, '_')}.${extFromUrl(url)}"`
+    );
     res.send(buffer);
   } catch (err) {
     next(err);
