@@ -1,13 +1,25 @@
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 
-// No password hashing/verification anywhere anymore — email OTP
-// (generateNumericOtp below) is the sole authentication mechanism,
-// users.password_hash was dropped (0060_drop_password.sql). bcryptjs is
-// still a listed dependency (package.json) but nothing in this backend
-// calls it now; left installed rather than uninstalled since removing a
-// dependency wasn't asked for.
+// Agent/Team still sign in exclusively via email OTP (generateNumericOtp
+// below) — no password anywhere for them, same as when users.password_hash
+// was fully dropped (0060_drop_password.sql). The Admin Console is the one
+// exception: 0084_admin_password.sql reintroduced that column, per-account
+// this time (each admin/staff row has its own bcrypt hash, not one shared
+// secret) — hashPassword/comparePassword below are what auth.controller.js#
+// adminLogin and scripts/seedAdminPasswords.js use to write/check it.
+const BCRYPT_ROUNDS = 10;
+
+export function hashPassword(plain) {
+  return bcrypt.hash(plain, BCRYPT_ROUNDS);
+}
+
+export function comparePassword(plain, hash) {
+  if (!hash) return Promise.resolve(false);
+  return bcrypt.compare(plain, hash);
+}
 
 function baseClaims(user) {
   return {

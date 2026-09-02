@@ -10,6 +10,7 @@ import {
   generateNumericOtp,
   signAdminMfaToken,
   verifyAdminMfaToken,
+  comparePassword,
 } from '../services/auth.service.js';
 import { adminSecurityModel } from '../models/adminSecurity.model.js';
 import { verifyTotpStep } from '../services/totp.service.js';
@@ -18,11 +19,14 @@ import { buildAgentRegistrationReceivedEmailHtml } from '../services/emailTempla
 import { createNotification } from '../services/notification.service.js';
 import { uploadBuffer } from '../services/cloudinary.service.js';
 
-// Email OTP login — the sole authentication mechanism now (no password
-// anywhere — users.password_hash was dropped, 0060_drop_password.sql).
-// 6-digit code, 5-minute expiry, max 5 verification attempts per code
-// (login_otps.attempt_count) before it's rejected outright and a fresh one
-// has to be requested.
+// Email OTP login — Agent/Team's sole authentication mechanism (no
+// per-user password anywhere — users.password_hash was dropped,
+// 0060_drop_password.sql). 6-digit code, 5-minute expiry, max 5 verification
+// attempts per code (login_otps.attempt_count) before it's rejected outright
+// and a fresh one has to be requested. The Admin Console is the one
+// exception — email + a single shared password (adminLogin, below) — but
+// still funnels into the exact same mfaRequired/issueTokens tail as
+// verifyLoginOtp once that password checks out.
 const OTP_EXPIRY_MINUTES = 5;
 const OTP_MAX_ATTEMPTS = 5;
 
@@ -362,6 +366,58 @@ export async function verifyLoginOtp(req, res, next) {
       if (security?.totp_enabled) {
         return res.json({ mfaRequired: true, mfaToken: signAdminMfaToken({ userId: user.id }) });
       }
+    }
+
+    const accessToken = issueTokens(res, user);
+    res.json({ accessToken, user: toPublicUser(user) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/auth/admin-login — Admin Console login only; Agent/Team logins
+// are unaffected and still go through requestLoginOtp/verifyLoginOtp above.
+// Per-account bcrypt password (users.password_hash — reintroduced by
+// 0084_admin_password.sql after being fully dropped in 0060_drop_password.sql,
+// this time scoped to Admin Console accounts only, each with their own hash
+// rather than one shared secret). New admin/staff rows start with no hash
+// set until scripts/seedAdminPasswords.js backfills one from
+// env.adminLoginPassword — comparePassword (auth.service.js) resolves false
+// for a NULL hash, so an unseeded account just can't log in yet rather than
+// throwing. Once the password checks out, this rejoins verifyLoginOtp's own
+// tail exactly — same belongsToPortal gate, same mfaRequired handoff into
+// verify-mfa when the Security screen's global 2FA toggle is on, same
+// issueTokens() session — so nothing past this point changed.
+export async function adminLogin(req, res, next) {
+  try {
+    const { email, password } = req.body;
+
+    const user = await findUserByEmail(email);
+    if (!user || user.status !== 'active') {
+      return res.status(401).json({ error: 'invalid_credentials', message: 'Incorrect email or password' });
+    }
+
+    // Per-account bcrypt hash (0084_admin_password.sql), not the old flat
+    // compare against one shared env value — comparePassword resolves false
+    // outright for a NULL hash (an Agent/Team row, or an admin row this
+    // account's own migration hasn't backfilled yet via
+    // scripts/seedAdminPasswords.js), same "no crash, just refuse" posture
+    // every other invalid-credentials branch here already takes.
+    const passwordValid = await comparePassword(password, user.password_hash);
+    if (!passwordValid) {
+      return res.status(401).json({ error: 'invalid_credentials', message: 'Incorrect email or password' });
+    }
+
+    if (!belongsToPortal(user, 'admin')) {
+      return res.status(403).json({
+        error: 'wrong_portal',
+        message: 'This login is for Xclusive Oman staff. Travel agents sign in at the Agent Portal.',
+      });
+    }
+
+    const security = await adminSecurityModel.get();
+    if (security?.totp_enabled) {
+      return res.json({ mfaRequired: true, mfaToken: signAdminMfaToken({ userId: user.id }) });
     }
 
     const accessToken = issueTokens(res, user);
