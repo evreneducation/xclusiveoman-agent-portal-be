@@ -32,3 +32,16 @@ export const mfaVerifyLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'rate_limited', message: 'Too many attempts from this device. Please try again later.' },
 });
+
+// IP-scoped throttle for POST /auth/admin-login. A password (per-account
+// bcrypt hash now — auth.controller.js#adminLogin, 0084_admin_password.sql)
+// never expires the way an OTP code does, so it's a standing brute-force
+// target for as long as it stays unchanged — throttled the same way
+// otpRequestLimiter throttles the send step above.
+export const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate_limited', message: 'Too many sign-in attempts from this device. Please try again later.' },
+});

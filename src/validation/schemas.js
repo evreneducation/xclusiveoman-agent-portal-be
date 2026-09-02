@@ -57,6 +57,14 @@ export const verifyMfaSchema = z.object({
   code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
 });
 
+// Admin Console login (auth.controller.js#adminLogin) — email + the one
+// shared admin password (env.adminLoginPassword), not per-user OTP like
+// requestOtpSchema/verifyOtpSchema above.
+export const adminLoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1, 'Password is required'),
+});
+
 export const patchAgencyMeSchema = z.object({
   name: z.string().min(2).max(200).optional(),
   country: z.string().min(2).max(100).optional(),
