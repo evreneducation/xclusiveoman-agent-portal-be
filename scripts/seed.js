@@ -3,9 +3,9 @@
  * admin portal has something to log in with out of the box. Safe to re-run —
  * skips insertion if the account already exists.
  *
- * No password — email OTP is the sole sign-in mechanism (users.password_hash
- * was dropped, 0060_drop_password.sql); sign in at /admin/login with this
- * email and whatever code arrives at it.
+ * No password set here — run `npm run seed-admin-passwords` afterward to
+ * backfill this (and every other admin/staff account with none yet) an
+ * initial password from ADMIN_LOGIN_PASSWORD (0084_admin_password.sql).
  *
  * Usage: npm run seed
  */
@@ -42,7 +42,7 @@ async function main() {
 
   console.log('Seeded default super admin:');
   console.log(`  email: ${DEFAULT_EMAIL}`);
-  console.log('Sign in at /admin/login — email OTP is the sole sign-in mechanism now, no password to set.');
+  console.log('Run `npm run seed-admin-passwords` next to give this account an initial password, then sign in at /admin/login.');
 
   await pool.end();
 }

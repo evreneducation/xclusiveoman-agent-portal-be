@@ -3,9 +3,10 @@
  * the API (which requires an existing super_admin to create staff). This is
  * an operational necessity, not demo/seed data.
  *
- * No password — email OTP is the sole sign-in mechanism (users.password_hash
- * was dropped, 0060_drop_password.sql); the account can sign in immediately
- * via /admin/login using this email.
+ * No password set here — this account can't sign in at /admin/login until
+ * `npm run seed-admin-passwords` backfills it an initial one from
+ * ADMIN_LOGIN_PASSWORD (0084_admin_password.sql; that script fills any
+ * admin/staff row with a NULL password_hash, this one included).
  *
  * Usage: node scripts/create-super-admin.js <email> "<full name>"
  */

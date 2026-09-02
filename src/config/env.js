@@ -20,6 +20,14 @@ export const env = {
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,
   jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || "15m",
   jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
+  // Admin Console login moved to a real per-account bcrypt password
+  // (users.password_hash, 0084_admin_password.sql) — this is no longer
+  // checked on every login (auth.controller.js#adminLogin doesn't read it
+  // at all now), only by scripts/seedAdminPasswords.js to backfill an
+  // *initial* password for admin/staff accounts that don't have one yet.
+  // Not required at startup for that reason — the running server has no
+  // hard dependency on it, unlike JWT_*_SECRET above.
+  adminLoginPassword: process.env.ADMIN_LOGIN_PASSWORD || "",
   corsOrigins: (
     process.env.CORS_ORIGINS || "http://localhost:5173,http://localhost:5174"
   )

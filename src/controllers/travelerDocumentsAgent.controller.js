@@ -28,20 +28,22 @@ const DOC_TYPE_COLUMN = {
   passport_photo: 'passport_photo_url',
   visa_copy: 'visa_copy_url',
 };
-// Only admin-uploaded document types are gated by documents_notified_at
-// (DOC-6) — the agent's own passport/photo uploads are always theirs to
-// re-download, no unlock needed (see this task's own audit finding: the doc
-// only ever describes visa/voucher as locked, never the agent's own upload).
-const ADMIN_GATED_TYPES = new Set(['visa_copy']);
 
-function toPublicTravelerDocs(row, unlocked) {
+// Admin-uploaded documents (visa copy, voucher) used to stay locked behind a
+// separate manual "Notify Agent" click (documents_notified_at, DOC-6) even
+// after being uploaded — every document here is now downloadable the
+// instant it exists; "documentsNotifiedAt" on the booking below is purely
+// informational (when the one-time ready notification/email fired, see
+// travelerDocumentsAdmin.controller.js#notifyAgentDocumentsReadyOnce), not a
+// gate on anything.
+function toPublicTravelerDocs(row) {
   return {
     travelerId: row.id,
     name: row.name,
     passportScanUploaded: !!row.passport_scan_url,
     passportPhotoUploaded: !!row.passport_photo_url,
     visaCopyUploaded: !!row.visa_copy_url,
-    visaCopyDownloadable: !!row.visa_copy_url && unlocked,
+    visaCopyDownloadable: !!row.visa_copy_url,
   };
 }
 
@@ -60,7 +62,6 @@ export async function getDocuments(req, res, next) {
     const booking = await loadOwnedBookingOr404(req, res);
     if (!booking) return;
 
-    const unlocked = !!booking.documents_notified_at;
     const [travelers, voucher] = await Promise.all([
       listTravelersWithDocuments(booking.id),
       findVoucherByBookingId(booking.id),
@@ -71,12 +72,12 @@ export async function getDocuments(req, res, next) {
         id: booking.id,
         status: booking.status,
         uploadEligible: UPLOAD_ELIGIBLE_STATUSES.has(booking.status),
-        documentsUnlocked: unlocked,
+        documentsNotifiedAt: booking.documents_notified_at,
       },
-      travelers: travelers.map((t) => toPublicTravelerDocs(t, unlocked)),
+      travelers: travelers.map(toPublicTravelerDocs),
       voucher: {
         uploaded: !!voucher,
-        downloadable: !!voucher && unlocked,
+        downloadable: !!voucher,
       },
     });
   } catch (err) {
@@ -141,8 +142,9 @@ export async function uploadDocuments(req, res, next) {
 }
 
 // GET /api/bookings/:id/travelers/:travelerId/documents/:type/download —
-// agent's own passport uploads are always downloadable; visa_copy requires
-// documents_notified_at (DOC-6).
+// every document type here is downloadable as soon as it exists (agent's own
+// passport uploads always were; visa_copy no longer waits on a separate
+// admin release — see this file's own top comment).
 export async function downloadTravelerDocument(req, res, next) {
   try {
     const { travelerId, type } = req.params;
@@ -151,10 +153,6 @@ export async function downloadTravelerDocument(req, res, next) {
 
     const booking = await loadOwnedBookingOr404(req, res);
     if (!booking) return;
-
-    if (ADMIN_GATED_TYPES.has(type) && !booking.documents_notified_at) {
-      return res.status(403).json({ error: 'documents_locked', message: 'This document is not available yet.' });
-    }
 
     const traveler = await findTravelerInBooking(travelerId, booking.id);
     if (!traveler) return res.status(404).json({ error: 'traveler_not_found' });
@@ -165,22 +163,27 @@ export async function downloadTravelerDocument(req, res, next) {
 
     const buffer = await fetchDocumentBuffer(url);
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${type}.${extFromUrl(url)}"`);
+    // Traveler name included (not just the doc type) — matches
+    // travelerDocumentsAdmin.controller.js's own downloadTravelerDocument
+    // naming, and the frontend now trusts this header entirely
+    // (shared/documents/downloadDocument.js) rather than reconstructing a
+    // filename itself, so the two must actually agree.
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${type}_${traveler.name.replace(/[^a-z0-9]/gi, '_')}.${extFromUrl(url)}"`
+    );
     res.send(buffer);
   } catch (err) {
     next(err);
   }
 }
 
-// GET /api/bookings/:id/voucher/download — locked until DOC-6's unlock.
+// GET /api/bookings/:id/voucher/download — downloadable as soon as it's
+// uploaded, no separate admin release step.
 export async function downloadVoucher(req, res, next) {
   try {
     const booking = await loadOwnedBookingOr404(req, res);
     if (!booking) return;
-
-    if (!booking.documents_notified_at) {
-      return res.status(403).json({ error: 'documents_locked', message: 'The voucher is not available yet.' });
-    }
 
     const voucher = await findVoucherByBookingId(booking.id);
     if (!voucher) return res.status(404).json({ error: 'voucher_not_found' });

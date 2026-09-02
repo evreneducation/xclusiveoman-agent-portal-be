@@ -47,11 +47,13 @@ async function scopeToOwnAgencyBooking(req, res, next) {
 router.get('/', bookingsAdminController.listBookings);
 router.post('/manual', validateBody(manualBookingSchema), bookingsAdminController.createManualBooking);
 
-// --- Client Documents & Visa Processing (Task 14, DOC-2..6) ---
+// --- Booking & Visa Processing (Task 14, DOC-2..6) ---
 router.get('/:id/documents', scopeToOwnAgencyBooking, documentsAdminController.getDocuments);
 router.get('/:id/documents/download-all', scopeToOwnAgencyBooking, documentsAdminController.downloadAllZip);
 router.post('/:id/documents/email-to-supplier', scopeToOwnAgencyBooking, validateBody(emailToSupplierSchema), documentsAdminController.emailToSupplier);
-router.post('/:id/documents/notify-agent', scopeToOwnAgencyBooking, documentsAdminController.notifyAgent);
+// No POST /:id/documents/notify-agent route — uploadVisaCopy/uploadVoucher
+// below now unlock and notify automatically (see their own comments in
+// travelerDocumentsAdmin.controller.js), no separate manual release step.
 router.get('/:id/travelers/:travelerId/documents/:type/download', scopeToOwnAgencyBooking, documentsAdminController.downloadTravelerDocument);
 router.post('/:id/travelers/:travelerId/visa-copy', scopeToOwnAgencyBooking, upload.single('visaCopy'), documentsAdminController.uploadVisaCopy);
 router.get('/:id/voucher/download', scopeToOwnAgencyBooking, documentsAdminController.downloadVoucher);

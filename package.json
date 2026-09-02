@@ -14,8 +14,9 @@
     "create-super-admin": "node scripts/create-super-admin.js",
     "disable-admin-2fa": "node scripts/disable-admin-2fa.js",
     "seed": "node scripts/seed.js",
+    "seed-admin-passwords": "node scripts/seedAdminPasswords.js",
     "assign-rms": "node scripts/assign-round-robin-rms.js",
-    "setup": "npm run migrate && npm run seed && npm run assign-rms"
+    "setup": "npm run migrate && npm run seed && npm run assign-rms && npm run seed-admin-passwords"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
