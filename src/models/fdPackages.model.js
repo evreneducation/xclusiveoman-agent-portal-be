@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel, visaModel, flightsModel } from './catalog.model.js';
 import { roomsForAdults } from '../utils/occupancy.js';
 import { parseDurationDays } from '../utils/meals.js';
@@ -20,31 +21,40 @@ const FD_COLUMNS = [
   'inclusions', 'exclusions',
 ];
 
+// `images` (0011_fd_package_images.sql) is a JSON column under MySQL —
+// mysql2 auto-parses it on read but needs an explicit JSON.stringify on
+// write, same as catalog.model.js's own createCrudModel handles for its
+// tables' images/board_basis_options columns. `inclusions`/`exclusions`
+// (0050_fd_packages_inclusions_exclusions.sql) are plain TEXT, not JSON —
+// no serialization needed there.
+function serializeValue(v) {
+  if (Array.isArray(v) || (v !== null && typeof v === 'object' && !(v instanceof Date))) {
+    return JSON.stringify(v);
+  }
+  return v;
+}
+
 export async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {
   const clauses = [];
   const values = [];
-  let i = 1;
 
   if (status) {
-    clauses.push(`fd_packages.status = $${i}`);
+    clauses.push(`fd_packages.status = ?`);
     values.push(status);
-    i += 1;
   } else {
     clauses.push(`fd_packages.status = 'published'`); // default agent-facing view
   }
   if (theme) {
-    clauses.push(`fd_packages.theme = $${i}`);
+    clauses.push(`fd_packages.theme = ?`);
     values.push(theme);
-    i += 1;
   }
   if (featured === 'true') clauses.push('fd_packages.is_featured = true');
   if (bestseller === 'true') clauses.push('fd_packages.is_bestseller = true');
   if (destination) {
     // fd_packages has no dedicated "destination" column — the closest real
     // signal is the linked hotel's city, so match that alongside the title.
-    clauses.push(`(fd_packages.title ILIKE $${i} OR hotels.city ILIKE $${i})`);
-    values.push(`%${destination}%`);
-    i += 1;
+    clauses.push(`(LOWER(fd_packages.title) LIKE LOWER(?) OR LOWER(hotels.city) LIKE LOWER(?))`);
+    values.push(`%${destination}%`, `%${destination}%`);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -89,7 +99,7 @@ export async function findFdPackageById(id) {
     `SELECT fd_packages.*, hotels.name AS hotel_name
      FROM fd_packages
      LEFT JOIN hotels ON hotels.id = fd_packages.hotel_id
-     WHERE fd_packages.id = $1`,
+     WHERE fd_packages.id = ?`,
     [id]
   );
   return rows[0] || null;
@@ -97,37 +107,40 @@ export async function findFdPackageById(id) {
 
 export async function createFdPackage(fields) {
   const cols = FD_COLUMNS.filter((c) => fields[c] !== undefined);
-  const values = cols.map((c) => fields[c]);
-  const placeholders = cols.map((_, idx) => `$${idx + 1}`);
-  const { rows } = await pool.query(
-    `INSERT INTO fd_packages (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
-    values
+  const values = cols.map((c) => serializeValue(fields[c]));
+  const id = newId();
+  const placeholders = cols.map(() => '?').join(', ');
+  await pool.query(
+    `INSERT INTO fd_packages (id, ${cols.join(', ')}) VALUES (?, ${placeholders})`,
+    [id, ...values]
   );
+  const { rows } = await pool.query('SELECT * FROM fd_packages WHERE id = ?', [id]);
   return rows[0];
 }
 
 // fd_itinerary_days/items, fd_departure_dates, and fd_addons all cascade off
 // fd_package_id (ON DELETE CASCADE). bookings.fd_departure_date_id does not
-// — it has no cascade — so this throws a Postgres 23503 (foreign_key_violation),
+// — it has no cascade — so this throws a foreign-key-violation error,
 // surfaced by errorHandler.js as a 409, if any booking still exists against
 // one of this package's departure dates. That's intentional: a package with
 // real bookings shouldn't just vanish.
 export async function deleteFdPackage(id) {
-  await pool.query('DELETE FROM fd_packages WHERE id = $1', [id]);
+  await pool.query('DELETE FROM fd_packages WHERE id = ?', [id]);
 }
 
 export async function updateFdPackage(id, fields) {
   const cols = FD_COLUMNS.filter((c) => fields[c] !== undefined);
   if (cols.length === 0) return findFdPackageById(id);
 
-  const setClauses = cols.map((c, idx) => `${c} = $${idx + 1}`);
-  const values = cols.map((c) => fields[c]);
+  const setClauses = cols.map((c) => `${c} = ?`);
+  const values = cols.map((c) => serializeValue(fields[c]));
   values.push(id);
 
-  const { rows } = await pool.query(
-    `UPDATE fd_packages SET ${setClauses.join(', ')}, updated_at = now() WHERE id = $${values.length} RETURNING *`,
+  await pool.query(
+    `UPDATE fd_packages SET ${setClauses.join(', ')}, updated_at = now() WHERE id = ?`,
     values
   );
+  const { rows } = await pool.query('SELECT * FROM fd_packages WHERE id = ?', [id]);
   const updated = rows[0] || null;
   if (updated && cols.includes('duration')) {
     await repriceMealAddons(id, updated.duration);
@@ -144,9 +157,9 @@ export async function updateFdPackage(id, fields) {
 // them.
 export async function listItineraryForPackage(fdPackageId) {
   const [{ rows: days }, { rows: items }] = await Promise.all([
-    pool.query('SELECT * FROM fd_itinerary_days WHERE fd_package_id = $1 ORDER BY day_number', [fdPackageId]),
+    pool.query('SELECT * FROM fd_itinerary_days WHERE fd_package_id = ? ORDER BY day_number', [fdPackageId]),
     pool.query(
-      'SELECT * FROM fd_itinerary_items WHERE fd_package_id = $1 ORDER BY day_number, position',
+      'SELECT * FROM fd_itinerary_items WHERE fd_package_id = ? ORDER BY day_number, position',
       [fdPackageId]
     ),
   ]);
@@ -166,19 +179,19 @@ export async function replaceItinerary(fdPackageId, days) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM fd_itinerary_days WHERE fd_package_id = $1', [fdPackageId]);
-    await client.query('DELETE FROM fd_itinerary_items WHERE fd_package_id = $1', [fdPackageId]);
+    await client.query('DELETE FROM fd_itinerary_days WHERE fd_package_id = ?', [fdPackageId]);
+    await client.query('DELETE FROM fd_itinerary_items WHERE fd_package_id = ?', [fdPackageId]);
 
     for (const day of days || []) {
       await client.query(
-        'INSERT INTO fd_itinerary_days (fd_package_id, day_number, notes) VALUES ($1, $2, $3)',
-        [fdPackageId, day.dayNumber, day.notes || null]
+        'INSERT INTO fd_itinerary_days (id, fd_package_id, day_number, notes) VALUES (?, ?, ?, ?)',
+        [newId(), fdPackageId, day.dayNumber, day.notes || null]
       );
       for (const [position, item] of (day.items || []).entries()) {
         await client.query(
-          `INSERT INTO fd_itinerary_items (fd_package_id, day_number, item_type, item_id, position, note, adults)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [fdPackageId, day.dayNumber, item.type, item.id, position, item.note || null, item.adults || null]
+          `INSERT INTO fd_itinerary_items (id, fd_package_id, day_number, item_type, item_id, position, note, adults)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [newId(), fdPackageId, day.dayNumber, item.type, item.id, position, item.note || null, item.adults || null]
         );
       }
     }
@@ -376,38 +389,49 @@ export function composeItinerary(days, items, pools) {
 
 export async function listDepartureDates(fdPackageId) {
   const { rows } = await pool.query(
-    'SELECT * FROM fd_departure_dates WHERE fd_package_id = $1 ORDER BY date',
+    'SELECT * FROM fd_departure_dates WHERE fd_package_id = ? ORDER BY date',
     [fdPackageId]
   );
   return rows;
 }
 
 export async function findDepartureDateById(id) {
-  const { rows } = await pool.query('SELECT * FROM fd_departure_dates WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT * FROM fd_departure_dates WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
 export async function addDepartureDate(fdPackageId, { date, seatsTotal, location }) {
-  const { rows } = await pool.query(
-    'INSERT INTO fd_departure_dates (fd_package_id, date, seats_total, location) VALUES ($1, $2, $3, $4) RETURNING *',
-    [fdPackageId, date, seatsTotal, location]
+  const id = newId();
+  await pool.query(
+    'INSERT INTO fd_departure_dates (id, fd_package_id, date, seats_total, location) VALUES (?, ?, ?, ?, ?)',
+    [id, fdPackageId, date, seatsTotal, location]
   );
+  const { rows } = await pool.query('SELECT * FROM fd_departure_dates WHERE id = ?', [id]);
   return rows[0];
 }
 
 export async function removeDepartureDate(id) {
-  await pool.query('DELETE FROM fd_departure_dates WHERE id = $1', [id]);
+  await pool.query('DELETE FROM fd_departure_dates WHERE id = ?', [id]);
 }
 
+// The guard here (`seats_total - seats_booked >= ?`) is a condition on
+// seats_booked, the very column this UPDATE increments — after a
+// successful increment the remaining-seats figure can drop below `pax`
+// again (e.g. exactly filling the last seats), so a follow-up SELECT
+// reusing this same WHERE clause could wrongly look like the guard blocked
+// it. Instead this checks `rowCount` directly — src/db/pool.js's adapter
+// normalizes mysql2's ResultSetHeader.affectedRows into this same field pg
+// used to return, 0 exactly when the guard blocked the update.
 export async function incrementSeatsBooked(client, departureDateId, pax) {
-  const { rows } = await client.query(
+  const { rowCount } = await client.query(
     `UPDATE fd_departure_dates
-     SET seats_booked = seats_booked + $2
-     WHERE id = $1 AND seats_total - seats_booked >= $2
-     RETURNING *`,
-    [departureDateId, pax]
+     SET seats_booked = seats_booked + ?
+     WHERE id = ? AND seats_total - seats_booked >= ?`,
+    [pax, departureDateId, pax]
   );
-  return rows[0] || null; // null means not enough seats (caller should treat as sold out)
+  if (!rowCount) return null; // not enough seats (caller should treat as sold out)
+  const { rows } = await client.query('SELECT * FROM fd_departure_dates WHERE id = ?', [departureDateId]);
+  return rows[0] || null;
 }
 
 export async function listAddons(fdPackageId) {
@@ -421,7 +445,7 @@ export async function listAddons(fdPackageId) {
      LEFT JOIN transfers ON transfers.id = fd_addons.transfer_id
      LEFT JOIN flights ON flights.id = fd_addons.flight_id
      LEFT JOIN meals ON meals.id = fd_addons.meal_id
-     WHERE fd_package_id = $1`,
+     WHERE fd_package_id = ?`,
     [fdPackageId]
   );
   return rows;
@@ -430,7 +454,7 @@ export async function listAddons(fdPackageId) {
 export async function findAddonsByIds(fdPackageId, addonIds) {
   if (!addonIds || addonIds.length === 0) return [];
   const { rows } = await pool.query(
-    'SELECT * FROM fd_addons WHERE fd_package_id = $1 AND id = ANY($2::uuid[])',
+    'SELECT * FROM fd_addons WHERE fd_package_id = ? AND id IN (?)',
     [fdPackageId, addonIds]
   );
   return rows;
@@ -443,11 +467,13 @@ export async function findAddonsByIds(fdPackageId, addonIds) {
 // resolves to a pricePerPax of 0 — the flights catalog has no rate column —
 // same as every other exclusive option here, just with nothing to charge.
 export async function addAddon(fdPackageId, { activityId, tourId, transferId, flightId, mealId, pricePerPax }) {
-  const { rows } = await pool.query(
-    `INSERT INTO fd_addons (fd_package_id, activity_id, tour_id, transfer_id, flight_id, meal_id, price_per_pax)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [fdPackageId, activityId || null, tourId || null, transferId || null, flightId || null, mealId || null, pricePerPax]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO fd_addons (id, fd_package_id, activity_id, tour_id, transfer_id, flight_id, meal_id, price_per_pax)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, fdPackageId, activityId || null, tourId || null, transferId || null, flightId || null, mealId || null, pricePerPax]
   );
+  const { rows } = await pool.query('SELECT * FROM fd_addons WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -455,16 +481,20 @@ export async function addAddon(fdPackageId, { activityId, tourId, transferId, fl
 // Duration change has to reprice them (activities/tours/transfers/flights
 // don't depend on Duration and keep their add-time snapshot). Called from
 // updateFdPackage whenever `duration` is in the update.
+//
+// Postgres' `UPDATE ... FROM` (correlated multi-table UPDATE) has no direct
+// MySQL equivalent — MySQL instead joins the target table in the UPDATE
+// statement itself (`UPDATE a JOIN m ON ... SET a.col = ...`).
 async function repriceMealAddons(fdPackageId, duration) {
   await pool.query(
     `UPDATE fd_addons a
-     SET price_per_pax = COALESCE(m.price_per_day, 0) * $2
-     FROM meals m
-     WHERE m.id = a.meal_id AND a.fd_package_id = $1 AND a.meal_id IS NOT NULL`,
-    [fdPackageId, parseDurationDays(duration) || 0]
+     JOIN meals m ON m.id = a.meal_id
+     SET a.price_per_pax = COALESCE(m.price_per_day, 0) * ?
+     WHERE a.fd_package_id = ? AND a.meal_id IS NOT NULL`,
+    [parseDurationDays(duration) || 0, fdPackageId]
   );
 }
 
 export async function removeAddon(id) {
-  await pool.query('DELETE FROM fd_addons WHERE id = $1', [id]);
+  await pool.query('DELETE FROM fd_addons WHERE id = ?', [id]);
 }

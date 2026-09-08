@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Admin "Terms & Conditions" tab — a singleton row (0067_site_terms.sql),
 // the same "one row, get-or-create then always patch it" shape
@@ -22,13 +23,16 @@ export const siteTermsModel = {
   async upsert(bodyHtml) {
     const existing = await this.get();
     if (existing) {
-      const { rows } = await pool.query(
-        'UPDATE site_terms SET body_html = $1, updated_at = now() WHERE id = $2 RETURNING *',
+      await pool.query(
+        'UPDATE site_terms SET body_html = ?, updated_at = now() WHERE id = ?',
         [bodyHtml, existing.id]
       );
+      const { rows } = await pool.query('SELECT * FROM site_terms WHERE id = ?', [existing.id]);
       return rows[0];
     }
-    const { rows } = await pool.query('INSERT INTO site_terms (body_html) VALUES ($1) RETURNING *', [bodyHtml]);
+    const id = newId();
+    await pool.query('INSERT INTO site_terms (id, body_html) VALUES (?, ?)', [id, bodyHtml]);
+    const { rows } = await pool.query('SELECT * FROM site_terms WHERE id = ?', [id]);
     return rows[0];
   },
 };

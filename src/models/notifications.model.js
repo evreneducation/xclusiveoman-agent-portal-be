@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Raw `notifications` table access (doc §11.8/§12.10) — only the
 // NotificationService (services/notification.service.js) calls these; every
@@ -7,18 +8,19 @@ import { pool } from '../db/pool.js';
 export async function insertNotification({
   recipientUserId, recipientRole, type, title, message, referenceType, referenceId,
 }) {
-  const { rows } = await pool.query(
+  const id = newId();
+  await pool.query(
     `INSERT INTO notifications
-      (recipient_user_id, recipient_role, type, title, message, reference_type, reference_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING *`,
-    [recipientUserId, recipientRole || null, type, title, message, referenceType || null, referenceId || null]
+      (id, recipient_user_id, recipient_role, type, title, message, reference_type, reference_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, recipientUserId, recipientRole || null, type, title, message, referenceType || null, referenceId || null]
   );
+  const { rows } = await pool.query('SELECT * FROM notifications WHERE id = ?', [id]);
   return rows[0];
 }
 
 export async function listNotificationsForUser(userId, { unreadOnly = false, limit = 50, offset = 0 } = {}) {
-  const clauses = ['recipient_user_id = $1'];
+  const clauses = ['recipient_user_id = ?'];
   const values = [userId];
   if (unreadOnly) clauses.push('is_read = false');
 
@@ -27,7 +29,7 @@ export async function listNotificationsForUser(userId, { unreadOnly = false, lim
     `SELECT * FROM notifications
      WHERE ${clauses.join(' AND ')}
      ORDER BY created_at DESC
-     LIMIT $${values.length - 1} OFFSET $${values.length}`,
+     LIMIT ? OFFSET ?`,
     values
   );
   return rows;
@@ -35,7 +37,7 @@ export async function listNotificationsForUser(userId, { unreadOnly = false, lim
 
 export async function countUnreadForUser(userId) {
   const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM notifications WHERE recipient_user_id = $1 AND is_read = false`,
+    `SELECT COUNT(*) AS count FROM notifications WHERE recipient_user_id = ? AND is_read = false`,
     [userId]
   );
   return rows[0].count;
@@ -44,16 +46,29 @@ export async function countUnreadForUser(userId) {
 // Scoped to recipient_user_id so a notification can only ever be marked read
 // by the user it belongs to — mirrors mice_rfqs' status-guarded UPDATEs.
 export async function markNotificationRead(id, userId) {
+  await pool.query(
+    `UPDATE notifications SET is_read = true WHERE id = ? AND recipient_user_id = ?`,
+    [id, userId]
+  );
+  // Same WHERE clause as the UPDATE — safe to reuse here (unlike the
+  // guarded transitions in payments.model.js/fdOperations.model.js) since
+  // neither `id` nor `recipient_user_id` is a column this UPDATE touches,
+  // so a row that matched the guard before the write still matches it
+  // after.
   const { rows } = await pool.query(
-    `UPDATE notifications SET is_read = true WHERE id = $1 AND recipient_user_id = $2 RETURNING *`,
+    `SELECT * FROM notifications WHERE id = ? AND recipient_user_id = ?`,
     [id, userId]
   );
   return rows[0] || null;
 }
 
 export async function markAllNotificationsRead(userId) {
+  // No RETURNING here in the original — this needs an actual affected-row
+  // count, not just "did it match". src/db/pool.js's adapter normalizes
+  // mysql2's ResultSetHeader.affectedRows into `rowCount`, the same field pg
+  // used to return.
   const { rowCount } = await pool.query(
-    `UPDATE notifications SET is_read = true WHERE recipient_user_id = $1 AND is_read = false`,
+    `UPDATE notifications SET is_read = true WHERE recipient_user_id = ? AND is_read = false`,
     [userId]
   );
   return rowCount;

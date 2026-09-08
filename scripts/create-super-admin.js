@@ -12,6 +12,7 @@
  */
 import 'dotenv/config';
 import { pool } from '../src/db/pool.js';
+import { newId } from '../src/utils/id.js';
 
 async function main() {
   const [, , email, fullName] = process.argv;
@@ -21,7 +22,7 @@ async function main() {
     process.exit(1);
   }
 
-  const { rows: existingRows } = await pool.query('SELECT id FROM users WHERE email = $1', [
+  const { rows: existingRows } = await pool.query('SELECT id FROM users WHERE email = ?', [
     email.toLowerCase(),
   ]);
   if (existingRows[0]) {
@@ -29,12 +30,13 @@ async function main() {
     process.exit(1);
   }
 
-  const { rows } = await pool.query(
-    `INSERT INTO users (agency_id, role, full_name, email, status)
-     VALUES (NULL, 'super_admin', $1, $2, 'active')
-     RETURNING id, email, role`,
-    [fullName, email.toLowerCase()]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO users (id, agency_id, role, full_name, email, status)
+     VALUES (?, NULL, 'super_admin', ?, ?, 'active')`,
+    [id, fullName, email.toLowerCase()]
   );
+  const { rows } = await pool.query('SELECT id, email, role FROM users WHERE id = ?', [id]);
 
   console.log('Super admin created:', rows[0]);
   await pool.end();

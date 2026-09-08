@@ -1,5 +1,6 @@
 import { pool } from '../db/pool.js';
 import { roomsForOccupancy } from '../utils/occupancy.js';
+import { newId } from '../utils/id.js';
 
 // Optional lunch/dinner add-on — same 6-column shape as fd_packages (see
 // 0045_package_requests_meals.sql / fdPackages.model.js's FD_COLUMNS). Kept
@@ -23,23 +24,24 @@ function visaValues({ visaEnabled, visaPeople } = {}) {
 export async function createPackageRequest(client, {
   agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields
 }) {
-  const { rows } = await client.query(
+  const id = newId();
+  await client.query(
     `INSERT INTO package_requests
-      (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
+      (id, agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
        lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days,
        visa_enabled, visa_people)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'submitted', $8, $9, $10, $11, $12, $13, $14, $15)
-     RETURNING *`,
-    [agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealValues(addOnFields), ...visaValues(addOnFields)]
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...mealValues(addOnFields), ...visaValues(addOnFields)]
   );
+  const { rows } = await client.query('SELECT * FROM package_requests WHERE id = ?', [id]);
   return rows[0];
 }
 
 export async function addHotelSelections(client, packageRequestId, hotelIds) {
   for (const hotelId of hotelIds) {
     await client.query(
-      `INSERT INTO package_request_hotels (package_request_id, hotel_id) VALUES ($1, $2)`,
-      [packageRequestId, hotelId]
+      `INSERT INTO package_request_hotels (id, package_request_id, hotel_id) VALUES (?, ?, ?)`,
+      [newId(), packageRequestId, hotelId]
     );
   }
 }
@@ -47,8 +49,8 @@ export async function addHotelSelections(client, packageRequestId, hotelIds) {
 export async function addTourSelections(client, packageRequestId, tourIds) {
   for (const tourId of tourIds) {
     await client.query(
-      `INSERT INTO package_request_tours (package_request_id, tour_id) VALUES ($1, $2)`,
-      [packageRequestId, tourId]
+      `INSERT INTO package_request_tours (id, package_request_id, tour_id) VALUES (?, ?, ?)`,
+      [newId(), packageRequestId, tourId]
     );
   }
 }
@@ -56,8 +58,8 @@ export async function addTourSelections(client, packageRequestId, tourIds) {
 export async function addTransferSelections(client, packageRequestId, transferIds) {
   for (const transferId of transferIds) {
     await client.query(
-      `INSERT INTO package_request_transfers (package_request_id, transfer_id) VALUES ($1, $2)`,
-      [packageRequestId, transferId]
+      `INSERT INTO package_request_transfers (id, package_request_id, transfer_id) VALUES (?, ?, ?)`,
+      [newId(), packageRequestId, transferId]
     );
   }
 }
@@ -65,8 +67,8 @@ export async function addTransferSelections(client, packageRequestId, transferId
 export async function addActivitySelections(client, packageRequestId, activityIds) {
   for (const activityId of activityIds) {
     await client.query(
-      `INSERT INTO package_request_activities (package_request_id, activity_id) VALUES ($1, $2)`,
-      [packageRequestId, activityId]
+      `INSERT INTO package_request_activities (id, package_request_id, activity_id) VALUES (?, ?, ?)`,
+      [newId(), packageRequestId, activityId]
     );
   }
 }
@@ -74,9 +76,10 @@ export async function addActivitySelections(client, packageRequestId, activityId
 export async function addTravelers(client, packageRequestId, travelers) {
   for (const traveler of travelers) {
     await client.query(
-      `INSERT INTO package_request_travelers (package_request_id, name, passport_no, dob, room_share_group, is_child)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO package_request_travelers (id, package_request_id, name, passport_no, dob, room_share_group, is_child)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
+        newId(),
         packageRequestId,
         traveler.name,
         traveler.passportNo || null,
@@ -89,7 +92,7 @@ export async function addTravelers(client, packageRequestId, travelers) {
 }
 
 export async function findPackageRequestById(id) {
-  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -106,7 +109,7 @@ export async function listPackageRequestsForAgency(agencyId) {
             lm.phone AS lead_manager_phone, lm.whatsapp_number AS lead_manager_whatsapp
      FROM package_requests pr
      LEFT JOIN users lm ON lm.id = pr.lead_manager_user_id
-     WHERE pr.agency_id = $1
+     WHERE pr.agency_id = ?
      ORDER BY pr.updated_at DESC`,
     [agencyId]
   );
@@ -119,7 +122,7 @@ export async function findPackageRequestWithLeadManager(id) {
             lm.phone AS lead_manager_phone, lm.whatsapp_number AS lead_manager_whatsapp
      FROM package_requests pr
      LEFT JOIN users lm ON lm.id = pr.lead_manager_user_id
-     WHERE pr.id = $1`,
+     WHERE pr.id = ?`,
     [id]
   );
   return rows[0] || null;
@@ -130,15 +133,16 @@ export async function findPackageRequestWithLeadManager(id) {
 // Takes `client` like createPackageRequest above — the row plus its
 // selections/travelers are written as one transaction by the controller.
 export async function createDraftPackageRequest(client, { agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields }) {
-  const { rows } = await client.query(
+  const id = newId();
+  await client.query(
     `INSERT INTO package_requests
-      (agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
+      (id, agency_id, created_by_user_id, destination, date_from, date_to, pax_adults, pax_children, status,
        lunch_meal_id, lunch_people, lunch_days, dinner_meal_id, dinner_people, dinner_days,
        visa_enabled, visa_people)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, $10, $11, $12, $13, $14, $15)
-     RETURNING *`,
-    [agencyId, createdByUserId, destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(addOnFields), ...visaValues(addOnFields)]
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, agencyId, createdByUserId, destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(addOnFields), ...visaValues(addOnFields)]
   );
+  const { rows } = await client.query('SELECT * FROM package_requests WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -146,16 +150,17 @@ export async function createDraftPackageRequest(client, { agencyId, createdByUse
 // (WHERE guard), so a submitted request can never be silently rewritten by
 // a stale builder tab.
 export async function updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields }) {
-  const { rows } = await client.query(
+  const { rowCount } = await client.query(
     `UPDATE package_requests
-     SET destination = $1, date_from = $2, date_to = $3, pax_adults = $4, pax_children = $5,
-         lunch_meal_id = $6, lunch_people = $7, lunch_days = $8, dinner_meal_id = $9, dinner_people = $10, dinner_days = $11,
-         visa_enabled = $12, visa_people = $13,
+     SET destination = ?, date_from = ?, date_to = ?, pax_adults = ?, pax_children = ?,
+         lunch_meal_id = ?, lunch_people = ?, lunch_days = ?, dinner_meal_id = ?, dinner_people = ?, dinner_days = ?,
+         visa_enabled = ?, visa_people = ?,
          updated_at = now()
-     WHERE id = $14 AND status = 'draft'
-     RETURNING *`,
+     WHERE id = ? AND status = 'draft'`,
     [destination || '', dateFrom || null, dateTo || null, paxAdults ?? 1, paxChildren ?? 0, ...mealValues(addOnFields), ...visaValues(addOnFields), id]
   );
+  if (!rowCount) return null;
+  const { rows } = await client.query('SELECT * FROM package_requests WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -163,54 +168,58 @@ export async function updateDraftTripInfo(client, id, { destination, dateFrom, d
 // each selection type is cleared and reinserted rather than diffed — same
 // "always send full state" shape as the admin costing save.
 export async function replaceHotelSelections(client, packageRequestId, hotelIds) {
-  await client.query(`DELETE FROM package_request_hotels WHERE package_request_id = $1`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_hotels WHERE package_request_id = ?`, [packageRequestId]);
   await addHotelSelections(client, packageRequestId, hotelIds);
 }
 
 export async function replaceTourSelections(client, packageRequestId, tourIds) {
-  await client.query(`DELETE FROM package_request_tours WHERE package_request_id = $1`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_tours WHERE package_request_id = ?`, [packageRequestId]);
   await addTourSelections(client, packageRequestId, tourIds);
 }
 
 export async function replaceTransferSelections(client, packageRequestId, transferIds) {
-  await client.query(`DELETE FROM package_request_transfers WHERE package_request_id = $1`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_transfers WHERE package_request_id = ?`, [packageRequestId]);
   await addTransferSelections(client, packageRequestId, transferIds);
 }
 
 export async function replaceActivitySelections(client, packageRequestId, activityIds) {
-  await client.query(`DELETE FROM package_request_activities WHERE package_request_id = $1`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_activities WHERE package_request_id = ?`, [packageRequestId]);
   await addActivitySelections(client, packageRequestId, activityIds);
 }
 
 export async function replaceTravelers(client, packageRequestId, travelers) {
-  await client.query(`DELETE FROM package_request_travelers WHERE package_request_id = $1`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_travelers WHERE package_request_id = ?`, [packageRequestId]);
   await addTravelers(client, packageRequestId, travelers);
 }
 
 // "Submit Draft once completed" — flips draft -> submitted; guarded to only
 // ever fire from 'draft' so it can't resubmit an already-submitted request.
 export async function submitDraftPackageRequest(client, id) {
-  const { rows } = await client.query(
-    `UPDATE package_requests SET status = 'submitted', updated_at = now() WHERE id = $1 AND status = 'draft' RETURNING *`,
+  const { rowCount } = await client.query(
+    `UPDATE package_requests SET status = 'submitted', updated_at = now() WHERE id = ? AND status = 'draft'`,
     [id]
   );
+  if (!rowCount) return null;
+  const { rows } = await client.query('SELECT * FROM package_requests WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
 // "Delete Draft" — scoped to status = 'draft' so a submitted/priced/published
 // request can never be deleted through this path.
 export async function deleteDraftPackageRequest(id) {
-  const { rowCount } = await pool.query(`DELETE FROM package_requests WHERE id = $1 AND status = 'draft'`, [id]);
+  const { rowCount } = await pool.query(`DELETE FROM package_requests WHERE id = ? AND status = 'draft'`, [id]);
   return rowCount > 0;
 }
 
 // Item 5 — Accept / Request Revision / Decline. Guarded to only ever fire
 // from 'published', matching "If the quote status is Published" in the doc.
 export async function respondToPackageRequest(id, nextStatus) {
-  const { rows } = await pool.query(
-    `UPDATE package_requests SET status = $1, updated_at = now() WHERE id = $2 AND status = 'published' RETURNING *`,
+  const { rowCount } = await pool.query(
+    `UPDATE package_requests SET status = ?, updated_at = now() WHERE id = ? AND status = 'published'`,
     [nextStatus, id]
   );
+  if (!rowCount) return null;
+  const { rows } = await pool.query('SELECT * FROM package_requests WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -218,7 +227,7 @@ export async function listHotelsForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT h.* FROM package_request_hotels prh
      JOIN hotels h ON h.id = prh.hotel_id
-     WHERE prh.package_request_id = $1`,
+     WHERE prh.package_request_id = ?`,
     [packageRequestId]
   );
   return rows;
@@ -228,7 +237,7 @@ export async function listToursForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT t.* FROM package_request_tours prt
      JOIN tours t ON t.id = prt.tour_id
-     WHERE prt.package_request_id = $1`,
+     WHERE prt.package_request_id = ?`,
     [packageRequestId]
   );
   return rows;
@@ -238,7 +247,7 @@ export async function listTransfersForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT tr.* FROM package_request_transfers prt
      JOIN transfers tr ON tr.id = prt.transfer_id
-     WHERE prt.package_request_id = $1`,
+     WHERE prt.package_request_id = ?`,
     [packageRequestId]
   );
   return rows;
@@ -248,7 +257,7 @@ export async function listActivitiesForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT a.* FROM package_request_activities pra
      JOIN activities a ON a.id = pra.activity_id
-     WHERE pra.package_request_id = $1`,
+     WHERE pra.package_request_id = ?`,
     [packageRequestId]
   );
   return rows;
@@ -256,7 +265,7 @@ export async function listActivitiesForRequest(packageRequestId) {
 
 export async function listTravelersForRequest(packageRequestId) {
   const { rows } = await pool.query(
-    `SELECT * FROM package_request_travelers WHERE package_request_id = $1 ORDER BY id`,
+    `SELECT * FROM package_request_travelers WHERE package_request_id = ? ORDER BY id`,
     [packageRequestId]
   );
   return rows;
@@ -271,11 +280,11 @@ export async function listTravelersForRequest(packageRequestId) {
 export async function listItineraryForRequest(packageRequestId) {
   const [{ rows: days }, { rows: items }] = await Promise.all([
     pool.query(
-      `SELECT * FROM package_request_itinerary_days WHERE package_request_id = $1 ORDER BY day_number`,
+      `SELECT * FROM package_request_itinerary_days WHERE package_request_id = ? ORDER BY day_number`,
       [packageRequestId]
     ),
     pool.query(
-      `SELECT * FROM package_request_itinerary_items WHERE package_request_id = $1 ORDER BY day_number, position`,
+      `SELECT * FROM package_request_itinerary_items WHERE package_request_id = ? ORDER BY day_number, position`,
       [packageRequestId]
     ),
   ]);
@@ -295,19 +304,19 @@ export async function listItineraryForRequest(packageRequestId) {
 // pax_adults, splits into rooms) is only meaningful on 'hotel' items — see
 // computeHotelCostAuto in packageRequestsAdmin.controller.js.
 export async function replaceItinerary(client, packageRequestId, days) {
-  await client.query(`DELETE FROM package_request_itinerary_days WHERE package_request_id = $1`, [packageRequestId]);
-  await client.query(`DELETE FROM package_request_itinerary_items WHERE package_request_id = $1`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_itinerary_days WHERE package_request_id = ?`, [packageRequestId]);
+  await client.query(`DELETE FROM package_request_itinerary_items WHERE package_request_id = ?`, [packageRequestId]);
 
   for (const day of days || []) {
     await client.query(
-      `INSERT INTO package_request_itinerary_days (package_request_id, day_number, notes) VALUES ($1, $2, $3)`,
-      [packageRequestId, day.dayNumber, day.notes || null]
+      `INSERT INTO package_request_itinerary_days (id, package_request_id, day_number, notes) VALUES (?, ?, ?, ?)`,
+      [newId(), packageRequestId, day.dayNumber, day.notes || null]
     );
     for (const [position, item] of (day.items || []).entries()) {
       await client.query(
-        `INSERT INTO package_request_itinerary_items (package_request_id, day_number, item_type, item_id, position, note, occupancy)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [packageRequestId, day.dayNumber, item.type, item.id, position, item.note || null, item.occupancy || null]
+        `INSERT INTO package_request_itinerary_items (id, package_request_id, day_number, item_type, item_id, position, note, occupancy)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newId(), packageRequestId, day.dayNumber, item.type, item.id, position, item.note || null, item.occupancy || null]
       );
     }
   }

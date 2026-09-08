@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 import {
   listItineraryForPackage,
   resolveRatePerPax,
@@ -163,32 +164,33 @@ export async function createFdBooking({
     // for a seat that doesn't exist.
     const status = waitlisted ? 'waitlisted' : deriveStatusFromDeposit(depositPaid, totalPrice);
 
-    const { rows: bookingRows } = await client.query(
+    const bookingId = newId();
+    await client.query(
       `INSERT INTO bookings
-        (source_type, source_id, fd_departure_date_id, agency_id, created_by_user_id,
+        (id, source_type, source_id, fd_departure_date_id, agency_id, created_by_user_id,
          pax, total_price, deposit_paid, balance_due, balance_due_date, deposit_due, status, created_via)
-       VALUES ('fd_package', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING *`,
+       VALUES (?, 'fd_package', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        fdPackage.id, departureDate.id, agencyId, createdByUserId,
+        bookingId, fdPackage.id, departureDate.id, agencyId, createdByUserId,
         pax, totalPrice, depositPaid, balanceDue, balanceDueDate, depositDue, status, createdVia,
       ]
     );
+    const { rows: bookingRows } = await client.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
     const booking = bookingRows[0];
 
     for (const traveler of travelers) {
       await client.query(
-        `INSERT INTO booking_travelers (booking_id, name, passport_no, dob, room_share_group)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [booking.id, traveler.name, traveler.passportNo || null, traveler.dob || null, traveler.roomShareGroup || null]
+        `INSERT INTO booking_travelers (id, booking_id, name, passport_no, dob, room_share_group)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [newId(), booking.id, traveler.name, traveler.passportNo || null, traveler.dob || null, traveler.roomShareGroup || null]
       );
     }
 
     for (const addon of addons) {
       const { pricePerPax, days } = addonPricing.get(addon.id);
       await client.query(
-        `INSERT INTO booking_addons (booking_id, fd_addon_id, price_per_pax, day_numbers) VALUES ($1, $2, $3, $4)`,
-        [booking.id, addon.id, pricePerPax, days]
+        `INSERT INTO booking_addons (id, booking_id, fd_addon_id, price_per_pax, day_numbers) VALUES (?, ?, ?, ?, ?)`,
+        [newId(), booking.id, addon.id, pricePerPax, JSON.stringify(days ?? [])]
       );
     }
 
@@ -244,24 +246,25 @@ export async function createBookingFromPackageRequest(packageRequest) {
     // FIT quotes keep the "full amount due now" behaviour — the 15-day
     // part-payment policy (computeFdDepositDue) is an FD-departure rule
     // only, so deposit_due mirrors total_price here.
-    const { rows: bookingRows } = await client.query(
+    const bookingId = newId();
+    await client.query(
       `INSERT INTO bookings
-        (source_type, source_id, agency_id, created_by_user_id,
+        (id, source_type, source_id, agency_id, created_by_user_id,
          pax, total_price, deposit_paid, balance_due, balance_due_date, deposit_due, status, created_via)
-       VALUES ('package_request', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'self_service')
-       RETURNING *`,
+       VALUES (?, 'package_request', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'self_service')`,
       [
-        packageRequest.id, packageRequest.agency_id, packageRequest.created_by_user_id,
+        bookingId, packageRequest.id, packageRequest.agency_id, packageRequest.created_by_user_id,
         pax, totalPrice, depositPaid, balanceDue, balanceDueDate, totalPrice, status,
       ]
     );
+    const { rows: bookingRows } = await client.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
     const booking = bookingRows[0];
 
     for (const traveler of travelers) {
       await client.query(
-        `INSERT INTO booking_travelers (booking_id, name, passport_no, dob, room_share_group)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [booking.id, traveler.name, traveler.passport_no || null, traveler.dob || null, traveler.room_share_group || null]
+        `INSERT INTO booking_travelers (id, booking_id, name, passport_no, dob, room_share_group)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [newId(), booking.id, traveler.name, traveler.passport_no || null, traveler.dob || null, traveler.room_share_group || null]
       );
     }
 

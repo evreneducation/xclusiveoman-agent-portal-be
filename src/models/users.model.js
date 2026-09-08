@@ -1,14 +1,16 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 export async function createUser(
   client,
   { agencyId, role, fullName, email, phone, whatsappNumber, permissions }
 ) {
-  const { rows } = await client.query(
-    `INSERT INTO users (agency_id, role, full_name, email, phone, whatsapp_number, permissions)
-     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '{}'::jsonb))
-     RETURNING *`,
+  const id = newId();
+  await client.query(
+    `INSERT INTO users (id, agency_id, role, full_name, email, phone, whatsapp_number, permissions)
+     VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, JSON_OBJECT()))`,
     [
+      id,
       agencyId || null,
       role,
       fullName,
@@ -18,18 +20,19 @@ export async function createUser(
       permissions ? JSON.stringify(permissions) : null,
     ]
   );
+  const { rows } = await client.query('SELECT * FROM users WHERE id = ?', [id]);
   return rows[0];
 }
 
 export async function findUserByEmail(email) {
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = ?', [
     email.toLowerCase(),
   ]);
   return rows[0] || null;
 }
 
 export async function findUserById(id) {
-  const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -42,7 +45,7 @@ export async function listStaff() {
 
 export async function listStaffByRole(role) {
   const { rows } = await pool.query(
-    `SELECT * FROM users WHERE agency_id IS NULL AND role = $1 ORDER BY created_at DESC`,
+    `SELECT * FROM users WHERE agency_id IS NULL AND role = ? ORDER BY created_at DESC`,
     [role]
   );
   return rows;
@@ -50,7 +53,7 @@ export async function listStaffByRole(role) {
 
 export async function listAgencyUsers(agencyId) {
   const { rows } = await pool.query(
-    `SELECT * FROM users WHERE agency_id = $1 ORDER BY created_at DESC`,
+    `SELECT * FROM users WHERE agency_id = ? ORDER BY created_at DESC`,
     [agencyId]
   );
   return rows;
@@ -76,7 +79,7 @@ export async function listAgencyOwnerEmails(agencyIds) {
   if (agencyIds.length === 0) return [];
   const { rows } = await pool.query(
     `SELECT id, agency_id, full_name, email FROM users
-     WHERE agency_id = ANY($1::uuid[]) AND role = 'agency_owner' AND status = 'active'`,
+     WHERE agency_id IN (?) AND role = 'agency_owner' AND status = 'active'`,
     [agencyIds]
   );
   return rows;
@@ -85,7 +88,6 @@ export async function listAgencyOwnerEmails(agencyIds) {
 export async function updateUser(id, fields) {
   const setClauses = [];
   const values = [];
-  let i = 1;
 
   const columnMap = {
     role: 'role',
@@ -97,16 +99,14 @@ export async function updateUser(id, fields) {
 
   for (const [key, column] of Object.entries(columnMap)) {
     if (fields[key] !== undefined) {
-      setClauses.push(`${column} = $${i}`);
+      setClauses.push(`${column} = ?`);
       values.push(fields[key]);
-      i += 1;
     }
   }
 
   if (fields.permissions !== undefined) {
-    setClauses.push(`permissions = $${i}`);
+    setClauses.push(`permissions = ?`);
     values.push(JSON.stringify(fields.permissions));
-    i += 1;
   }
 
   if (setClauses.length === 0) {
@@ -116,10 +116,11 @@ export async function updateUser(id, fields) {
   setClauses.push('updated_at = now()');
   values.push(id);
 
-  const { rows } = await pool.query(
-    `UPDATE users SET ${setClauses.join(', ')} WHERE id = $${i} RETURNING *`,
+  await pool.query(
+    `UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`,
     values
   );
+  const { rows } = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
   return rows[0] || null;
 }
 

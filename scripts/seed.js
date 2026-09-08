@@ -12,6 +12,7 @@
 import 'dotenv/config';
 import { pool } from '../src/db/pool.js';
 import { env } from '../src/config/env.js';
+import { newId } from '../src/utils/id.js';
 
 // Set per-environment via SEED_ADMIN_EMAIL in .env (src/config/env.js) —
 // dev points at a real inbox so OTP emails during local testing are actually
@@ -26,7 +27,7 @@ async function main() {
     return;
   }
 
-  const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [DEFAULT_EMAIL]);
+  const { rows } = await pool.query('SELECT id FROM users WHERE email = ?', [DEFAULT_EMAIL]);
 
   if (rows[0]) {
     console.log(`Seed super admin already exists (${DEFAULT_EMAIL}) — skipping.`);
@@ -35,9 +36,9 @@ async function main() {
   }
 
   await pool.query(
-    `INSERT INTO users (agency_id, role, full_name, email, status)
-     VALUES (NULL, 'super_admin', $1, $2, 'active')`,
-    [DEFAULT_FULL_NAME, DEFAULT_EMAIL]
+    `INSERT INTO users (id, agency_id, role, full_name, email, status)
+     VALUES (?, NULL, 'super_admin', ?, ?, 'active')`,
+    [newId(), DEFAULT_FULL_NAME, DEFAULT_EMAIL]
   );
 
   console.log('Seeded default super admin:');

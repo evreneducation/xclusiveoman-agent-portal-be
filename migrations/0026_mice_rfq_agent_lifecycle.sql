@@ -1,17 +1,10 @@
--- Agent MICE Request & Proposal Workflow. Drafts (item 1) need a 'draft'
--- pipeline state — mice_rfq_status only had submitted..converted (Task 1/2
--- never needed one); Request Revision (item 5) needs a 'revision_requested'
--- state — neither existed until now. Both mirror package_request_status
--- exactly (0016/0017).
-ALTER TYPE mice_rfq_status ADD VALUE 'draft' BEFORE 'submitted';
-ALTER TYPE mice_rfq_status ADD VALUE 'revision_requested' AFTER 'published';
-
--- Drafts (item 1): a half-built MICE request may not have event dates,
--- group size, or a destination chosen yet — same nullability relief
--- package_requests.date_from/date_to got for its own draft flow (0022).
--- destination stays NOT NULL; the draft schema defaults it to '' instead,
--- same as package_requests.destination.
+-- The 'draft'/'revision_requested' ALTER TYPE ... ADD VALUE statements this
+-- file originally had are no-ops under MySQL — both values are already
+-- folded into mice_rfqs.status's ENUM list in 0024_mice_rfqs.sql (in the
+-- same BEFORE 'submitted' / AFTER 'published' positions this file
+-- originally inserted them at). The real schema change below (nullable
+-- draft columns) still applies.
 ALTER TABLE mice_rfqs
-  ALTER COLUMN group_size DROP NOT NULL,
-  ALTER COLUMN event_date_from DROP NOT NULL,
-  ALTER COLUMN event_date_to DROP NOT NULL;
+  MODIFY COLUMN group_size INT NULL,
+  MODIFY COLUMN event_date_from DATE NULL,
+  MODIFY COLUMN event_date_to DATE NULL;

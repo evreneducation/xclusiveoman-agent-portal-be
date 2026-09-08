@@ -1,7 +1,7 @@
 import { pool } from '../db/pool.js';
 
 export async function findBookingById(id) {
-  const { rows } = await pool.query('SELECT * FROM bookings WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT * FROM bookings WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -14,7 +14,7 @@ export async function findBookingById(id) {
 // exist per (source_type, source_id) for those two source types.
 export async function findBookingBySource(sourceType, sourceId) {
   const { rows } = await pool.query(
-    'SELECT * FROM bookings WHERE source_type = $1 AND source_id = $2 LIMIT 1',
+    'SELECT * FROM bookings WHERE source_type = ? AND source_id = ? LIMIT 1',
     [sourceType, sourceId]
   );
   return rows[0] || null;
@@ -22,31 +22,31 @@ export async function findBookingBySource(sourceType, sourceId) {
 
 export async function listAgencyBookings(agencyId) {
   const { rows } = await pool.query(
-    'SELECT * FROM bookings WHERE agency_id = $1 ORDER BY created_at DESC',
+    'SELECT * FROM bookings WHERE agency_id = ? ORDER BY created_at DESC',
     [agencyId]
   );
   return rows;
 }
 
 export async function updateBookingStatus(id, status, extra = {}) {
-  const setClauses = ['status = $2', 'updated_at = now()'];
-  const values = [id, status];
-  let i = 3;
+  const setClauses = ['status = ?', 'updated_at = now()'];
+  const values = [status];
 
   if (extra.depositPaid !== undefined) {
-    setClauses.push(`deposit_paid = $${i}`);
+    setClauses.push(`deposit_paid = ?`);
     values.push(extra.depositPaid);
-    i += 1;
   }
 
-  const { rows } = await pool.query(
-    `UPDATE bookings SET ${setClauses.join(', ')} WHERE id = $1 RETURNING *`,
+  values.push(id);
+  await pool.query(
+    `UPDATE bookings SET ${setClauses.join(', ')} WHERE id = ?`,
     values
   );
+  const { rows } = await pool.query('SELECT * FROM bookings WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
 export async function listBookingTravelers(bookingId) {
-  const { rows } = await pool.query('SELECT * FROM booking_travelers WHERE booking_id = $1', [bookingId]);
+  const { rows } = await pool.query('SELECT * FROM booking_travelers WHERE booking_id = ?', [bookingId]);
   return rows;
 }

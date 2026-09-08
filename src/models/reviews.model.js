@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Agent Review & Rating Popup (Task 20 — Screen 32, REV-1..4).
 //
@@ -18,7 +19,14 @@ import { pool } from '../db/pool.js';
 // a real multi-day trip whose package has no itinerary_days entered will
 // be treated as ending on its departure date, which could make the popup
 // eligible slightly earlier than the trip's true end.
-const LAST_TRAVEL_DATE_EXPR = `(fdd.date + (COALESCE(MAX(fid.day_number), 1) - 1))`;
+//
+// Postgres' `date + integer` arithmetic (add N days to a date) has no
+// direct MySQL equivalent — MySQL treats `date + integer` as numeric
+// addition on the date's YYYYMMDD representation, not calendar arithmetic
+// — so this uses DATE_ADD(..., INTERVAL <days> DAY) instead, with the day
+// count itself (an aggregate expression, not a bound param) passed as
+// INTERVAL's expression argument.
+const LAST_TRAVEL_DATE_EXPR = `DATE_ADD(fdd.date, INTERVAL (COALESCE(MAX(fid.day_number), 1) - 1) DAY)`;
 
 // Same "confirmed/successful" exclusion set Task 19's own analytics
 // established (cancelled trips were never taken; waitlisted bookings never
@@ -48,7 +56,7 @@ export async function findEligibleBookingsForAgency(agencyId) {
      JOIN fd_packages fp ON fp.id = fdd.fd_package_id
      LEFT JOIN fd_itinerary_days fid ON fid.fd_package_id = fp.id
      WHERE b.source_type = 'fd_package'
-       AND b.agency_id = $1
+       AND b.agency_id = ?
        AND ${ELIGIBLE_BOOKING_STATUS_EXCLUSION}
        AND b.review_prompt_dismiss_count < 2
        AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.booking_id = b.id)
@@ -76,7 +84,7 @@ export async function findBookingForReview(bookingId, agencyId) {
      JOIN fd_departure_dates fdd ON fdd.id = b.fd_departure_date_id
      JOIN fd_packages fp ON fp.id = fdd.fd_package_id
      LEFT JOIN fd_itinerary_days fid ON fid.fd_package_id = fp.id
-     WHERE b.id = $1 AND b.agency_id = $2 AND b.source_type = 'fd_package'
+     WHERE b.id = ? AND b.agency_id = ? AND b.source_type = 'fd_package'
      GROUP BY b.id, fdd.date, fp.id`,
     [bookingId, agencyId]
   );
@@ -84,7 +92,7 @@ export async function findBookingForReview(bookingId, agencyId) {
 }
 
 export async function findReviewByBookingId(bookingId) {
-  const { rows } = await pool.query('SELECT * FROM reviews WHERE booking_id = $1', [bookingId]);
+  const { rows } = await pool.query('SELECT * FROM reviews WHERE booking_id = ?', [bookingId]);
   return rows[0] || null;
 }
 
@@ -92,27 +100,28 @@ export async function findReviewByBookingId(bookingId) {
 // OPTIONALLY writes a review") — status always starts 'needs_review',
 // never settable by the agent (Item 33's own moderation job, out of scope
 // here). The reviews.booking_id UNIQUE constraint is the real
-// duplicate-submission guard; this INSERT will throw a Postgres
-// unique_violation (23505) if a review already exists, which the
-// controller maps to a clean 409.
+// duplicate-submission guard; this INSERT will throw a MySQL duplicate-key
+// error (ER_DUP_ENTRY) if a review already exists, which the controller
+// maps to a clean 409.
 export async function createReview({ bookingId, fdPackageId, agencyId, rating, reviewText }) {
-  const { rows } = await pool.query(
-    `INSERT INTO reviews (booking_id, fd_package_id, agency_id, rating, review_text)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING *`,
-    [bookingId, fdPackageId, agencyId, rating, reviewText || null]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO reviews (id, booking_id, fd_package_id, agency_id, rating, review_text)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, bookingId, fdPackageId, agencyId, rating, reviewText || null]
   );
+  const { rows } = await pool.query('SELECT * FROM reviews WHERE id = ?', [id]);
   return rows[0];
 }
 
 // POST /bookings/:id/dismiss-review-prompt — atomic increment, ownership-
 // scoped in the same WHERE clause (never a separate read-then-write).
 export async function incrementDismissCount(bookingId, agencyId) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE bookings SET review_prompt_dismiss_count = review_prompt_dismiss_count + 1, updated_at = now()
-     WHERE id = $1 AND agency_id = $2
-     RETURNING *`,
+     WHERE id = ? AND agency_id = ?`,
     [bookingId, agencyId]
   );
+  const { rows } = await pool.query('SELECT * FROM bookings WHERE id = ? AND agency_id = ?', [bookingId, agencyId]);
   return rows[0] || null;
 }

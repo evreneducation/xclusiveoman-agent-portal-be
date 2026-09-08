@@ -35,54 +35,46 @@ const SELECT_COLUMNS = `
 function buildFilters({ status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds }) {
   const clauses = [`pr.status <> 'draft'`];
   const values = [];
-  let i = 1;
 
   if (status) {
-    clauses.push(`pr.status = $${i}`);
+    clauses.push(`pr.status = ?`);
     values.push(status);
-    i += 1;
   }
   if (leadManagerUserId) {
-    clauses.push(`pr.lead_manager_user_id = $${i}`);
+    clauses.push(`pr.lead_manager_user_id = ?`);
     values.push(leadManagerUserId);
-    i += 1;
   }
   if (agencyIds) {
-    clauses.push(`pr.agency_id = ANY($${i}::uuid[])`);
+    clauses.push(`pr.agency_id IN (?)`);
     values.push(agencyIds);
-    i += 1;
   }
   if (destination) {
-    clauses.push(`pr.destination ILIKE $${i}`);
+    clauses.push(`LOWER(pr.destination) LIKE LOWER(?)`);
     values.push(`%${destination}%`);
-    i += 1;
   }
   if (submittedFrom) {
-    clauses.push(`pr.created_at >= $${i}`);
+    clauses.push(`pr.created_at >= ?`);
     values.push(submittedFrom);
-    i += 1;
   }
   if (submittedTo) {
-    clauses.push(`pr.created_at < ($${i}::date + interval '1 day')`);
+    clauses.push(`pr.created_at < (? + INTERVAL 1 DAY)`);
     values.push(submittedTo);
-    i += 1;
   }
   if (search) {
-    clauses.push(`(pr.id::text ILIKE $${i} OR u.full_name ILIKE $${i} OR a.name ILIKE $${i} OR pr.destination ILIKE $${i})`);
-    values.push(`%${search}%`);
-    i += 1;
+    clauses.push(`(LOWER(pr.id) LIKE LOWER(?) OR LOWER(u.full_name) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?) OR LOWER(pr.destination) LIKE LOWER(?))`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
 
-  return { where: `WHERE ${clauses.join(' AND ')}`, values, next: i };
+  return { where: `WHERE ${clauses.join(' AND ')}`, values };
 }
 
 export async function listPackageRequestsForAdmin({
   status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds, page, pageSize,
 } = {}) {
-  const { where, values, next } = buildFilters({ status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds });
+  const { where, values } = buildFilters({ status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds });
 
   const { rows: countRows } = await pool.query(
-    `SELECT COUNT(*) ${JOINS} ${where}`,
+    `SELECT COUNT(*) AS count ${JOINS} ${where}`,
     values
   );
   const total = Number(countRows[0].count);
@@ -94,7 +86,7 @@ export async function listPackageRequestsForAdmin({
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS} ${JOINS} ${where}
      ORDER BY pr.created_at DESC
-     LIMIT $${next} OFFSET $${next + 1}`,
+     LIMIT ? OFFSET ?`,
     [...values, limit, offset]
   );
 
@@ -103,20 +95,20 @@ export async function listPackageRequestsForAdmin({
 
 export async function findPackageRequestForAdmin(id) {
   const { rows } = await pool.query(
-    `SELECT ${SELECT_COLUMNS} ${JOINS} WHERE pr.id = $1`,
+    `SELECT ${SELECT_COLUMNS} ${JOINS} WHERE pr.id = ?`,
     [id]
   );
   return rows[0] || null;
 }
 
 export async function updatePackageRequestLeadManager(id, leadManagerUserId, status) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE package_requests
-     SET lead_manager_user_id = $1, status = $2, updated_at = now()
-     WHERE id = $3
-     RETURNING *`,
+     SET lead_manager_user_id = ?, status = ?, updated_at = now()
+     WHERE id = ?`,
     [leadManagerUserId, status, id]
   );
+  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -128,14 +120,14 @@ export async function updatePackageRequestLeadManager(id, leadManagerUserId, sta
 // text shown read-only on the agent's own quote view once published
 // (packageRequests.controller.js), unlike internal_notes which stays admin-only.
 export async function updatePackageRequestCosting(id, { netCostBreakdown, markupRule, sellPrice, internalNotes, inclusions, exclusions, status }) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE package_requests
-     SET net_cost_breakdown = $1, markup_rule = $2, sell_price = $3, internal_notes = $4,
-         inclusions = $5, exclusions = $6, status = $7, updated_at = now()
-     WHERE id = $8
-     RETURNING *`,
-    [JSON.stringify(netCostBreakdown), JSON.stringify(markupRule), sellPrice, internalNotes, inclusions || '', exclusions || '', status, id]
+     SET net_cost_breakdown = ?, markup_rule = ?, sell_price = ?, internal_notes = ?,
+         inclusions = ?, exclusions = ?, status = ?, updated_at = now()
+     WHERE id = ?`,
+    [JSON.stringify(netCostBreakdown ?? null), JSON.stringify(markupRule ?? null), sellPrice, internalNotes, inclusions || '', exclusions || '', status, id]
   );
+  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -155,7 +147,7 @@ export async function updatePackageRequestItinerary(id, days) {
   } finally {
     client.release();
   }
-  const { rows } = await pool.query(`SELECT id FROM package_requests WHERE id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT id FROM package_requests WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -163,12 +155,12 @@ export async function updatePackageRequestItinerary(id, days) {
 // (updatePackageRequestCosting, above) before this is ever called — this
 // only flips status and stamps who/when.
 export async function publishPackageRequest(id, publishedByUserId) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE package_requests
-     SET status = 'published', published_at = now(), published_by_user_id = $1, updated_at = now()
-     WHERE id = $2
-     RETURNING *`,
+     SET status = 'published', published_at = now(), published_by_user_id = ?, updated_at = now()
+     WHERE id = ?`,
     [publishedByUserId, id]
   );
+  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
   return rows[0] || null;
 }
