@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Generic, polymorphic activity trail (doc §11.8 / §15 rule 78). `entity` +
 // `entity_id` point at any row (currently only 'package_request', for the
@@ -7,9 +8,10 @@ import { pool } from '../db/pool.js';
 
 export async function insertAuditLog({ actorUserId, entity, entityId, field, oldValue, newValue }) {
   await pool.query(
-    `INSERT INTO audit_logs (actor_user_id, entity, entity_id, field, old_value, new_value)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+    `INSERT INTO audit_logs (id, actor_user_id, entity, entity_id, field, old_value, new_value)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
+      newId(),
       actorUserId || null,
       entity,
       entityId,
@@ -25,7 +27,7 @@ export async function listAuditLogsForEntity(entity, entityId) {
     `SELECT al.*, u.full_name AS actor_full_name
      FROM audit_logs al
      LEFT JOIN users u ON u.id = al.actor_user_id
-     WHERE al.entity = $1 AND al.entity_id = $2
+     WHERE al.entity = ? AND al.entity_id = ?
      ORDER BY al.created_at ASC`,
     [entity, entityId]
   );

@@ -157,7 +157,7 @@ export async function patchAgency(req, res, next) {
 
     if (statusJustChangedToApproved) {
       const { rows } = await pool.query(
-        `SELECT * FROM users WHERE agency_id = $1 AND role = 'agency_owner' LIMIT 1`,
+        `SELECT * FROM users WHERE agency_id = ? AND role = 'agency_owner' LIMIT 1`,
         [id]
       );
       const owner = rows[0];

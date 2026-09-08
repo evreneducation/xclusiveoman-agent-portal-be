@@ -19,7 +19,6 @@
     "setup": "npm run migrate && npm run seed && npm run assign-rms && npm run seed-admin-passwords"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
     "@sparticuz/chromium": "^149.0.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
@@ -33,8 +32,8 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "multer": "^2.0.0",
+    "mysql2": "^3.24.4",
     "node-cron": "^4.6.0",
-    "pg": "^8.12.0",
     "puppeteer": "^25.5.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.7.5",

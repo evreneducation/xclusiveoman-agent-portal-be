@@ -28,7 +28,7 @@ export async function getMyAgency(req, res, next) {
 
     let rm = null;
     if (agency.rm_user_id) {
-      const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [agency.rm_user_id]);
+      const { rows } = await pool.query('SELECT * FROM users WHERE id = ?', [agency.rm_user_id]);
       rm = rows[0] || null;
     }
 

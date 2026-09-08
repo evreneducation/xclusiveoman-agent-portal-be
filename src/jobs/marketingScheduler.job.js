@@ -15,23 +15,31 @@ import { executeCampaignSend } from '../services/marketingSend.service.js';
 // a restart just picks up anything still due, exactly as it would have
 // anyway.
 
-// Atomically claims every campaign whose scheduled_at has passed, flipping
-// each straight to 'sending' in the same statement that selects them —
+// Atomically claims every campaign whose scheduled_at has passed.
 // `FOR UPDATE SKIP LOCKED` means an overlapping tick (or, if this process
 // is ever scaled beyond one instance) can't claim the same row twice, so a
 // campaign is never sent by two workers at once.
+//
+// MySQL (unlike Postgres) refuses to UPDATE a table while a subquery in the
+// same statement also selects from it ("You can't specify target table ...
+// for update in FROM clause") — split into a SELECT ... FOR UPDATE SKIP
+// LOCKED (which does the actual claiming/locking, inside the same
+// transaction as the caller's BEGIN/COMMIT) followed by a plain UPDATE ...
+// WHERE id IN (?) against the ids just locked. No RETURNING needed either
+// way, since the ids are already known from the SELECT.
 async function claimDueCampaigns(client) {
-  const { rows } = await client.query(`
-    UPDATE marketing_campaigns
-    SET status = 'sending', updated_at = now()
-    WHERE id IN (
-      SELECT id FROM marketing_campaigns
-      WHERE status = 'scheduled' AND scheduled_at <= now()
-      FOR UPDATE SKIP LOCKED
-    )
-    RETURNING id
+  const { rows: due } = await client.query(`
+    SELECT id FROM marketing_campaigns
+    WHERE status = 'scheduled' AND scheduled_at <= now()
+    FOR UPDATE SKIP LOCKED
   `);
-  return rows.map((r) => r.id);
+  const ids = due.map((r) => r.id);
+  if (ids.length === 0) return [];
+  await client.query(
+    `UPDATE marketing_campaigns SET status = 'sending', updated_at = now() WHERE id IN (?)`,
+    [ids]
+  );
+  return ids;
 }
 
 // In-process guard only — stops this same worker from starting a second

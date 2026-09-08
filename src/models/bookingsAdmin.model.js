@@ -37,39 +37,34 @@ const SELECT_COLUMNS = `
 function buildFilters({ status, agencyId, agencyIds, search }) {
   const clauses = [];
   const values = [];
-  let i = 1;
 
   if (status) {
-    clauses.push(`b.status = $${i}`);
+    clauses.push(`b.status = ?`);
     values.push(status);
-    i += 1;
   }
   if (agencyId) {
-    clauses.push(`b.agency_id = $${i}`);
+    clauses.push(`b.agency_id = ?`);
     values.push(agencyId);
-    i += 1;
   }
   if (agencyIds) {
-    clauses.push(`b.agency_id = ANY($${i}::uuid[])`);
+    clauses.push(`b.agency_id IN (?)`);
     values.push(agencyIds);
-    i += 1;
   }
   if (search) {
-    clauses.push(`(a.name ILIKE $${i} OR fp.title ILIKE $${i})`);
-    values.push(`%${search}%`);
-    i += 1;
+    clauses.push(`(LOWER(a.name) LIKE LOWER(?) OR LOWER(fp.title) LIKE LOWER(?))`);
+    values.push(`%${search}%`, `%${search}%`);
   }
 
   const where = clauses.length ? `AND ${clauses.join(' AND ')}` : '';
-  return { where, values, next: i };
+  return { where, values };
 }
 
 // GET /admin/bookings — same LIMIT/OFFSET + {rows,total,page,pageSize} shape
 // as listPackageRequestsForAdmin (packageRequestsAdmin.model.js).
 export async function listBookingsForAdmin({ status, agencyId, agencyIds, search, page, pageSize } = {}) {
-  const { where, values, next } = buildFilters({ status, agencyId, agencyIds, search });
+  const { where, values } = buildFilters({ status, agencyId, agencyIds, search });
 
-  const { rows: countRows } = await pool.query(`SELECT COUNT(*) ${JOINS} ${where}`, values);
+  const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${JOINS} ${where}`, values);
   const total = Number(countRows[0].count);
 
   const limit = Math.max(1, Math.min(100, Number(pageSize) || 20));
@@ -79,7 +74,7 @@ export async function listBookingsForAdmin({ status, agencyId, agencyIds, search
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS} ${JOINS} ${where}
      ORDER BY b.created_at DESC
-     LIMIT $${next} OFFSET $${next + 1}`,
+     LIMIT ? OFFSET ?`,
     [...values, limit, offset]
   );
 
@@ -91,7 +86,7 @@ export async function listBookingsForAdmin({ status, agencyId, agencyIds, search
 export async function findBookingDetailForAdmin(bookingId) {
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS}
-     ${JOINS} AND b.id = $1`,
+     ${JOINS} AND b.id = ?`,
     [bookingId]
   );
   return rows[0] || null;

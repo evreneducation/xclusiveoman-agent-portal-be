@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Admin Content & CMS Management (Task 21 — Item 34). Deliberately NOT built
 // on catalog.model.js's createCrudModel() — that factory's list() only knows
@@ -19,23 +20,19 @@ import { pool } from '../db/pool.js';
 export async function listCmsPages({ section, status, search } = {}) {
   const clauses = [];
   const values = [];
-  let i = 1;
 
   if (section) {
     const sections = Array.isArray(section) ? section : [section];
-    clauses.push(`section = ANY($${i}::text[])`);
+    clauses.push(`section IN (?)`);
     values.push(sections);
-    i += 1;
   }
   if (status) {
-    clauses.push(`status = $${i}`);
+    clauses.push(`status = ?`);
     values.push(status);
-    i += 1;
   }
   if (search) {
-    clauses.push(`(title ILIKE $${i} OR slug ILIKE $${i})`);
-    values.push(`%${search}%`);
-    i += 1;
+    clauses.push(`(LOWER(title) LIKE LOWER(?) OR LOWER(slug) LIKE LOWER(?))`);
+    values.push(`%${search}%`, `%${search}%`);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -44,7 +41,7 @@ export async function listCmsPages({ section, status, search } = {}) {
 }
 
 export async function findCmsPageById(id) {
-  const { rows } = await pool.query('SELECT * FROM cms_pages WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT * FROM cms_pages WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -57,25 +54,25 @@ export async function findCmsPageById(id) {
 // yet".
 export async function findPublishedBySlug(slug) {
   const { rows } = await pool.query(
-    `SELECT * FROM cms_pages WHERE slug = $1 AND status = 'published' LIMIT 1`,
+    `SELECT * FROM cms_pages WHERE slug = ? AND status = 'published' LIMIT 1`,
     [slug]
   );
   return rows[0] || null;
 }
 
 export async function createCmsPage({ title, section, slug, bodyHtml, status }) {
-  // COALESCE($5, 'draft') without a cast leaves $5 typed as plain `text`,
-  // which Postgres then refuses to assign into the `status cms_page_status`
-  // column ("column is of type cms_page_status but expression is of type
-  // text") — same enum-cast gotcha this codebase has hit before wherever a
-  // COALESCE mixes a bound parameter with an enum column (see e.g. Task 18's
-  // discovered pattern). Casting the whole COALESCE result fixes it.
-  const { rows } = await pool.query(
-    `INSERT INTO cms_pages (title, section, slug, body_html, status)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 'draft')::cms_page_status)
-     RETURNING *`,
-    [title, section, slug, bodyHtml ?? null, status]
+  // Postgres needed an explicit `::cms_page_status` cast on this COALESCE
+  // (COALESCE($5, 'draft') alone comes back typed as plain `text`, which
+  // Postgres then refuses to assign into the enum-typed `status` column).
+  // MySQL has no such enum-cast gotcha — COALESCE(?, 'draft') assigns into
+  // the column directly.
+  const id = newId();
+  await pool.query(
+    `INSERT INTO cms_pages (id, title, section, slug, body_html, status)
+     VALUES (?, ?, ?, ?, ?, COALESCE(?, 'draft'))`,
+    [id, title, section, slug, bodyHtml ?? null, status]
   );
+  const { rows } = await pool.query('SELECT * FROM cms_pages WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -84,19 +81,20 @@ export async function updateCmsPage(id, fields) {
   const cols = Object.keys(columns).filter((k) => fields[k] !== undefined);
   if (cols.length === 0) return findCmsPageById(id);
 
-  const setClauses = cols.map((k, idx) => `${columns[k]} = $${idx + 1}`);
+  const setClauses = cols.map((k) => `${columns[k]} = ?`);
   const values = cols.map((k) => fields[k]);
   values.push(id);
 
-  const { rows } = await pool.query(
-    `UPDATE cms_pages SET ${setClauses.join(', ')}, updated_at = now() WHERE id = $${values.length} RETURNING *`,
+  await pool.query(
+    `UPDATE cms_pages SET ${setClauses.join(', ')}, updated_at = now() WHERE id = ?`,
     values
   );
+  const { rows } = await pool.query('SELECT * FROM cms_pages WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
 export async function removeCmsPage(id) {
-  await pool.query('DELETE FROM cms_pages WHERE id = $1', [id]);
+  await pool.query('DELETE FROM cms_pages WHERE id = ?', [id]);
 }
 
 // Media Library (CMS-3) — GET/POST only, per this task's documented scope
@@ -107,9 +105,11 @@ export async function listMedia() {
 }
 
 export async function createMedia({ url, altText, uploadedByUserId }) {
-  const { rows } = await pool.query(
-    `INSERT INTO media_library (url, alt_text, uploaded_by_user_id) VALUES ($1, $2, $3) RETURNING *`,
-    [url, altText ?? null, uploadedByUserId]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO media_library (id, url, alt_text, uploaded_by_user_id) VALUES (?, ?, ?, ?)`,
+    [id, url, altText ?? null, uploadedByUserId]
   );
+  const { rows } = await pool.query('SELECT * FROM media_library WHERE id = ?', [id]);
   return rows[0];
 }

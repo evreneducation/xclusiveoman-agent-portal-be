@@ -1,4 +1,4 @@
--- Adds a dedicated role for the Relationship Manager persona (doc §4 role
--- table, REL-1/REL-2). Previously any staff user could be pointed to by
--- agencies.rm_user_id with no way to list/manage the RM pool itself.
-ALTER TYPE user_role ADD VALUE 'relationship_manager';
+-- No-op under MySQL: users.role is plain VARCHAR from creation (0003_users.sql),
+-- not a restrictive enum, so there's no type to widen with a new value. Kept
+-- as an empty file rather than renumbered — migrate.js tracks applied
+-- migrations by filename.

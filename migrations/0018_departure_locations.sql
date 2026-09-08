@@ -1,31 +1,28 @@
--- Admin's "Departure Dates & Inventory" panel (FD Package editor) gains a
--- Location dropdown per date (e.g. "Ex-Mumbai") instead of free text, so the
--- admin UI can offer a consistent picklist. Backed by a small master table
--- rather than an enum so it can be extended later without a migration.
+-- name is VARCHAR (not TEXT) since it carries a UNIQUE constraint — MySQL/
+-- InnoDB requires a bounded key length for indexed columns, unlike Postgres.
 CREATE TABLE departure_locations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  id CHAR(36) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE fd_departure_dates ADD COLUMN location TEXT;
 
--- Seed with popular Indian cities (the agent-facing market this portal
--- currently serves) — admin can extend the list later.
-INSERT INTO departure_locations (name) VALUES
-  ('Mumbai'),
-  ('Delhi'),
-  ('Bengaluru'),
-  ('Hyderabad'),
-  ('Chennai'),
-  ('Kolkata'),
-  ('Pune'),
-  ('Ahmedabad'),
-  ('Jaipur'),
-  ('Lucknow'),
-  ('Kochi'),
-  ('Chandigarh'),
-  ('Goa'),
-  ('Indore'),
-  ('Surat')
-ON CONFLICT (name) DO NOTHING;
+-- ON CONFLICT (name) DO NOTHING -> INSERT IGNORE (name's UNIQUE constraint
+-- makes a duplicate a silent no-op, same as the original).
+INSERT IGNORE INTO departure_locations (id, name) VALUES
+  (UUID(), 'Mumbai'),
+  (UUID(), 'Delhi'),
+  (UUID(), 'Bengaluru'),
+  (UUID(), 'Hyderabad'),
+  (UUID(), 'Chennai'),
+  (UUID(), 'Kolkata'),
+  (UUID(), 'Pune'),
+  (UUID(), 'Ahmedabad'),
+  (UUID(), 'Jaipur'),
+  (UUID(), 'Lucknow'),
+  (UUID(), 'Kochi'),
+  (UUID(), 'Chandigarh'),
+  (UUID(), 'Goa'),
+  (UUID(), 'Indore'),
+  (UUID(), 'Surat');

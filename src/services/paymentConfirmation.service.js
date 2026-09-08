@@ -30,7 +30,9 @@ export async function confirmPayment(payment) {
       status: 'confirmed',
     });
   } catch (err) {
-    if (err.code === '23505') return; // already processed by an earlier delivery
+    // MySQL's duplicate-key error code (ER_DUP_ENTRY), replacing Postgres' '23505'
+    // — same transactions(payment_id) unique index, different driver's error shape.
+    if (err.code === 'ER_DUP_ENTRY') return; // already processed by an earlier delivery
     throw err;
   }
 
@@ -39,8 +41,8 @@ export async function confirmPayment(payment) {
   const status = newBalanceDue <= 0 ? 'fully_paid' : 'confirmed';
 
   await pool.query(
-    `UPDATE bookings SET status = $2, deposit_paid = $3, balance_due = $4, updated_at = now() WHERE id = $1`,
-    [booking.id, status, newDepositPaid, newBalanceDue]
+    `UPDATE bookings SET status = ?, deposit_paid = ?, balance_due = ?, updated_at = now() WHERE id = ?`,
+    [status, newDepositPaid, newBalanceDue, booking.id]
   );
 
   const creator = await findUserById(booking.created_by_user_id);
