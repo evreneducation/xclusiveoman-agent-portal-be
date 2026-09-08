@@ -79,7 +79,7 @@ export async function recordOpen(recipientId) {
   await pool.query(
     `UPDATE marketing_campaign_recipients
      SET opened_at = COALESCE(opened_at, now()), open_count = open_count + 1
-     WHERE id = $1`,
+     WHERE id = ?`,
     [recipientId]
   );
 }
@@ -88,7 +88,7 @@ export async function recordClick(recipientId) {
   await pool.query(
     `UPDATE marketing_campaign_recipients
      SET clicked_at = COALESCE(clicked_at, now()), click_count = click_count + 1
-     WHERE id = $1`,
+     WHERE id = ?`,
     [recipientId]
   );
 }

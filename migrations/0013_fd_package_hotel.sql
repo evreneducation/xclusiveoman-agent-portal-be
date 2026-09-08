@@ -1,3 +1,2 @@
--- Links an FD package to a single hotel from the general Hotel Catalog
--- (admin.12.3), selectable while creating/editing the package.
-ALTER TABLE fd_packages ADD COLUMN hotel_id UUID REFERENCES hotels(id);
+ALTER TABLE fd_packages ADD COLUMN hotel_id CHAR(36);
+ALTER TABLE fd_packages ADD CONSTRAINT fk_fd_packages_hotel FOREIGN KEY (hotel_id) REFERENCES hotels(id);

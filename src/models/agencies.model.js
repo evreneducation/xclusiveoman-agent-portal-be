@@ -1,17 +1,19 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 export async function createAgency(client, { name, type, licenseNumber, licenseDocumentUrl, country }) {
-  const { rows } = await client.query(
-    `INSERT INTO agencies (name, type, license_number, license_document_url, country, status)
-     VALUES ($1, $2, $3, $4, $5, 'pending')
-     RETURNING *`,
-    [name, type, licenseNumber || null, licenseDocumentUrl || null, country]
+  const id = newId();
+  await client.query(
+    `INSERT INTO agencies (id, name, type, license_number, license_document_url, country, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+    [id, name, type, licenseNumber || null, licenseDocumentUrl || null, country]
   );
+  const { rows } = await client.query('SELECT * FROM agencies WHERE id = ?', [id]);
   return rows[0];
 }
 
 export async function findAgencyById(id) {
-  const { rows } = await pool.query('SELECT * FROM agencies WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT * FROM agencies WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -43,23 +45,22 @@ export async function listAgencies({ status, country, inactiveSinceDays, agencyI
   const conditions = [];
   if (status) {
     params.push(status);
-    conditions.push(`a.status = $${params.length}`);
+    conditions.push(`a.status = ?`);
   }
   if (agencyIds) {
     params.push(agencyIds);
-    conditions.push(`a.id = ANY($${params.length}::uuid[])`);
+    conditions.push(`a.id IN (?)`);
   }
   if (country) {
     params.push(country);
-    conditions.push(`a.country = $${params.length}`);
+    conditions.push(`a.country = ?`);
   }
   if (inactiveSinceDays) {
-    params.push(inactiveSinceDays);
-    const p = `$${params.length}`;
+    params.push(inactiveSinceDays, inactiveSinceDays, inactiveSinceDays);
     conditions.push(`
-      NOT EXISTS (SELECT 1 FROM bookings b WHERE b.agency_id = a.id AND b.created_at >= now() - (${p}::int * interval '1 day'))
-      AND NOT EXISTS (SELECT 1 FROM package_requests pr WHERE pr.agency_id = a.id AND pr.created_at >= now() - (${p}::int * interval '1 day'))
-      AND NOT EXISTS (SELECT 1 FROM mice_rfqs m WHERE m.agency_id = a.id AND m.created_at >= now() - (${p}::int * interval '1 day'))
+      NOT EXISTS (SELECT 1 FROM bookings b WHERE b.agency_id = a.id AND b.created_at >= now() - INTERVAL ? DAY)
+      AND NOT EXISTS (SELECT 1 FROM package_requests pr WHERE pr.agency_id = a.id AND pr.created_at >= now() - INTERVAL ? DAY)
+      AND NOT EXISTS (SELECT 1 FROM mice_rfqs m WHERE m.agency_id = a.id AND m.created_at >= now() - INTERVAL ? DAY)
     `);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -79,7 +80,7 @@ export async function listAgencies({ status, country, inactiveSinceDays, agencyI
 export async function listAgenciesByRmIds(rmUserIds) {
   if (rmUserIds.length === 0) return [];
   const { rows } = await pool.query(
-    `SELECT id, name, rm_user_id FROM agencies WHERE rm_user_id = ANY($1::uuid[]) ORDER BY name`,
+    `SELECT id, name, rm_user_id FROM agencies WHERE rm_user_id IN (?) ORDER BY name`,
     [rmUserIds]
   );
   return rows;
@@ -97,7 +98,7 @@ export async function findRmEmailsByAgencyIds(agencyIds) {
     `SELECT a.id AS agency_id, rm.email AS rm_email
      FROM agencies a
      LEFT JOIN users rm ON rm.id = a.rm_user_id
-     WHERE a.id = ANY($1::uuid[]) AND rm.email IS NOT NULL`,
+     WHERE a.id IN (?) AND rm.email IS NOT NULL`,
     [agencyIds]
   );
   return rows;
@@ -106,7 +107,6 @@ export async function findRmEmailsByAgencyIds(agencyIds) {
 export async function updateAgency(id, fields) {
   const setClauses = [];
   const values = [];
-  let i = 1;
 
   const columnMap = {
     status: 'status',
@@ -120,9 +120,8 @@ export async function updateAgency(id, fields) {
 
   for (const [key, column] of Object.entries(columnMap)) {
     if (fields[key] !== undefined) {
-      setClauses.push(`${column} = $${i}`);
+      setClauses.push(`${column} = ?`);
       values.push(fields[key]);
-      i += 1;
     }
   }
 
@@ -133,9 +132,7 @@ export async function updateAgency(id, fields) {
   setClauses.push(`updated_at = now()`);
   values.push(id);
 
-  const { rows } = await pool.query(
-    `UPDATE agencies SET ${setClauses.join(', ')} WHERE id = $${i} RETURNING *`,
-    values
-  );
+  await pool.query(`UPDATE agencies SET ${setClauses.join(', ')} WHERE id = ?`, values);
+  const { rows } = await pool.query('SELECT * FROM agencies WHERE id = ?', [id]);
   return rows[0] || null;
 }

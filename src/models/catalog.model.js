@@ -1,10 +1,28 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 /**
  * Hotels/tours/activities/transfers/experiences (doc §11.2) are structurally
  * similar flat tables, so CRUD is generated once per table from a fixed,
  * trusted column list rather than duplicated five times.
  */
+
+// Several of these generic per-table column lists include JSON columns under
+// MySQL (hotels' board_basis_options/images, tours'/activities'/transfers'
+// images — see migrations 0005/0011/0029). mysql2 auto-parses JSON columns
+// to JS values on read, but a write needs an explicit JSON.stringify or the
+// driver may instead try to expand a raw JS array as an IN (?)-style param
+// list. Rather than hardcoding which of this factory's column lists are
+// JSON, any array/plain-object value handed to create()/update() is
+// stringified here — every other value (string/number/boolean/null/Date)
+// passes through unchanged.
+function serializeValue(v) {
+  if (Array.isArray(v) || (v !== null && typeof v === 'object' && !(v instanceof Date))) {
+    return JSON.stringify(v);
+  }
+  return v;
+}
+
 function createCrudModel(table, columns) {
   return {
     // `filters.page`/`filters.pageSize` are opt-in (Product Catalog's Hotels
@@ -22,32 +40,26 @@ function createCrudModel(table, columns) {
     async list(filters = {}) {
       const clauses = [];
       const values = [];
-      let i = 1;
 
       if (filters.city) {
-        clauses.push(`city = $${i}`);
+        clauses.push(`city = ?`);
         values.push(filters.city);
-        i += 1;
       }
       if (filters.search) {
-        clauses.push(`name ILIKE $${i}`);
+        clauses.push(`LOWER(name) LIKE LOWER(?)`);
         values.push(`%${filters.search}%`);
-        i += 1;
       }
       if (filters.isMiceEnabled !== undefined && columns.includes('is_mice_enabled')) {
-        clauses.push(`is_mice_enabled = $${i}`);
+        clauses.push(`is_mice_enabled = ?`);
         values.push(filters.isMiceEnabled);
-        i += 1;
       }
       if (filters.mealType && columns.includes('meal_type')) {
-        clauses.push(`meal_type = $${i}`);
+        clauses.push(`meal_type = ?`);
         values.push(filters.mealType);
-        i += 1;
       }
       if (filters.isFlightOnward !== undefined && columns.includes('is_flight_onward')) {
-        clauses.push(`is_flight_onward = $${i}`);
+        clauses.push(`is_flight_onward = ?`);
         values.push(filters.isFlightOnward);
-        i += 1;
       }
       // Opt-in — only passed by the itinerary-building hotel pickers
       // (FdPackageEditor.jsx, PackageBuilder.jsx, MiceBuilder.jsx), so a
@@ -55,9 +67,8 @@ function createCrudModel(table, columns) {
       // management lists (ProductCatalog.jsx, MiceCatalog.jsx) omit this and
       // keep seeing every hotel regardless of status.
       if (filters.status && columns.includes('status')) {
-        clauses.push(`status = $${i}`);
+        clauses.push(`status = ?`);
         values.push(filters.status);
-        i += 1;
       }
 
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -72,9 +83,9 @@ function createCrudModel(table, columns) {
       const offset = (page - 1) * pageSize;
 
       const [{ rows: countRows }, { rows }] = await Promise.all([
-        pool.query(`SELECT COUNT(*)::int AS count FROM ${table} ${where}`, values),
+        pool.query(`SELECT COUNT(*) AS count FROM ${table} ${where}`, values),
         pool.query(
-          `SELECT * FROM ${table} ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
+          `SELECT * FROM ${table} ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
           [...values, pageSize, offset]
         ),
       ]);
@@ -83,18 +94,20 @@ function createCrudModel(table, columns) {
     },
 
     async findById(id) {
-      const { rows } = await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
+      const { rows } = await pool.query(`SELECT * FROM ${table} WHERE id = ?`, [id]);
       return rows[0] || null;
     },
 
     async create(fields) {
       const cols = columns.filter((c) => fields[c] !== undefined);
-      const values = cols.map((c) => fields[c]);
-      const placeholders = cols.map((_, idx) => `$${idx + 1}`);
-      const { rows } = await pool.query(
-        `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
-        values
+      const values = cols.map((c) => serializeValue(fields[c]));
+      const id = newId();
+      const placeholders = cols.map(() => '?').join(', ');
+      await pool.query(
+        `INSERT INTO ${table} (id, ${cols.join(', ')}) VALUES (?, ${placeholders})`,
+        [id, ...values]
       );
+      const { rows } = await pool.query(`SELECT * FROM ${table} WHERE id = ?`, [id]);
       return rows[0];
     },
 
@@ -102,19 +115,20 @@ function createCrudModel(table, columns) {
       const cols = columns.filter((c) => fields[c] !== undefined);
       if (cols.length === 0) return this.findById(id);
 
-      const setClauses = cols.map((c, idx) => `${c} = $${idx + 1}`);
-      const values = cols.map((c) => fields[c]);
+      const setClauses = cols.map((c) => `${c} = ?`);
+      const values = cols.map((c) => serializeValue(fields[c]));
       values.push(id);
 
-      const { rows } = await pool.query(
-        `UPDATE ${table} SET ${setClauses.join(', ')}, updated_at = now() WHERE id = $${values.length} RETURNING *`,
+      await pool.query(
+        `UPDATE ${table} SET ${setClauses.join(', ')}, updated_at = now() WHERE id = ?`,
         values
       );
+      const { rows } = await pool.query(`SELECT * FROM ${table} WHERE id = ?`, [id]);
       return rows[0] || null;
     },
 
     async remove(id) {
-      await pool.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
+      await pool.query(`DELETE FROM ${table} WHERE id = ?`, [id]);
     },
   };
 }

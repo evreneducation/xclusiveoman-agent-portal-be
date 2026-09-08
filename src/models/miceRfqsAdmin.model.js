@@ -30,46 +30,39 @@ const SELECT_COLUMNS = `
 function buildFilters({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds }) {
   const clauses = [];
   const values = [];
-  let i = 1;
 
   if (status) {
-    clauses.push(`mr.status = $${i}`);
+    clauses.push(`mr.status = ?`);
     values.push(status);
-    i += 1;
   }
   if (leadManagerUserId) {
-    clauses.push(`mr.lead_manager_user_id = $${i}`);
+    clauses.push(`mr.lead_manager_user_id = ?`);
     values.push(leadManagerUserId);
-    i += 1;
   }
   if (agencyIds) {
-    clauses.push(`mr.agency_id = ANY($${i}::uuid[])`);
+    clauses.push(`mr.agency_id IN (?)`);
     values.push(agencyIds);
-    i += 1;
   }
   if (eventFrom) {
-    clauses.push(`mr.event_date_from >= $${i}`);
+    clauses.push(`mr.event_date_from >= ?`);
     values.push(eventFrom);
-    i += 1;
   }
   if (eventTo) {
-    clauses.push(`mr.event_date_from < ($${i}::date + interval '1 day')`);
+    clauses.push(`mr.event_date_from < (? + INTERVAL 1 DAY)`);
     values.push(eventTo);
-    i += 1;
   }
   if (search) {
-    clauses.push(`(mr.id::text ILIKE $${i} OR u.full_name ILIKE $${i} OR a.name ILIKE $${i} OR mr.destination ILIKE $${i})`);
-    values.push(`%${search}%`);
-    i += 1;
+    clauses.push(`(LOWER(mr.id) LIKE LOWER(?) OR LOWER(u.full_name) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?) OR LOWER(mr.destination) LIKE LOWER(?))`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
 
-  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values, next: i };
+  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values };
 }
 
 export async function listMiceRfqsForAdmin({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds, page, pageSize } = {}) {
-  const { where, values, next } = buildFilters({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds });
+  const { where, values } = buildFilters({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds });
 
-  const { rows: countRows } = await pool.query(`SELECT COUNT(*) ${JOINS} ${where}`, values);
+  const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${JOINS} ${where}`, values);
   const total = Number(countRows[0].count);
 
   const limit = Math.max(1, Math.min(100, Number(pageSize) || 20));
@@ -79,7 +72,7 @@ export async function listMiceRfqsForAdmin({ status, search, eventFrom, eventTo,
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS} ${JOINS} ${where}
      ORDER BY mr.created_at DESC
-     LIMIT $${next} OFFSET $${next + 1}`,
+     LIMIT ? OFFSET ?`,
     [...values, limit, offset]
   );
 
@@ -87,15 +80,16 @@ export async function listMiceRfqsForAdmin({ status, search, eventFrom, eventTo,
 }
 
 export async function findMiceRfqForAdmin(id) {
-  const { rows } = await pool.query(`SELECT ${SELECT_COLUMNS} ${JOINS} WHERE mr.id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT ${SELECT_COLUMNS} ${JOINS} WHERE mr.id = ?`, [id]);
   return rows[0] || null;
 }
 
 export async function updateMiceRfqLeadManager(id, leadManagerUserId) {
-  const { rows } = await pool.query(
-    `UPDATE mice_rfqs SET lead_manager_user_id = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+  await pool.query(
+    `UPDATE mice_rfqs SET lead_manager_user_id = ?, updated_at = now() WHERE id = ?`,
     [leadManagerUserId, id]
   );
+  const { rows } = await pool.query(`SELECT * FROM mice_rfqs WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -104,14 +98,14 @@ export async function updateMiceRfqLeadManager(id, leadManagerUserId) {
 // net_cost_breakdown.landingCost) — cost_breakdown holds only the five
 // per-component auto/override/total figures, not a duplicate of the total.
 export async function updateMiceRfqCosting(id, { costBreakdown, landingCost, markupRule, sellPrice, internalNotes, status }) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE mice_rfqs
-     SET cost_breakdown = $1, net_cost_total = $2, markup_rule = $3, sell_price = $4, internal_notes = $5,
-         status = $6, updated_at = now()
-     WHERE id = $7
-     RETURNING *`,
-    [JSON.stringify(costBreakdown), landingCost, JSON.stringify(markupRule), sellPrice, internalNotes, status, id]
+     SET cost_breakdown = ?, net_cost_total = ?, markup_rule = ?, sell_price = ?, internal_notes = ?,
+         status = ?, updated_at = now()
+     WHERE id = ?`,
+    [JSON.stringify(costBreakdown ?? null), landingCost, JSON.stringify(markupRule ?? null), sellPrice, internalNotes, status, id]
   );
+  const { rows } = await pool.query(`SELECT * FROM mice_rfqs WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -139,12 +133,12 @@ export async function updateMiceRfqItinerary(id, days) {
 // (updateMiceRfqCosting, above) before this is ever called — this only
 // flips status and stamps who/when, same split as package_requests.
 export async function publishMiceRfq(id, publishedByUserId) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE mice_rfqs
-     SET status = 'published', published_at = now(), published_by_user_id = $1, updated_at = now()
-     WHERE id = $2
-     RETURNING *`,
+     SET status = 'published', published_at = now(), published_by_user_id = ?, updated_at = now()
+     WHERE id = ?`,
     [publishedByUserId, id]
   );
+  const { rows } = await pool.query(`SELECT * FROM mice_rfqs WHERE id = ?`, [id]);
   return rows[0] || null;
 }

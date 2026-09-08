@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Admin Support & Helpdesk (Task 18 — Screen 27/28, SUP-1..3). Agent-side
 // (own-agency) and admin-side (all agencies, joined) queries live together
@@ -23,12 +24,13 @@ const ADMIN_SELECT_COLUMNS = `
 // --- Agent-side (own agency only) ---
 
 export async function createTicket({ agencyId, createdByUserId, subject, description, priority }) {
-  const { rows } = await pool.query(
-    `INSERT INTO support_tickets (agency_id, created_by_user_id, subject, description, priority)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 'normal')::support_ticket_priority)
-     RETURNING *`,
-    [agencyId, createdByUserId, subject, description, priority || null]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO support_tickets (id, agency_id, created_by_user_id, subject, description, priority)
+     VALUES (?, ?, ?, ?, ?, COALESCE(?, 'normal'))`,
+    [id, agencyId, createdByUserId, subject, description, priority || null]
   );
+  const { rows } = await pool.query('SELECT * FROM support_tickets WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -40,7 +42,7 @@ export async function createTicket({ agencyId, createdByUserId, subject, descrip
 // this same response instead of a second fetch.
 export async function listTicketsForAgency(agencyId) {
   const { rows } = await pool.query(
-    'SELECT * FROM support_tickets WHERE agency_id = $1 ORDER BY created_at DESC',
+    'SELECT * FROM support_tickets WHERE agency_id = ? ORDER BY created_at DESC',
     [agencyId]
   );
   return rows;
@@ -50,7 +52,7 @@ export async function listTicketsForAgency(agencyId) {
 // rather than trusting a bare ticket_id, same posture as
 // payments.controller.js#assertOwnsBooking.
 export async function findTicketForAgency(ticketId, agencyId) {
-  const { rows } = await pool.query('SELECT * FROM support_tickets WHERE id = $1 AND agency_id = $2', [ticketId, agencyId]);
+  const { rows } = await pool.query('SELECT * FROM support_tickets WHERE id = ? AND agency_id = ?', [ticketId, agencyId]);
   return rows[0] || null;
 }
 
@@ -63,45 +65,39 @@ export async function findTicketForAgency(ticketId, agencyId) {
 function buildAdminFilters({ status, priority, assignedToUserId, agencyIds, search }) {
   const clauses = [];
   const values = [];
-  let i = 1;
 
   if (status) {
-    clauses.push(`t.status = $${i}`);
+    clauses.push(`t.status = ?`);
     values.push(status);
-    i += 1;
   }
   if (priority) {
-    clauses.push(`t.priority = $${i}`);
+    clauses.push(`t.priority = ?`);
     values.push(priority);
-    i += 1;
   }
   if (assignedToUserId) {
-    clauses.push(`t.assigned_to_user_id = $${i}`);
+    clauses.push(`t.assigned_to_user_id = ?`);
     values.push(assignedToUserId);
-    i += 1;
   }
   if (agencyIds) {
-    clauses.push(`t.agency_id = ANY($${i}::uuid[])`);
+    clauses.push(`t.agency_id IN (?)`);
     values.push(agencyIds);
-    i += 1;
   }
   if (search) {
-    clauses.push(`(t.subject ILIKE $${i} OR a.name ILIKE $${i} OR creator.full_name ILIKE $${i})`);
-    values.push(`%${search}%`);
-    i += 1;
+    clauses.push(`(LOWER(t.subject) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?) OR LOWER(creator.full_name) LIKE LOWER(?))`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  return { where, values, next: i };
+  return { where, values };
 }
 
 // GET /admin/support/tickets — same LIMIT/OFFSET + {rows,total,page,pageSize}
 // shape as every other admin list in this codebase (packageRequestsAdmin,
 // bookingsAdmin, …).
 export async function listTicketsForAdmin({ status, priority, assignedToUserId, agencyIds, search, page, pageSize } = {}) {
-  const { where, values, next } = buildAdminFilters({ status, priority, assignedToUserId, agencyIds, search });
+  const { where, values } = buildAdminFilters({ status, priority, assignedToUserId, agencyIds, search });
 
-  const { rows: countRows } = await pool.query(`SELECT COUNT(*) ${ADMIN_JOINS} ${where}`, values);
+  const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${ADMIN_JOINS} ${where}`, values);
   const total = Number(countRows[0].count);
 
   const limit = Math.max(1, Math.min(100, Number(pageSize) || 20));
@@ -111,7 +107,7 @@ export async function listTicketsForAdmin({ status, priority, assignedToUserId, 
   const { rows } = await pool.query(
     `SELECT ${ADMIN_SELECT_COLUMNS} ${ADMIN_JOINS} ${where}
      ORDER BY t.created_at DESC
-     LIMIT $${next} OFFSET $${next + 1}`,
+     LIMIT ? OFFSET ?`,
     [...values, limit, offset]
   );
 
@@ -119,7 +115,7 @@ export async function listTicketsForAdmin({ status, priority, assignedToUserId, 
 }
 
 export async function findTicketForAdmin(ticketId) {
-  const { rows } = await pool.query(`SELECT ${ADMIN_SELECT_COLUMNS} ${ADMIN_JOINS} WHERE t.id = $1`, [ticketId]);
+  const { rows } = await pool.query(`SELECT ${ADMIN_SELECT_COLUMNS} ${ADMIN_JOINS} WHERE t.id = ?`, [ticketId]);
   return rows[0] || null;
 }
 
@@ -129,30 +125,32 @@ export async function findTicketForAdmin(ticketId) {
 // never editable here (Task 18 scope: set once at creation, admin only
 // filters by it).
 export async function updateTicketAssignmentAndStatus(ticketId, { assignedToUserId, status }) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE support_tickets
-     SET assigned_to_user_id = CASE WHEN $2::boolean THEN $3::uuid ELSE assigned_to_user_id END,
-         status = COALESCE($4::support_ticket_status, status),
+     SET assigned_to_user_id = CASE WHEN ? THEN ? ELSE assigned_to_user_id END,
+         status = COALESCE(?, status),
          updated_at = now()
-     WHERE id = $1
-     RETURNING *`,
-    [ticketId, assignedToUserId !== undefined, assignedToUserId || null, status || null]
+     WHERE id = ?`,
+    [assignedToUserId !== undefined, assignedToUserId || null, status || null, ticketId]
   );
+  const { rows } = await pool.query('SELECT * FROM support_tickets WHERE id = ?', [ticketId]);
   return rows[0] || null;
 }
 
 // --- Messages (shared by both sides) ---
 
 export async function insertTicketMessage({ ticketId, senderUserId, message }) {
-  const { rows } = await pool.query(
-    `INSERT INTO ticket_messages (ticket_id, sender_user_id, message) VALUES ($1, $2, $3) RETURNING *`,
-    [ticketId, senderUserId, message]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO ticket_messages (id, ticket_id, sender_user_id, message) VALUES (?, ?, ?, ?)`,
+    [id, ticketId, senderUserId, message]
   );
   // Threaded replies don't change status (Task 18 scope decision) but do
   // count as activity — bump updated_at so admin queue "most recently
   // active" ordering (if ever added) and the ticket's own updated_at stay
   // meaningful without needing a second write path.
-  await pool.query('UPDATE support_tickets SET updated_at = now() WHERE id = $1', [ticketId]);
+  await pool.query('UPDATE support_tickets SET updated_at = now() WHERE id = ?', [ticketId]);
+  const { rows } = await pool.query('SELECT * FROM ticket_messages WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -164,7 +162,7 @@ export async function listMessagesForTicket(ticketId) {
     `SELECT tm.*, u.full_name AS sender_name, u.role AS sender_role
      FROM ticket_messages tm
      JOIN users u ON u.id = tm.sender_user_id
-     WHERE tm.ticket_id = $1
+     WHERE tm.ticket_id = ?
      ORDER BY tm.created_at ASC`,
     [ticketId]
   );

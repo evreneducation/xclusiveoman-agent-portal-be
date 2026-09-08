@@ -3,7 +3,7 @@ import { getSummary, getRevenueByMonth, getTopAgencies } from '../models/analyti
 // Admin Analytics & Reporting (Task 19 — Screen 18, ANL-1). Mounted at
 // /api/admin/analytics, requireRole('ops_admin', 'super_admin') per the
 // doc's own §12.11 route annotation. Every number returned here comes from
-// a real PostgreSQL aggregation in analytics.model.js — no client-side
+// a real MySQL aggregation in analytics.model.js — no client-side
 // reconstruction, no mock data. See that file's own header comment for the
 // exact revenue definition and why transactions.amount is never summed.
 

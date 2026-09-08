@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Mirrors packageRequests.model.js's shape (insert helpers take an explicit
 // `client` so the whole submission commits atomically — see
@@ -10,13 +11,14 @@ export async function createMiceRfq(client, {
   agencyId, createdByUserId, destination, groupSize, eventDateFrom, eventDateTo,
   hallCapacityNeeded, seatingStyle, avNeeds, otherRequirements,
 }) {
-  const { rows } = await client.query(
+  const id = newId();
+  await client.query(
     `INSERT INTO mice_rfqs
-      (agency_id, created_by_user_id, destination, group_size, event_date_from, event_date_to,
+      (id, agency_id, created_by_user_id, destination, group_size, event_date_from, event_date_to,
        hall_capacity_needed, seating_style, av_needs, other_requirements, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'submitted')
-     RETURNING *`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted')`,
     [
+      id,
       agencyId,
       createdByUserId,
       destination,
@@ -29,35 +31,36 @@ export async function createMiceRfq(client, {
       otherRequirements || null,
     ]
   );
+  const { rows } = await client.query('SELECT * FROM mice_rfqs WHERE id = ?', [id]);
   return rows[0];
 }
 
 export async function addHotelSelections(client, miceRfqId, hotelIds) {
   for (const hotelId of hotelIds) {
-    await client.query(`INSERT INTO mice_rfq_hotels (mice_rfq_id, hotel_id) VALUES ($1, $2)`, [miceRfqId, hotelId]);
+    await client.query(`INSERT INTO mice_rfq_hotels (id, mice_rfq_id, hotel_id) VALUES (?, ?, ?)`, [newId(), miceRfqId, hotelId]);
   }
 }
 
 export async function addTourSelections(client, miceRfqId, tourIds) {
   for (const tourId of tourIds) {
-    await client.query(`INSERT INTO mice_rfq_tours (mice_rfq_id, tour_id) VALUES ($1, $2)`, [miceRfqId, tourId]);
+    await client.query(`INSERT INTO mice_rfq_tours (id, mice_rfq_id, tour_id) VALUES (?, ?, ?)`, [newId(), miceRfqId, tourId]);
   }
 }
 
 export async function addTransferSelections(client, miceRfqId, transferIds) {
   for (const transferId of transferIds) {
-    await client.query(`INSERT INTO mice_rfq_transfers (mice_rfq_id, transfer_id) VALUES ($1, $2)`, [miceRfqId, transferId]);
+    await client.query(`INSERT INTO mice_rfq_transfers (id, mice_rfq_id, transfer_id) VALUES (?, ?, ?)`, [newId(), miceRfqId, transferId]);
   }
 }
 
 export async function addActivitySelections(client, miceRfqId, activityIds) {
   for (const activityId of activityIds) {
-    await client.query(`INSERT INTO mice_rfq_activities (mice_rfq_id, activity_id) VALUES ($1, $2)`, [miceRfqId, activityId]);
+    await client.query(`INSERT INTO mice_rfq_activities (id, mice_rfq_id, activity_id) VALUES (?, ?, ?)`, [newId(), miceRfqId, activityId]);
   }
 }
 
 export async function findMiceRfqById(id) {
-  const { rows } = await pool.query(`SELECT * FROM mice_rfqs WHERE id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT * FROM mice_rfqs WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -74,7 +77,7 @@ export async function listMiceRfqsForAgency(agencyId) {
             lm.phone AS lead_manager_phone, lm.whatsapp_number AS lead_manager_whatsapp
      FROM mice_rfqs mr
      LEFT JOIN users lm ON lm.id = mr.lead_manager_user_id
-     WHERE mr.agency_id = $1
+     WHERE mr.agency_id = ?
      ORDER BY mr.updated_at DESC`,
     [agencyId]
   );
@@ -87,7 +90,7 @@ export async function findMiceRfqWithLeadManager(id) {
             lm.phone AS lead_manager_phone, lm.whatsapp_number AS lead_manager_whatsapp
      FROM mice_rfqs mr
      LEFT JOIN users lm ON lm.id = mr.lead_manager_user_id
-     WHERE mr.id = $1`,
+     WHERE mr.id = ?`,
     [id]
   );
   return rows[0] || null;
@@ -101,13 +104,14 @@ export async function createDraftMiceRfq(client, {
   agencyId, createdByUserId, destination, groupSize, eventDateFrom, eventDateTo,
   hallCapacityNeeded, seatingStyle, avNeeds, otherRequirements,
 }) {
-  const { rows } = await client.query(
+  const id = newId();
+  await client.query(
     `INSERT INTO mice_rfqs
-      (agency_id, created_by_user_id, destination, group_size, event_date_from, event_date_to,
+      (id, agency_id, created_by_user_id, destination, group_size, event_date_from, event_date_to,
        hall_capacity_needed, seating_style, av_needs, other_requirements, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft')
-     RETURNING *`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
     [
+      id,
       agencyId,
       createdByUserId,
       destination || '',
@@ -120,6 +124,7 @@ export async function createDraftMiceRfq(client, {
       otherRequirements || null,
     ]
   );
+  const { rows } = await client.query('SELECT * FROM mice_rfqs WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -129,12 +134,11 @@ export async function createDraftMiceRfq(client, {
 export async function updateDraftMiceRfqInfo(client, id, {
   destination, groupSize, eventDateFrom, eventDateTo, hallCapacityNeeded, seatingStyle, avNeeds, otherRequirements,
 }) {
-  const { rows } = await client.query(
+  const { rowCount } = await client.query(
     `UPDATE mice_rfqs
-     SET destination = $1, group_size = $2, event_date_from = $3, event_date_to = $4,
-         hall_capacity_needed = $5, seating_style = $6, av_needs = $7, other_requirements = $8, updated_at = now()
-     WHERE id = $9 AND status = 'draft'
-     RETURNING *`,
+     SET destination = ?, group_size = ?, event_date_from = ?, event_date_to = ?,
+         hall_capacity_needed = ?, seating_style = ?, av_needs = ?, other_requirements = ?, updated_at = now()
+     WHERE id = ? AND status = 'draft'`,
     [
       destination || '',
       groupSize || null,
@@ -147,6 +151,8 @@ export async function updateDraftMiceRfqInfo(client, id, {
       id,
     ]
   );
+  if (!rowCount) return null;
+  const { rows } = await client.query('SELECT * FROM mice_rfqs WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -154,49 +160,53 @@ export async function updateDraftMiceRfqInfo(client, id, {
 // each selection type is cleared and reinserted rather than diffed — same
 // "always send full state" shape as package_requests' draft replace helpers.
 export async function replaceHotelSelections(client, miceRfqId, hotelIds) {
-  await client.query(`DELETE FROM mice_rfq_hotels WHERE mice_rfq_id = $1`, [miceRfqId]);
+  await client.query(`DELETE FROM mice_rfq_hotels WHERE mice_rfq_id = ?`, [miceRfqId]);
   await addHotelSelections(client, miceRfqId, hotelIds);
 }
 
 export async function replaceTourSelections(client, miceRfqId, tourIds) {
-  await client.query(`DELETE FROM mice_rfq_tours WHERE mice_rfq_id = $1`, [miceRfqId]);
+  await client.query(`DELETE FROM mice_rfq_tours WHERE mice_rfq_id = ?`, [miceRfqId]);
   await addTourSelections(client, miceRfqId, tourIds);
 }
 
 export async function replaceTransferSelections(client, miceRfqId, transferIds) {
-  await client.query(`DELETE FROM mice_rfq_transfers WHERE mice_rfq_id = $1`, [miceRfqId]);
+  await client.query(`DELETE FROM mice_rfq_transfers WHERE mice_rfq_id = ?`, [miceRfqId]);
   await addTransferSelections(client, miceRfqId, transferIds);
 }
 
 export async function replaceActivitySelections(client, miceRfqId, activityIds) {
-  await client.query(`DELETE FROM mice_rfq_activities WHERE mice_rfq_id = $1`, [miceRfqId]);
+  await client.query(`DELETE FROM mice_rfq_activities WHERE mice_rfq_id = ?`, [miceRfqId]);
   await addActivitySelections(client, miceRfqId, activityIds);
 }
 
 // "Submit Draft" — flips draft -> submitted; guarded to only ever fire from
 // 'draft' so it can't resubmit an already-submitted request.
 export async function submitDraftMiceRfq(client, id) {
-  const { rows } = await client.query(
-    `UPDATE mice_rfqs SET status = 'submitted', updated_at = now() WHERE id = $1 AND status = 'draft' RETURNING *`,
+  const { rowCount } = await client.query(
+    `UPDATE mice_rfqs SET status = 'submitted', updated_at = now() WHERE id = ? AND status = 'draft'`,
     [id]
   );
+  if (!rowCount) return null;
+  const { rows } = await client.query('SELECT * FROM mice_rfqs WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
 // "Delete Draft" — scoped to status = 'draft' so a submitted/costed/published
 // request can never be deleted through this path.
 export async function deleteDraftMiceRfq(id) {
-  const { rowCount } = await pool.query(`DELETE FROM mice_rfqs WHERE id = $1 AND status = 'draft'`, [id]);
+  const { rowCount } = await pool.query(`DELETE FROM mice_rfqs WHERE id = ? AND status = 'draft'`, [id]);
   return rowCount > 0;
 }
 
 // Item 5 — Accept / Request Revision / Decline. Guarded to only ever fire
 // from 'published', matching "When the proposal status is Published".
 export async function respondToMiceRfq(id, nextStatus) {
-  const { rows } = await pool.query(
-    `UPDATE mice_rfqs SET status = $1, updated_at = now() WHERE id = $2 AND status = 'published' RETURNING *`,
+  const { rowCount } = await pool.query(
+    `UPDATE mice_rfqs SET status = ?, updated_at = now() WHERE id = ? AND status = 'published'`,
     [nextStatus, id]
   );
+  if (!rowCount) return null;
+  const { rows } = await pool.query('SELECT * FROM mice_rfqs WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
@@ -211,9 +221,9 @@ export async function respondToMiceRfq(id, nextStatus) {
 // adds/removes what's selected.
 export async function listItineraryForRfq(miceRfqId) {
   const [{ rows: days }, { rows: items }] = await Promise.all([
-    pool.query(`SELECT * FROM mice_rfq_itinerary_days WHERE mice_rfq_id = $1 ORDER BY day_number`, [miceRfqId]),
+    pool.query(`SELECT * FROM mice_rfq_itinerary_days WHERE mice_rfq_id = ? ORDER BY day_number`, [miceRfqId]),
     pool.query(
-      `SELECT * FROM mice_rfq_itinerary_items WHERE mice_rfq_id = $1 ORDER BY day_number, position`,
+      `SELECT * FROM mice_rfq_itinerary_items WHERE mice_rfq_id = ? ORDER BY day_number, position`,
       [miceRfqId]
     ),
   ]);
@@ -227,19 +237,19 @@ export async function listItineraryForRfq(miceRfqId) {
 // other replace*/add*Selections functions above so it can join the same
 // transaction as the rest of a create/draft-save/submit.
 export async function replaceItinerary(client, miceRfqId, days) {
-  await client.query(`DELETE FROM mice_rfq_itinerary_days WHERE mice_rfq_id = $1`, [miceRfqId]);
-  await client.query(`DELETE FROM mice_rfq_itinerary_items WHERE mice_rfq_id = $1`, [miceRfqId]);
+  await client.query(`DELETE FROM mice_rfq_itinerary_days WHERE mice_rfq_id = ?`, [miceRfqId]);
+  await client.query(`DELETE FROM mice_rfq_itinerary_items WHERE mice_rfq_id = ?`, [miceRfqId]);
 
   for (const day of days || []) {
     await client.query(
-      `INSERT INTO mice_rfq_itinerary_days (mice_rfq_id, day_number, notes) VALUES ($1, $2, $3)`,
-      [miceRfqId, day.dayNumber, day.notes || null]
+      `INSERT INTO mice_rfq_itinerary_days (id, mice_rfq_id, day_number, notes) VALUES (?, ?, ?, ?)`,
+      [newId(), miceRfqId, day.dayNumber, day.notes || null]
     );
     for (const [position, item] of (day.items || []).entries()) {
       await client.query(
-        `INSERT INTO mice_rfq_itinerary_items (mice_rfq_id, day_number, item_type, item_id, position, note)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [miceRfqId, day.dayNumber, item.type, item.id, position, item.note || null]
+        `INSERT INTO mice_rfq_itinerary_items (id, mice_rfq_id, day_number, item_type, item_id, position, note)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [newId(), miceRfqId, day.dayNumber, item.type, item.id, position, item.note || null]
       );
     }
   }
@@ -275,7 +285,7 @@ export function composeItinerary(days, items, pools) {
 
 export async function listHotelsForRfq(miceRfqId) {
   const { rows } = await pool.query(
-    `SELECT h.* FROM mice_rfq_hotels mh JOIN hotels h ON h.id = mh.hotel_id WHERE mh.mice_rfq_id = $1`,
+    `SELECT h.* FROM mice_rfq_hotels mh JOIN hotels h ON h.id = mh.hotel_id WHERE mh.mice_rfq_id = ?`,
     [miceRfqId]
   );
   return rows;
@@ -283,7 +293,7 @@ export async function listHotelsForRfq(miceRfqId) {
 
 export async function listToursForRfq(miceRfqId) {
   const { rows } = await pool.query(
-    `SELECT t.* FROM mice_rfq_tours mt JOIN tours t ON t.id = mt.tour_id WHERE mt.mice_rfq_id = $1`,
+    `SELECT t.* FROM mice_rfq_tours mt JOIN tours t ON t.id = mt.tour_id WHERE mt.mice_rfq_id = ?`,
     [miceRfqId]
   );
   return rows;
@@ -291,7 +301,7 @@ export async function listToursForRfq(miceRfqId) {
 
 export async function listTransfersForRfq(miceRfqId) {
   const { rows } = await pool.query(
-    `SELECT tr.* FROM mice_rfq_transfers mt JOIN transfers tr ON tr.id = mt.transfer_id WHERE mt.mice_rfq_id = $1`,
+    `SELECT tr.* FROM mice_rfq_transfers mt JOIN transfers tr ON tr.id = mt.transfer_id WHERE mt.mice_rfq_id = ?`,
     [miceRfqId]
   );
   return rows;
@@ -299,7 +309,7 @@ export async function listTransfersForRfq(miceRfqId) {
 
 export async function listActivitiesForRfq(miceRfqId) {
   const { rows } = await pool.query(
-    `SELECT a.* FROM mice_rfq_activities ma JOIN activities a ON a.id = ma.activity_id WHERE ma.mice_rfq_id = $1`,
+    `SELECT a.* FROM mice_rfq_activities ma JOIN activities a ON a.id = ma.activity_id WHERE ma.mice_rfq_id = ?`,
     [miceRfqId]
   );
   return rows;

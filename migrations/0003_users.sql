@@ -1,27 +1,22 @@
-CREATE TYPE user_role AS ENUM (
-  'agency_owner',
-  'agency_staff',
-  'ops_admin',
-  'super_admin',
-  'sales_marketing',
-  'support',
-  'finance'
-);
-CREATE TYPE user_status AS ENUM ('active', 'disabled');
-
+-- user_role was a Postgres ENUM here originally, widened by 0009/0010
+-- (ALTER TYPE ... ADD VALUE) and eventually converted to plain TEXT by
+-- 0069_users_role_text.sql (an admin can type an arbitrary custom role).
+-- Folding that whole lifecycle: role is just VARCHAR from creation — 0009,
+-- 0010 and 0069 become no-op files (see their own comments).
 CREATE TABLE users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  agency_id UUID REFERENCES agencies(id) ON DELETE CASCADE,
-  role user_role NOT NULL,
-  permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+  id CHAR(36) PRIMARY KEY,
+  agency_id CHAR(36),
+  role VARCHAR(100) NOT NULL,
+  permissions JSON NOT NULL DEFAULT (JSON_OBJECT()),
   full_name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
+  email VARCHAR(255) NOT NULL UNIQUE,
   phone TEXT,
   whatsapp_number TEXT,
   password_hash TEXT NOT NULL,
-  status user_status NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_users_agency FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_users_agency_id ON users(agency_id);

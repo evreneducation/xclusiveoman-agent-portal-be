@@ -13,17 +13,22 @@ import 'dotenv/config';
 import { pool } from '../src/db/pool.js';
 
 async function main() {
-  const { rows } = await pool.query(
+  const { rows: existing } = await pool.query('SELECT id FROM admin_security LIMIT 1');
+  if (!existing[0]) {
+    console.log('Nothing to do — no admin_security row exists (2FA was never set up).');
+    await pool.end();
+    return;
+  }
+
+  await pool.query(
     `UPDATE admin_security
        SET totp_enabled = false, totp_secret = NULL, activated_at = NULL, updated_at = now()
-     RETURNING id, totp_enabled`
+     WHERE id = ?`,
+    [existing[0].id]
   );
+  const { rows } = await pool.query('SELECT id, totp_enabled FROM admin_security WHERE id = ?', [existing[0].id]);
 
-  if (rows[0]) {
-    console.log('Admin console 2FA disabled and secret cleared:', rows[0]);
-  } else {
-    console.log('Nothing to do — no admin_security row exists (2FA was never set up).');
-  }
+  console.log('Admin console 2FA disabled and secret cleared:', rows[0]);
   await pool.end();
 }
 

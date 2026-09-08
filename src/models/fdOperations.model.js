@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Admin FD Operations Tracker (Task 12 — Screen 19). FD-only by construction
 // (requirement I4): every query here filters bookings to
@@ -39,7 +40,7 @@ export async function listDeparturesWithOperationsState({ search } = {}) {
   let searchClause = '';
   if (search) {
     params.push(`%${search}%`);
-    searchClause = `WHERE fp.title ILIKE $${params.length}`;
+    searchClause = `WHERE LOWER(fp.title) LIKE LOWER(?)`;
   }
 
   const { rows } = await pool.query(
@@ -49,8 +50,8 @@ export async function listDeparturesWithOperationsState({ search } = {}) {
        fdd.location,
        fp.id AS fd_package_id,
        fp.title AS package_title,
-       bk.pax_total::int AS pax_total,
-       bk.agency_count::int AS agency_count,
+       bk.pax_total AS pax_total,
+       bk.agency_count AS agency_count,
        bk.booking_confirmed,
        ops.id AS operations_id,
        ops.docs_collected_at,
@@ -66,7 +67,7 @@ export async function listDeparturesWithOperationsState({ search } = {}) {
          fd_departure_date_id,
          SUM(pax) AS pax_total,
          COUNT(DISTINCT agency_id) AS agency_count,
-         BOOL_OR(status IN ('confirmed', 'fully_paid')) AS booking_confirmed
+         MAX(status IN ('confirmed', 'fully_paid')) AS booking_confirmed
        FROM bookings
        WHERE source_type = 'fd_package' AND fd_departure_date_id IS NOT NULL
        GROUP BY fd_departure_date_id
@@ -92,8 +93,8 @@ export async function findDepartureWithOperationsState(departureDateId) {
        fp.id AS fd_package_id,
        fp.title AS package_title,
        fp.hero_image_url,
-       bk.pax_total::int AS pax_total,
-       bk.agency_count::int AS agency_count,
+       bk.pax_total AS pax_total,
+       bk.agency_count AS agency_count,
        bk.booking_confirmed,
        ops.id AS operations_id,
        ops.docs_collected_at,
@@ -109,13 +110,13 @@ export async function findDepartureWithOperationsState(departureDateId) {
          fd_departure_date_id,
          SUM(pax) AS pax_total,
          COUNT(DISTINCT agency_id) AS agency_count,
-         BOOL_OR(status IN ('confirmed', 'fully_paid')) AS booking_confirmed
+         MAX(status IN ('confirmed', 'fully_paid')) AS booking_confirmed
        FROM bookings
        WHERE source_type = 'fd_package' AND fd_departure_date_id IS NOT NULL
        GROUP BY fd_departure_date_id
      ) bk ON bk.fd_departure_date_id = fdd.id
      LEFT JOIN fd_departure_operations ops ON ops.fd_departure_date_id = fdd.id
-     WHERE fdd.id = $1`,
+     WHERE fdd.id = ?`,
     [departureDateId]
   );
   return rows[0] || null;
@@ -153,16 +154,15 @@ export function isBookingConfirmed(row) {
 // Lazily creates the operations row the first time anything needs to write
 // to it (stage advance or driver dispatch) — most departures never get one
 // until an admin actually opens their tracker and acts on it.
-// ON CONFLICT DO NOTHING + a follow-up SELECT (rather than a single
-// upsert-and-return) because a concurrent request could race the INSERT;
-// either way this always returns the one real row for this departure.
+// INSERT IGNORE + a follow-up SELECT (rather than a single upsert-and-return)
+// because a concurrent request could race the INSERT; either way this always
+// returns the one real row for this departure.
 export async function getOrCreateOperations(departureDateId) {
   await pool.query(
-    `INSERT INTO fd_departure_operations (fd_departure_date_id) VALUES ($1)
-     ON CONFLICT (fd_departure_date_id) DO NOTHING`,
-    [departureDateId]
+    `INSERT IGNORE INTO fd_departure_operations (id, fd_departure_date_id) VALUES (?, ?)`,
+    [newId(), departureDateId]
   );
-  const { rows } = await pool.query('SELECT * FROM fd_departure_operations WHERE fd_departure_date_id = $1', [departureDateId]);
+  const { rows } = await pool.query('SELECT * FROM fd_departure_operations WHERE fd_departure_date_id = ?', [departureDateId]);
   return rows[0];
 }
 
@@ -181,17 +181,25 @@ export async function advanceStage(operationsId, stage) {
   const prereqColumns = STAGE_ORDER.slice(0, stageIndex).map((s) => STAGE_COLUMN[s]);
   const prereqClause = prereqColumns.length ? ` AND ${prereqColumns.map((c) => `${c} IS NOT NULL`).join(' AND ')}` : '';
 
-  const { rows } = await pool.query(
+  // Can't reuse this same WHERE clause for a follow-up SELECT (the pattern
+  // used elsewhere in this port for RETURNING-less UPDATEs) — the guard is
+  // `${column} IS NULL`, and a successful UPDATE sets that very column to
+  // now(), so the row would no longer match its own guard afterwards.
+  // Instead check `rowCount` — src/db/pool.js's adapter normalizes mysql2's
+  // ResultSetHeader.affectedRows into this same field pg used to return.
+  const { rowCount } = await pool.query(
     `UPDATE fd_departure_operations
      SET ${column} = now(), updated_at = now()
-     WHERE id = $1 AND ${column} IS NULL${prereqClause}
-     RETURNING *`,
+     WHERE id = ? AND ${column} IS NULL${prereqClause}`,
     [operationsId]
   );
-  if (rows[0]) return { ok: true, operations: rows[0] };
+  if (rowCount) {
+    const { rows } = await pool.query('SELECT * FROM fd_departure_operations WHERE id = ?', [operationsId]);
+    return { ok: true, operations: rows[0] };
+  }
 
   // Determine why, for the error message only (see comment above).
-  const { rows: currentRows } = await pool.query('SELECT * FROM fd_departure_operations WHERE id = $1', [operationsId]);
+  const { rows: currentRows } = await pool.query('SELECT * FROM fd_departure_operations WHERE id = ?', [operationsId]);
   const current = currentRows[0];
   if (!current) return { ok: false, reason: 'not_found' };
   if (current[column]) return { ok: false, reason: 'already_complete' };
@@ -210,19 +218,20 @@ export async function insertDriverDispatchAndAdvanceStage(departureDateId, opera
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows: dispatchRows } = await client.query(
-      `INSERT INTO fd_departure_driver_dispatches (fd_departure_date_id, driver_name, vehicle, pickup_details, sent_by_user_id)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [departureDateId, driverName, vehicle, pickupDetails, sentByUserId]
+    const dispatchId = newId();
+    await client.query(
+      `INSERT INTO fd_departure_driver_dispatches (id, fd_departure_date_id, driver_name, vehicle, pickup_details, sent_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [dispatchId, departureDateId, driverName, vehicle, pickupDetails, sentByUserId]
     );
-    const { rows: opsRows } = await client.query(
+    const { rows: dispatchRows } = await client.query('SELECT * FROM fd_departure_driver_dispatches WHERE id = ?', [dispatchId]);
+    await client.query(
       `UPDATE fd_departure_operations
        SET driver_sent_at = COALESCE(driver_sent_at, now()), updated_at = now()
-       WHERE id = $1
-       RETURNING *`,
+       WHERE id = ?`,
       [operationsId]
     );
+    const { rows: opsRows } = await client.query('SELECT * FROM fd_departure_operations WHERE id = ?', [operationsId]);
     await client.query('COMMIT');
     return { dispatch: dispatchRows[0], operations: opsRows[0] };
   } catch (err) {
@@ -247,14 +256,14 @@ export async function listPaxManifest(departureDateId) {
      FROM bookings b
      JOIN agencies a ON a.id = b.agency_id
      JOIN users u ON u.id = b.created_by_user_id
-     WHERE b.fd_departure_date_id = $1 AND b.source_type = 'fd_package'
+     WHERE b.fd_departure_date_id = ? AND b.source_type = 'fd_package'
      ORDER BY a.name, b.created_at`,
     [departureDateId]
   );
   if (bookings.length === 0) return [];
 
   const { rows: travelers } = await pool.query(
-    `SELECT booking_id, name, room_share_group FROM booking_travelers WHERE booking_id = ANY($1::uuid[]) ORDER BY name`,
+    `SELECT booking_id, name, room_share_group FROM booking_travelers WHERE booking_id IN (?) ORDER BY name`,
     [bookings.map((b) => b.id)]
   );
   const travelersByBooking = new Map();
@@ -272,7 +281,7 @@ export async function listPaxManifest(departureDateId) {
 // filter beyond source_type='fd_package').
 export async function listDepartureAgencyIds(departureDateId) {
   const { rows } = await pool.query(
-    `SELECT DISTINCT agency_id FROM bookings WHERE fd_departure_date_id = $1 AND source_type = 'fd_package'`,
+    `SELECT DISTINCT agency_id FROM bookings WHERE fd_departure_date_id = ? AND source_type = 'fd_package'`,
     [departureDateId]
   );
   return rows.map((r) => r.agency_id);
@@ -281,12 +290,13 @@ export async function listDepartureAgencyIds(departureDateId) {
 // --- Supplier coordination log ---
 
 export async function insertSupplierLog(departureDateId, { supplierName, item, status, createdByUserId }) {
-  const { rows } = await pool.query(
-    `INSERT INTO fd_departure_supplier_logs (fd_departure_date_id, supplier_name, item, status, created_by_user_id)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING *`,
-    [departureDateId, supplierName, item, status, createdByUserId]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO fd_departure_supplier_logs (id, fd_departure_date_id, supplier_name, item, status, created_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, departureDateId, supplierName, item, status, createdByUserId]
   );
+  const { rows } = await pool.query('SELECT * FROM fd_departure_supplier_logs WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -295,7 +305,7 @@ export async function listSupplierLogs(departureDateId) {
     `SELECT l.*, u.full_name AS created_by_name
      FROM fd_departure_supplier_logs l
      JOIN users u ON u.id = l.created_by_user_id
-     WHERE l.fd_departure_date_id = $1
+     WHERE l.fd_departure_date_id = ?
      ORDER BY l.created_at DESC`,
     [departureDateId]
   );
@@ -313,7 +323,7 @@ export async function listDriverDispatches(departureDateId) {
     `SELECT d.*, u.full_name AS sent_by_name
      FROM fd_departure_driver_dispatches d
      JOIN users u ON u.id = d.sent_by_user_id
-     WHERE d.fd_departure_date_id = $1
+     WHERE d.fd_departure_date_id = ?
      ORDER BY d.sent_at DESC`,
     [departureDateId]
   );
@@ -323,12 +333,13 @@ export async function listDriverDispatches(departureDateId) {
 // --- Tour update broadcast ---
 
 export async function insertTourUpdate(departureDateId, { updateType, message, publishedByUserId }) {
-  const { rows } = await pool.query(
-    `INSERT INTO fd_departure_tour_updates (fd_departure_date_id, update_type, message, published_by_user_id)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [departureDateId, updateType, message, publishedByUserId]
+  const id = newId();
+  await pool.query(
+    `INSERT INTO fd_departure_tour_updates (id, fd_departure_date_id, update_type, message, published_by_user_id)
+     VALUES (?, ?, ?, ?, ?)`,
+    [id, departureDateId, updateType, message, publishedByUserId]
   );
+  const { rows } = await pool.query('SELECT * FROM fd_departure_tour_updates WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -337,7 +348,7 @@ export async function listTourUpdates(departureDateId) {
     `SELECT t.*, u.full_name AS published_by_name
      FROM fd_departure_tour_updates t
      JOIN users u ON u.id = t.published_by_user_id
-     WHERE t.fd_departure_date_id = $1
+     WHERE t.fd_departure_date_id = ?
      ORDER BY t.published_at DESC`,
     [departureDateId]
   );

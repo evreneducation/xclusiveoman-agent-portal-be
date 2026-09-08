@@ -42,8 +42,10 @@ function roleRank(role) {
 // role) — nothing keeps a placeholder around for a custom role no one has.
 export async function listRoles(req, res, next) {
   try {
+    // Postgres' `COUNT(*)::int` cast dropped — MySQL's COUNT(*) already
+    // comes back as a plain number, no cast needed/available.
     const { rows } = await pool.query(
-      `SELECT role, COUNT(*)::int AS count FROM users WHERE agency_id IS NULL GROUP BY role`
+      `SELECT role, COUNT(*) AS count FROM users WHERE agency_id IS NULL GROUP BY role`
     );
     const counts = new Map(rows.filter((r) => !EXCLUDED_ROLES.has(r.role)).map((r) => [r.role, r.count]));
     for (const known of Object.keys(KNOWN_ROLE_LABELS)) {

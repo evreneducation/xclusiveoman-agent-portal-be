@@ -1,4 +1,5 @@
 import { pool } from '../db/pool.js';
+import { newId } from '../utils/id.js';
 
 // Admin console 2FA settings — a singleton row (0076_admin_2fa.sql), the
 // same "one row, get-or-create then patch it" shape siteTerms.model.js uses
@@ -13,7 +14,9 @@ export const adminSecurityModel = {
   async ensureRow() {
     const existing = await this.get();
     if (existing) return existing;
-    const { rows } = await pool.query('INSERT INTO admin_security DEFAULT VALUES RETURNING *');
+    const id = newId();
+    await pool.query('INSERT INTO admin_security (id) VALUES (?)', [id]);
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [id]);
     return rows[0];
   },
 
@@ -22,10 +25,11 @@ export const adminSecurityModel = {
   // codes until activate() confirms the secret was actually scanned.
   async setPendingSecret(secret) {
     const row = await this.ensureRow();
-    const { rows } = await pool.query(
-      'UPDATE admin_security SET totp_secret = $1, totp_enabled = false, activated_at = NULL, updated_at = now() WHERE id = $2 RETURNING *',
+    await pool.query(
+      'UPDATE admin_security SET totp_secret = ?, totp_enabled = false, activated_at = NULL, updated_at = now() WHERE id = ?',
       [secret, row.id]
     );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
     return rows[0];
   },
 
@@ -34,10 +38,11 @@ export const adminSecurityModel = {
   // screen moments later.
   async activate(step) {
     const row = await this.ensureRow();
-    const { rows } = await pool.query(
-      'UPDATE admin_security SET totp_enabled = true, last_totp_step = $2, activated_at = now(), updated_at = now() WHERE id = $1 RETURNING *',
-      [row.id, step]
+    await pool.query(
+      'UPDATE admin_security SET totp_enabled = true, last_totp_step = ?, activated_at = now(), updated_at = now() WHERE id = ?',
+      [step, row.id]
     );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
     return rows[0];
   },
 
@@ -49,8 +54,8 @@ export const adminSecurityModel = {
     const row = await this.get();
     if (!row) return false;
     const { rowCount } = await pool.query(
-      'UPDATE admin_security SET last_totp_step = $2, updated_at = now() WHERE id = $1 AND (last_totp_step IS NULL OR last_totp_step < $2)',
-      [row.id, step]
+      'UPDATE admin_security SET last_totp_step = ?, updated_at = now() WHERE id = ? AND (last_totp_step IS NULL OR last_totp_step < ?)',
+      [step, row.id, step]
     );
     return rowCount > 0;
   },
@@ -60,10 +65,11 @@ export const adminSecurityModel = {
   // secret someone may have removed from their phone.
   async disable() {
     const row = await this.ensureRow();
-    const { rows } = await pool.query(
-      'UPDATE admin_security SET totp_enabled = false, totp_secret = NULL, activated_at = NULL, updated_at = now() WHERE id = $1 RETURNING *',
+    await pool.query(
+      'UPDATE admin_security SET totp_enabled = false, totp_secret = NULL, activated_at = NULL, updated_at = now() WHERE id = ?',
       [row.id]
     );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
     return rows[0];
   },
 };

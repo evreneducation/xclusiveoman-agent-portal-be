@@ -14,8 +14,10 @@ export async function pickNextRoundRobinRm() {
   );
   if (rms.length === 0) return null;
 
+  // Postgres' `count(*)::int` cast dropped — MySQL's COUNT(*) already
+  // comes back as a plain number, no cast needed/available.
   const { rows } = await pool.query(
-    `SELECT count(*)::int AS n FROM agencies WHERE rm_user_id IS NOT NULL`
+    `SELECT COUNT(*) AS n FROM agencies WHERE rm_user_id IS NOT NULL`
   );
   const assignedSoFar = rows[0].n;
 

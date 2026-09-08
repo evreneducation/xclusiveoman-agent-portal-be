@@ -25,37 +25,33 @@ const SELECT_COLUMNS = `
 function buildFilters({ status, rating, search }) {
   const clauses = [];
   const values = [];
-  let i = 1;
 
   if (status) {
-    clauses.push(`r.status = $${i}`);
+    clauses.push(`r.status = ?`);
     values.push(status);
-    i += 1;
   }
   if (rating) {
-    clauses.push(`r.rating = $${i}`);
+    clauses.push(`r.rating = ?`);
     values.push(Number(rating));
-    i += 1;
   }
   if (search) {
     // Agency name / package name / review text — the three fields the task
     // explicitly named as useful for moderation. Not searching booking id or
     // any unrelated table.
-    clauses.push(`(a.name ILIKE $${i} OR fp.title ILIKE $${i} OR r.review_text ILIKE $${i})`);
-    values.push(`%${search}%`);
-    i += 1;
+    clauses.push(`(LOWER(a.name) LIKE LOWER(?) OR LOWER(fp.title) LIKE LOWER(?) OR LOWER(r.review_text) LIKE LOWER(?))`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
   const where = clauses.length ? `AND ${clauses.join(' AND ')}` : '';
-  return { where, values, next: i };
+  return { where, values };
 }
 
 // GET /admin/reviews — same LIMIT/OFFSET + {rows,total,page,pageSize} shape
 // as listBookingsForAdmin/listPackageRequestsForAdmin.
 export async function listReviewsForAdmin({ status, rating, search, page, pageSize } = {}) {
-  const { where, values, next } = buildFilters({ status, rating, search });
+  const { where, values } = buildFilters({ status, rating, search });
 
-  const { rows: countRows } = await pool.query(`SELECT COUNT(*) ${JOINS} ${where}`, values);
+  const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${JOINS} ${where}`, values);
   const total = Number(countRows[0].count);
 
   const limit = Math.max(1, Math.min(100, Number(pageSize) || 20));
@@ -65,7 +61,7 @@ export async function listReviewsForAdmin({ status, rating, search, page, pageSi
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS} ${JOINS} ${where}
      ORDER BY r.submitted_at DESC
-     LIMIT $${next} OFFSET $${next + 1}`,
+     LIMIT ? OFFSET ?`,
     [...values, limit, offset]
   );
 
@@ -74,7 +70,7 @@ export async function listReviewsForAdmin({ status, rating, search, page, pageSi
 
 export async function findReviewByIdForAdmin(id) {
   const { rows } = await pool.query(
-    `SELECT ${SELECT_COLUMNS} ${JOINS} AND r.id = $1`,
+    `SELECT ${SELECT_COLUMNS} ${JOINS} AND r.id = ?`,
     [id]
   );
   return rows[0] || null;
@@ -91,21 +87,19 @@ export async function findReviewByIdForAdmin(id) {
 // COALESCE turns into exactly the documented 0/0 case.
 async function rollupPackageRating(client, fdPackageId) {
   const { rows } = await client.query(
-    `SELECT COUNT(*) AS review_count, ROUND(AVG(rating)::numeric, 2) AS avg_rating
-     FROM reviews WHERE fd_package_id = $1 AND status = 'published'`,
+    `SELECT COUNT(*) AS review_count, ROUND(AVG(rating), 2) AS avg_rating
+     FROM reviews WHERE fd_package_id = ? AND status = 'published'`,
     [fdPackageId]
   );
   const { review_count: reviewCount, avg_rating: avgRating } = rows[0];
-  // Both COALESCE(...) targets need an explicit cast — without one, Postgres
-  // infers $1/$2's type from the untyped `0` literal shared by both
-  // COALESCE calls in this one statement rather than from each target
-  // column independently, which collapses avgRating (numeric, e.g. "5.00")
-  // into an integer parse attempt and throws "invalid input syntax for type
-  // integer". Same class of enum/type-inference gotcha this codebase has
-  // hit before (see cms.model.js#createCmsPage's own comment) — just
-  // NUMERIC/INTEGER here instead of an enum.
+  // Postgres' explicit ::numeric/::integer casts on these two COALESCE(...)
+  // targets dropped — that requirement was Postgres inferring a shared type
+  // for $1/$2 from the untyped `0` literal shared by both COALESCE calls in
+  // one statement (see cms.model.js#createCmsPage's own comment for the same
+  // class of gotcha); MySQL has no such cross-parameter type inference, so
+  // COALESCE(?, 0) just resolves against each target column's own type here.
   await client.query(
-    `UPDATE fd_packages SET rating = COALESCE($1::numeric, 0), review_count = COALESCE($2::integer, 0), updated_at = now() WHERE id = $3`,
+    `UPDATE fd_packages SET rating = COALESCE(?, 0), review_count = COALESCE(?, 0), updated_at = now() WHERE id = ?`,
     [avgRating, reviewCount, fdPackageId]
   );
 }
@@ -133,7 +127,7 @@ export async function setReviewStatus(id, status) {
   try {
     await client.query('BEGIN');
 
-    const { rows: existingRows } = await client.query('SELECT * FROM reviews WHERE id = $1 FOR UPDATE', [id]);
+    const { rows: existingRows } = await client.query('SELECT * FROM reviews WHERE id = ? FOR UPDATE', [id]);
     const existing = existingRows[0];
     if (!existing) {
       await client.query('ROLLBACK');
@@ -145,10 +139,8 @@ export async function setReviewStatus(id, status) {
       return { review: existing, changed: false };
     }
 
-    const { rows: updatedRows } = await client.query(
-      'UPDATE reviews SET status = $1 WHERE id = $2 RETURNING *',
-      [status, id]
-    );
+    await client.query('UPDATE reviews SET status = ? WHERE id = ?', [status, id]);
+    const { rows: updatedRows } = await client.query('SELECT * FROM reviews WHERE id = ?', [id]);
     const updated = updatedRows[0];
 
     await rollupPackageRating(client, updated.fd_package_id);

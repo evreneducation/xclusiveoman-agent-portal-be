@@ -31,39 +31,39 @@ import { pool } from '../db/pool.js';
 // "successful" records.
 const REVENUE_STATUS_EXCLUSION = `b.status NOT IN ('cancelled', 'waitlisted')`;
 
-function buildAgencyFilters({ agencyId, country }, startIndex) {
+// Placeholders are plain `?` under MySQL (positional, not numbered like
+// Postgres's $1/$2), so unlike the original these helpers no longer need to
+// thread a startIndex/next counter through the caller — clause order and
+// values-array push order just have to match, which they already do
+// everywhere these are used (clause is always interpolated in the same
+// order its values were pushed).
+function buildAgencyFilters({ agencyId, country }) {
   const clauses = [];
   const values = [];
-  let i = startIndex;
   if (agencyId) {
-    clauses.push(`b.agency_id = $${i}`);
+    clauses.push(`b.agency_id = ?`);
     values.push(agencyId);
-    i += 1;
   }
   if (country) {
-    clauses.push(`a.country = $${i}`);
+    clauses.push(`a.country = ?`);
     values.push(country);
-    i += 1;
   }
-  return { clause: clauses.length ? `AND ${clauses.join(' AND ')}` : '', values, next: i };
+  return { clause: clauses.length ? `AND ${clauses.join(' AND ')}` : '', values };
 }
 
-function buildDateFilters({ dateFrom, dateTo }, startIndex) {
+function buildDateFilters({ dateFrom, dateTo }) {
   const clauses = [];
   const values = [];
-  let i = startIndex;
   if (dateFrom) {
-    clauses.push(`b.created_at >= $${i}`);
+    clauses.push(`b.created_at >= ?`);
     values.push(dateFrom);
-    i += 1;
   }
   if (dateTo) {
     // Inclusive of the whole end day, same convention packageRequestsAdmin.model.js uses.
-    clauses.push(`b.created_at < ($${i}::date + interval '1 day')`);
+    clauses.push(`b.created_at < (? + INTERVAL 1 DAY)`);
     values.push(dateTo);
-    i += 1;
   }
-  return { clause: clauses.length ? `AND ${clauses.join(' AND ')}` : '', values, next: i };
+  return { clause: clauses.length ? `AND ${clauses.join(' AND ')}` : '', values };
 }
 
 // GET /admin/analytics/summary — KPI cards + sales mix. Only the FD-only,
@@ -71,16 +71,16 @@ function buildDateFilters({ dateFrom, dateTo }, startIndex) {
 // filtering); source_type = 'fd_package' is filtered exactly like every
 // other admin analytics-adjacent query in this codebase.
 export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
-  const dateFilters = buildDateFilters({ dateFrom, dateTo }, 1);
-  const agencyFilters = buildAgencyFilters({ agencyId, country }, dateFilters.next);
+  const dateFilters = buildDateFilters({ dateFrom, dateTo });
+  const agencyFilters = buildAgencyFilters({ agencyId, country });
   const values = [...dateFilters.values, ...agencyFilters.values];
   const where = `WHERE b.source_type = 'fd_package' ${dateFilters.clause} ${agencyFilters.clause}`;
 
   const { rows: totals } = await pool.query(
     `SELECT
-       COUNT(*)::int AS total_bookings,
-       COALESCE(SUM(b.deposit_paid) FILTER (WHERE ${REVENUE_STATUS_EXCLUSION}), 0) AS total_revenue,
-       COUNT(*) FILTER (WHERE ${REVENUE_STATUS_EXCLUSION} AND b.deposit_paid > 0)::int AS revenue_booking_count
+       COUNT(*) AS total_bookings,
+       COALESCE(SUM(CASE WHEN ${REVENUE_STATUS_EXCLUSION} THEN b.deposit_paid ELSE 0 END), 0) AS total_revenue,
+       COUNT(CASE WHEN ${REVENUE_STATUS_EXCLUSION} AND b.deposit_paid > 0 THEN 1 END) AS revenue_booking_count
      FROM bookings b
      JOIN agencies a ON a.id = b.agency_id
      ${where}`,
@@ -94,8 +94,8 @@ export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
   const { rows: salesMixRows } = await pool.query(
     `SELECT
        b.created_via,
-       COUNT(*)::int AS booking_count,
-       COALESCE(SUM(b.deposit_paid) FILTER (WHERE ${REVENUE_STATUS_EXCLUSION}), 0) AS revenue
+       COUNT(*) AS booking_count,
+       COALESCE(SUM(CASE WHEN ${REVENUE_STATUS_EXCLUSION} THEN b.deposit_paid ELSE 0 END), 0) AS revenue
      FROM bookings b
      JOIN agencies a ON a.id = b.agency_id
      ${where}
@@ -109,29 +109,26 @@ export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
   // bookings.created_at).
   const agencyDateClauses = [];
   const agencyDateValues = [];
-  let ai = 1;
   if (dateFrom) {
-    agencyDateClauses.push(`created_at >= $${ai}`);
+    agencyDateClauses.push(`created_at >= ?`);
     agencyDateValues.push(dateFrom);
-    ai += 1;
   }
   if (dateTo) {
-    agencyDateClauses.push(`created_at < ($${ai}::date + interval '1 day')`);
+    agencyDateClauses.push(`created_at < (? + INTERVAL 1 DAY)`);
     agencyDateValues.push(dateTo);
-    ai += 1;
   }
   const agencyWhere = ['status = \'approved\'', ...agencyDateClauses].join(' AND ');
-  const { rows: agencyRows } = await pool.query(`SELECT COUNT(*)::int AS total_agencies FROM agencies WHERE ${agencyWhere}`, agencyDateValues);
+  const { rows: agencyRows } = await pool.query(`SELECT COUNT(*) AS total_agencies FROM agencies WHERE ${agencyWhere}`, agencyDateValues);
 
   const totalRevenue = Number(totals[0].total_revenue);
-  const totalBookings = totals[0].total_bookings;
-  const revenueBookingCount = totals[0].revenue_booking_count;
+  const totalBookings = Number(totals[0].total_bookings);
+  const revenueBookingCount = Number(totals[0].revenue_booking_count);
 
   return {
     totalBookings,
     totalRevenue,
     averageBookingValue: revenueBookingCount > 0 ? totalRevenue / revenueBookingCount : 0,
-    totalAgencies: agencyRows[0].total_agencies,
+    totalAgencies: Number(agencyRows[0].total_agencies),
     // Profit margin is deliberately never computed — see this file's own
     // header comment / analytics.controller.js's own comment for why no
     // cost-basis field exists anywhere in this schema for FD bookings.
@@ -141,7 +138,7 @@ export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
     },
     salesMix: salesMixRows.map((r) => ({
       createdVia: r.created_via,
-      bookingCount: r.booking_count,
+      bookingCount: Number(r.booking_count),
       revenue: Number(r.revenue),
     })),
   };
@@ -149,45 +146,75 @@ export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
 
 // GET /admin/analytics/revenue-by-month — one row per calendar month in
 // [dateFrom, dateTo], zero-filled so the chart never has a gap for a month
-// with no bookings. generate_series + LEFT JOIN, not a JS loop patching
-// gaps — the zero-fill itself is server-side aggregation too.
+// with no bookings.
+//
+// The original Postgres version built the zero-filled month list entirely
+// in SQL via `generate_series(...)` LEFT JOINed against a `date_trunc`'d
+// aggregate. MySQL has no `generate_series` and no direct equivalent
+// (a recursive CTE or calendar table are the usual workarounds, but both
+// add real complexity for a bounded, small number of months). This is a
+// deliberate deviation from the original "not a JS loop patching gaps" design
+// intent: revenue is now aggregated in SQL (still never fetching individual
+// bookings), grouped by month via DATE_FORMAT, and the zero-fill across the
+// [dateFrom, dateTo] range is done in JS by walking month-by-month and
+// merging with a Map — there is no portable MySQL equivalent to
+// generate_series that doesn't add more risk than this simple merge.
 export async function getRevenueByMonth({ dateFrom, dateTo, agencyId, country }) {
-  const agencyFilters = buildAgencyFilters({ agencyId, country }, 3);
+  const agencyFilters = buildAgencyFilters({ agencyId, country });
   const values = [dateFrom, dateTo, ...agencyFilters.values];
 
   const { rows } = await pool.query(
-    `WITH months AS (
-       SELECT generate_series(date_trunc('month', $1::date), date_trunc('month', $2::date), interval '1 month') AS month_start
-     ),
-     revenue AS (
-       SELECT
-         date_trunc('month', b.created_at) AS month_start,
-         COALESCE(SUM(b.deposit_paid) FILTER (WHERE ${REVENUE_STATUS_EXCLUSION}), 0) AS revenue,
-         COUNT(*)::int AS booking_count
-       FROM bookings b
-       JOIN agencies a ON a.id = b.agency_id
-       WHERE b.source_type = 'fd_package'
-         AND b.created_at >= $1::date
-         AND b.created_at < ($2::date + interval '1 day')
-         ${agencyFilters.clause}
-       GROUP BY 1
-     )
-     SELECT m.month_start, COALESCE(r.revenue, 0) AS revenue, COALESCE(r.booking_count, 0)::int AS booking_count
-     FROM months m
-     LEFT JOIN revenue r ON r.month_start = m.month_start
-     ORDER BY m.month_start`,
+    `SELECT
+       DATE_FORMAT(b.created_at, '%Y-%m-01') AS month_start,
+       COALESCE(SUM(CASE WHEN ${REVENUE_STATUS_EXCLUSION} THEN b.deposit_paid ELSE 0 END), 0) AS revenue,
+       COUNT(*) AS booking_count
+     FROM bookings b
+     JOIN agencies a ON a.id = b.agency_id
+     WHERE b.source_type = 'fd_package'
+       AND b.created_at >= ?
+       AND b.created_at < (? + INTERVAL 1 DAY)
+       ${agencyFilters.clause}
+     GROUP BY 1`,
     values
   );
 
-  return rows.map((r) => ({ month: r.month_start, revenue: Number(r.revenue), bookingCount: r.booking_count }));
+  const byMonth = new Map();
+  for (const r of rows) {
+    const key = r.month_start instanceof Date ? r.month_start.toISOString().slice(0, 10) : String(r.month_start).slice(0, 10);
+    byMonth.set(key, { revenue: Number(r.revenue), bookingCount: Number(r.booking_count) });
+  }
+
+  const months = [];
+  const cursor = new Date(Date.UTC(
+    new Date(dateFrom).getUTCFullYear(),
+    new Date(dateFrom).getUTCMonth(),
+    1
+  ));
+  const end = new Date(Date.UTC(
+    new Date(dateTo).getUTCFullYear(),
+    new Date(dateTo).getUTCMonth(),
+    1
+  ));
+  while (cursor <= end) {
+    const key = cursor.toISOString().slice(0, 10);
+    const bucket = byMonth.get(key);
+    months.push({
+      month: key,
+      revenue: bucket ? bucket.revenue : 0,
+      bookingCount: bucket ? bucket.bookingCount : 0,
+    });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+
+  return months;
 }
 
 // GET /admin/analytics/top-agencies — ranked by recognized revenue, ties
 // broken by booking count. SQL-side ORDER BY + LIMIT/OFFSET — never fetch
 // every agency and sort in JS.
 export async function getTopAgencies({ dateFrom, dateTo, agencyId, country, page, pageSize } = {}) {
-  const dateFilters = buildDateFilters({ dateFrom, dateTo }, 1);
-  const agencyFilters = buildAgencyFilters({ agencyId, country }, dateFilters.next);
+  const dateFilters = buildDateFilters({ dateFrom, dateTo });
+  const agencyFilters = buildAgencyFilters({ agencyId, country });
   const values = [...dateFilters.values, ...agencyFilters.values];
   const where = `WHERE b.source_type = 'fd_package' ${dateFilters.clause} ${agencyFilters.clause}`;
 
@@ -209,14 +236,14 @@ export async function getTopAgencies({ dateFrom, dateTo, agencyId, country, page
        a.id AS agency_id,
        a.name AS agency_name,
        a.country,
-       COUNT(*)::int AS booking_count,
-       COALESCE(SUM(b.deposit_paid) FILTER (WHERE ${REVENUE_STATUS_EXCLUSION}), 0) AS revenue
+       COUNT(*) AS booking_count,
+       COALESCE(SUM(CASE WHEN ${REVENUE_STATUS_EXCLUSION} THEN b.deposit_paid ELSE 0 END), 0) AS revenue
      FROM bookings b
      JOIN agencies a ON a.id = b.agency_id
      ${where}
      GROUP BY a.id, a.name, a.country
      ORDER BY revenue DESC, booking_count DESC
-     LIMIT $${agencyFilters.next} OFFSET $${agencyFilters.next + 1}`,
+     LIMIT ? OFFSET ?`,
     [...values, limit, offset]
   );
 
@@ -225,7 +252,7 @@ export async function getTopAgencies({ dateFrom, dateTo, agencyId, country, page
       agencyId: r.agency_id,
       agencyName: r.agency_name,
       country: r.country,
-      bookingCount: r.booking_count,
+      bookingCount: Number(r.booking_count),
       revenue: Number(r.revenue),
     })),
     total,

@@ -1,5 +1,6 @@
 import { pool } from '../db/pool.js';
 import { env } from '../config/env.js';
+import { newId } from '../utils/id.js';
 import { createAgency } from '../models/agencies.model.js';
 import { createUser, findUserByEmail, findUserById, listStaffByRole, toPublicUser } from '../models/users.model.js';
 import {
@@ -266,7 +267,7 @@ export async function requestLoginOtp(req, res, next) {
     // checked against every past send for this user, used or not, so a
     // rapid string of "Resend code" clicks can't outrun it.
     const { rows: recentSends } = await pool.query(
-      `SELECT created_at FROM login_otps WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      `SELECT created_at FROM login_otps WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
       [user.id, OTP_MAX_PER_WINDOW]
     );
     const now = Date.now();
@@ -297,10 +298,10 @@ export async function requestLoginOtp(req, res, next) {
     // most one OTP is ever valid at a time — clicking "Resend code" (or
     // re-submitting the email step) can't leave several different codes
     // simultaneously accepted.
-    await pool.query('UPDATE login_otps SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [user.id]);
+    await pool.query('UPDATE login_otps SET used_at = now() WHERE user_id = ? AND used_at IS NULL', [user.id]);
     await pool.query(
-      `INSERT INTO login_otps (user_id, otp_hash, expires_at) VALUES ($1, $2, $3)`,
-      [user.id, otpHash, expiresAt]
+      `INSERT INTO login_otps (id, user_id, otp_hash, expires_at) VALUES (?, ?, ?, ?)`,
+      [newId(), user.id, otpHash, expiresAt]
     );
 
     // Sent via Brevo's HTTP API — same transport every email in this app
@@ -331,7 +332,7 @@ export async function verifyLoginOtp(req, res, next) {
 
     const { rows } = await pool.query(
       `SELECT * FROM login_otps
-       WHERE user_id = $1 AND used_at IS NULL AND expires_at > now()
+       WHERE user_id = ? AND used_at IS NULL AND expires_at > now()
        ORDER BY created_at DESC LIMIT 1`,
       [user.id]
     );
@@ -341,7 +342,7 @@ export async function verifyLoginOtp(req, res, next) {
     }
 
     if (record.attempt_count >= OTP_MAX_ATTEMPTS) {
-      await pool.query('UPDATE login_otps SET used_at = now() WHERE id = $1', [record.id]);
+      await pool.query('UPDATE login_otps SET used_at = now() WHERE id = ?', [record.id]);
       return res.status(401).json({
         error: 'too_many_attempts',
         message: 'Too many incorrect attempts. Request a new code.',
@@ -350,11 +351,11 @@ export async function verifyLoginOtp(req, res, next) {
 
     const submittedHash = hashRawToken(otp);
     if (submittedHash !== record.otp_hash) {
-      await pool.query('UPDATE login_otps SET attempt_count = attempt_count + 1 WHERE id = $1', [record.id]);
+      await pool.query('UPDATE login_otps SET attempt_count = attempt_count + 1 WHERE id = ?', [record.id]);
       return res.status(401).json({ error: 'invalid_otp', message: 'Incorrect code' });
     }
 
-    await pool.query('UPDATE login_otps SET used_at = now() WHERE id = $1', [record.id]);
+    await pool.query('UPDATE login_otps SET used_at = now() WHERE id = ?', [record.id]);
 
     // Admin console 2FA (Security screen). When the global authenticator
     // toggle is on, an admin-console sign-in isn't finished yet — hand back

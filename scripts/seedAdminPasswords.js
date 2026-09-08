@@ -28,7 +28,7 @@ async function main() {
 
   const { rows } = await pool.query(
     `SELECT id, email FROM users
-     WHERE agency_id IS NULL AND role = ANY($1::text[]) AND password_hash IS NULL`,
+     WHERE agency_id IS NULL AND role IN (?) AND password_hash IS NULL`,
     [ADMIN_CONSOLE_ROLES]
   );
 
@@ -41,7 +41,7 @@ async function main() {
   const hash = await hashPassword(env.adminLoginPassword);
 
   for (const user of rows) {
-    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, user.id]);
+    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id]);
     console.log(`  seeded password for ${user.email}`);
   }
 

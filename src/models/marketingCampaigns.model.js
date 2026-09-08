@@ -1,5 +1,6 @@
 import { pool } from '../db/pool.js';
 import { listAgencies } from './agencies.model.js';
+import { newId } from '../utils/id.js';
 
 // Marketing Center Task 5 — Send Campaign persistence + the server's own,
 // independent audience resolution (never trusts a frontend-supplied
@@ -32,17 +33,18 @@ export async function createCampaign(client, {
   name, channel, provider, audienceType, audienceValue, subject, body,
   replyToAccountManager, recipientCount, createdByUserId, status, scheduledAt,
 }) {
-  const { rows } = await client.query(
+  const id = newId();
+  await client.query(
     `INSERT INTO marketing_campaigns
-      (name, channel, provider, audience_type, audience_value, subject, body,
+      (id, name, channel, provider, audience_type, audience_value, subject, body,
        reply_to_account_manager, status, recipient_count, created_by_user_id, scheduled_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-     RETURNING *`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      name, channel, provider, audienceType, audienceValue || null, subject || null, body,
+      id, name, channel, provider, audienceType, audienceValue || null, subject || null, body,
       !!replyToAccountManager, status, recipientCount, createdByUserId, scheduledAt || null,
     ]
   );
+  const { rows } = await client.query('SELECT * FROM marketing_campaigns WHERE id = ?', [id]);
   return rows[0];
 }
 
@@ -67,7 +69,7 @@ const CAMPAIGN_ENGAGEMENT_COLUMNS = `
 
 export async function findCampaignById(id) {
   const { rows } = await pool.query(
-    `SELECT c.*, ${CAMPAIGN_ENGAGEMENT_COLUMNS} FROM marketing_campaigns c WHERE c.id = $1`,
+    `SELECT c.*, ${CAMPAIGN_ENGAGEMENT_COLUMNS} FROM marketing_campaigns c WHERE c.id = ?`,
     [id]
   );
   return rows[0] || null;
@@ -80,7 +82,7 @@ export async function findCampaignById(id) {
 // much later by the scheduler job, in a different request/process entirely.
 export async function listRecipientsByCampaign(campaignId) {
   const { rows } = await pool.query(
-    `SELECT * FROM marketing_campaign_recipients WHERE campaign_id = $1 ORDER BY created_at`,
+    `SELECT * FROM marketing_campaign_recipients WHERE campaign_id = ? ORDER BY created_at`,
     [campaignId]
   );
   return rows;
@@ -92,12 +94,13 @@ export async function listRecipientsByCampaign(campaignId) {
 // claimed, flipping it to 'sending', simply won't match this WHERE clause
 // anymore — no separate check-then-update window for the two to race in).
 export async function cancelScheduledCampaign(id) {
-  const { rows } = await pool.query(
+  const { rowCount } = await pool.query(
     `UPDATE marketing_campaigns SET status = 'cancelled', updated_at = now()
-     WHERE id = $1 AND status = 'scheduled'
-     RETURNING *`,
+     WHERE id = ? AND status = 'scheduled'`,
     [id]
   );
+  if (!rowCount) return null;
+  const { rows } = await pool.query(`SELECT * FROM marketing_campaigns WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
@@ -109,12 +112,13 @@ export async function cancelScheduledCampaign(id) {
 export async function insertRecipients(client, campaignId, recipients) {
   const rows = [];
   for (const r of recipients) {
-    const { rows: inserted } = await client.query(
-      `INSERT INTO marketing_campaign_recipients (campaign_id, agency_id, channel, recipient_address, status)
-       VALUES ($1, $2, $3, $4, 'pending')
-       RETURNING *`,
-      [campaignId, r.agencyId, r.channel, r.recipientAddress]
+    const id = newId();
+    await client.query(
+      `INSERT INTO marketing_campaign_recipients (id, campaign_id, agency_id, channel, recipient_address, status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`,
+      [id, campaignId, r.agencyId, r.channel, r.recipientAddress]
     );
+    const { rows: inserted } = await client.query(`SELECT * FROM marketing_campaign_recipients WHERE id = ?`, [id]);
     rows.push(inserted[0]);
   }
   return rows;
@@ -122,15 +126,15 @@ export async function insertRecipients(client, campaignId, recipients) {
 
 export async function markRecipientSent(recipientId, { providerMessageId } = {}) {
   await pool.query(
-    `UPDATE marketing_campaign_recipients SET status = 'sent', provider_message_id = $2, sent_at = now() WHERE id = $1`,
-    [recipientId, providerMessageId || null]
+    `UPDATE marketing_campaign_recipients SET status = 'sent', provider_message_id = ?, sent_at = now() WHERE id = ?`,
+    [providerMessageId || null, recipientId]
   );
 }
 
 export async function markRecipientFailed(recipientId, failureReason) {
   await pool.query(
-    `UPDATE marketing_campaign_recipients SET status = 'failed', failure_reason = $2 WHERE id = $1`,
-    [recipientId, failureReason || null]
+    `UPDATE marketing_campaign_recipients SET status = 'failed', failure_reason = ? WHERE id = ?`,
+    [failureReason || null, recipientId]
   );
 }
 
@@ -138,13 +142,13 @@ export async function markRecipientFailed(recipientId, failureReason) {
 // campaign was rejected up front, e.g. provider not configured — same
 // function either way, just successCount === 0 in that case).
 export async function finalizeCampaign(campaignId, { status, successCount, failureCount }) {
-  const { rows } = await pool.query(
+  await pool.query(
     `UPDATE marketing_campaigns
-     SET status = $2, success_count = $3, failure_count = $4, sent_at = now(), updated_at = now()
-     WHERE id = $1
-     RETURNING *`,
-    [campaignId, status, successCount, failureCount]
+     SET status = ?, success_count = ?, failure_count = ?, sent_at = now(), updated_at = now()
+     WHERE id = ?`,
+    [status, successCount, failureCount, campaignId]
   );
+  const { rows } = await pool.query(`SELECT * FROM marketing_campaigns WHERE id = ?`, [campaignId]);
   return rows[0] || null;
 }
 
@@ -163,7 +167,7 @@ export function toPublicCampaign(campaign) {
   if (!campaign) return null;
   const successCount = campaign.success_count;
   // Task 11 — absent (undefined) on a row returned by createCampaign/
-  // finalizeCampaign/cancelScheduledCampaign's own `RETURNING *` (those
+  // finalizeCampaign/cancelScheduledCampaign's own follow-up `SELECT *` (those
   // don't run the engagement-stats subqueries findCampaignById/
   // listCampaignsForAdmin do) rather than an error: a campaign that was
   // just created/sent/cancelled genuinely has zero opens/clicks so far,
@@ -221,34 +225,30 @@ const CAMPAIGN_CHANNELS = ['email', 'whatsapp'];
 function buildCampaignFilters({ search, status, channel }) {
   const clauses = [];
   const values = [];
-  let i = 1;
 
   if (status && CAMPAIGN_STATUSES.includes(status)) {
-    clauses.push(`status = $${i}`);
+    clauses.push(`status = ?`);
     values.push(status);
-    i += 1;
   }
   if (channel && CAMPAIGN_CHANNELS.includes(channel)) {
-    clauses.push(`channel = $${i}`);
+    clauses.push(`channel = ?`);
     values.push(channel);
-    i += 1;
   }
   if (search) {
-    clauses.push(`name ILIKE $${i}`);
+    clauses.push(`LOWER(name) LIKE LOWER(?)`);
     values.push(`%${search}%`);
-    i += 1;
   }
 
-  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values, next: i };
+  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values };
 }
 
 // GET /admin/marketing/campaigns — Campaign History list. Search is
 // name-only (requirement 6); status/channel are the two filters requirement
 // 7 asks for. Newest first, same as every other admin history/inbox list.
 export async function listCampaignsForAdmin({ search, status, channel, page, pageSize } = {}) {
-  const { where, values, next } = buildCampaignFilters({ search, status, channel });
+  const { where, values } = buildCampaignFilters({ search, status, channel });
 
-  const { rows: countRows } = await pool.query(`SELECT COUNT(*) FROM marketing_campaigns ${where}`, values);
+  const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count FROM marketing_campaigns ${where}`, values);
   const total = Number(countRows[0].count);
 
   const limit = Math.max(1, Math.min(100, Number(pageSize) || 20));
@@ -258,7 +258,7 @@ export async function listCampaignsForAdmin({ search, status, channel, page, pag
   const { rows } = await pool.query(
     `SELECT c.*, ${CAMPAIGN_ENGAGEMENT_COLUMNS}
      FROM marketing_campaigns c ${where}
-     ORDER BY c.created_at DESC LIMIT $${next} OFFSET $${next + 1}`,
+     ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
     [...values, limit, offset]
   );
 
@@ -275,7 +275,7 @@ export async function listRecipientsForAdmin(campaignId, { page, pageSize } = {}
   const offset = (currentPage - 1) * limit;
 
   const { rows: countRows } = await pool.query(
-    `SELECT COUNT(*) FROM marketing_campaign_recipients WHERE campaign_id = $1`,
+    `SELECT COUNT(*) AS count FROM marketing_campaign_recipients WHERE campaign_id = ?`,
     [campaignId]
   );
   const total = Number(countRows[0].count);
@@ -284,9 +284,9 @@ export async function listRecipientsForAdmin(campaignId, { page, pageSize } = {}
     `SELECT r.*, a.name AS agency_name
      FROM marketing_campaign_recipients r
      LEFT JOIN agencies a ON a.id = r.agency_id
-     WHERE r.campaign_id = $1
+     WHERE r.campaign_id = ?
      ORDER BY r.created_at
-     LIMIT $2 OFFSET $3`,
+     LIMIT ? OFFSET ?`,
     [campaignId, limit, offset]
   );
 

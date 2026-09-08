@@ -1,51 +1,48 @@
-CREATE TYPE booking_source_type AS ENUM ('fd_package', 'package_request', 'mice_rfq');
--- 'waitlisted' is an addition beyond the doc's documented enum, needed for FGD-11 (waitlist).
-CREATE TYPE booking_status AS ENUM (
-  'pending_payment', 'deposit_paid', 'confirmed', 'balance_due',
-  'fully_paid', 'amendment_requested', 'cancellation_requested',
-  'cancelled', 'completed', 'waitlisted'
-);
-CREATE TYPE booking_created_via AS ENUM ('self_service', 'manual_admin');
-
 CREATE TABLE bookings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_type booking_source_type NOT NULL,
-  source_id UUID NOT NULL,
-  -- Not in the doc's ERD: needed to know which specific departure date (a package
-  -- has many) an FGD booking is against; NULL for package_request/mice_rfq bookings.
-  fd_departure_date_id UUID REFERENCES fd_departure_dates(id),
-  agency_id UUID NOT NULL REFERENCES agencies(id),
-  created_by_user_id UUID NOT NULL REFERENCES users(id),
+  id CHAR(36) PRIMARY KEY,
+  source_type ENUM('fd_package', 'package_request', 'mice_rfq') NOT NULL,
+  source_id CHAR(36) NOT NULL,
+  fd_departure_date_id CHAR(36),
+  agency_id CHAR(36) NOT NULL,
+  created_by_user_id CHAR(36) NOT NULL,
   pax INT NOT NULL DEFAULT 1,
-  total_price NUMERIC NOT NULL DEFAULT 0,
-  deposit_paid NUMERIC NOT NULL DEFAULT 0,
-  balance_due NUMERIC NOT NULL DEFAULT 0,
+  total_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  deposit_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  balance_due DECIMAL(12,2) NOT NULL DEFAULT 0,
   balance_due_date DATE,
-  status booking_status NOT NULL DEFAULT 'pending_payment',
-  created_via booking_created_via NOT NULL DEFAULT 'self_service',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  status ENUM(
+    'pending_payment', 'deposit_paid', 'confirmed', 'balance_due',
+    'fully_paid', 'amendment_requested', 'cancellation_requested',
+    'cancelled', 'completed', 'waitlisted'
+  ) NOT NULL DEFAULT 'pending_payment',
+  created_via ENUM('self_service', 'manual_admin') NOT NULL DEFAULT 'self_service',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_bookings_departure_date FOREIGN KEY (fd_departure_date_id) REFERENCES fd_departure_dates(id),
+  CONSTRAINT fk_bookings_agency FOREIGN KEY (agency_id) REFERENCES agencies(id),
+  CONSTRAINT fk_bookings_created_by FOREIGN KEY (created_by_user_id) REFERENCES users(id)
 );
 
 CREATE INDEX idx_bookings_agency ON bookings(agency_id);
 CREATE INDEX idx_bookings_source ON bookings(source_type, source_id);
 
 CREATE TABLE booking_travelers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  id CHAR(36) PRIMARY KEY,
+  booking_id CHAR(36) NOT NULL,
   name TEXT NOT NULL,
   passport_no TEXT,
   dob DATE,
-  room_share_group TEXT
+  room_share_group TEXT,
+  CONSTRAINT fk_booking_travelers_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
 );
 
--- Not in the doc's ERD: persists which add-ons (and at what price) a booking
--- included, needed for FGD-6's "priced live into total" to survive past booking time.
 CREATE TABLE booking_addons (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
-  fd_addon_id UUID NOT NULL REFERENCES fd_addons(id),
-  price_per_pax NUMERIC NOT NULL
+  id CHAR(36) PRIMARY KEY,
+  booking_id CHAR(36) NOT NULL,
+  fd_addon_id CHAR(36) NOT NULL,
+  price_per_pax DECIMAL(12,2) NOT NULL,
+  CONSTRAINT fk_booking_addons_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  CONSTRAINT fk_booking_addons_fd_addon FOREIGN KEY (fd_addon_id) REFERENCES fd_addons(id)
 );
 
 CREATE INDEX idx_booking_travelers_booking ON booking_travelers(booking_id);
