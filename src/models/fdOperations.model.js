@@ -67,7 +67,7 @@ export async function listDeparturesWithOperationsState({ search } = {}) {
          fd_departure_date_id,
          SUM(pax) AS pax_total,
          COUNT(DISTINCT agency_id) AS agency_count,
-         MAX(status IN ('confirmed', 'fully_paid')) AS booking_confirmed
+         MAX(status IN ('confirmed', 'balance_due', 'fully_paid')) AS booking_confirmed
        FROM bookings
        WHERE source_type = 'fd_package' AND fd_departure_date_id IS NOT NULL
        GROUP BY fd_departure_date_id
@@ -110,7 +110,7 @@ export async function findDepartureWithOperationsState(departureDateId) {
          fd_departure_date_id,
          SUM(pax) AS pax_total,
          COUNT(DISTINCT agency_id) AS agency_count,
-         MAX(status IN ('confirmed', 'fully_paid')) AS booking_confirmed
+         MAX(status IN ('confirmed', 'balance_due', 'fully_paid')) AS booking_confirmed
        FROM bookings
        WHERE source_type = 'fd_package' AND fd_departure_date_id IS NOT NULL
        GROUP BY fd_departure_date_id

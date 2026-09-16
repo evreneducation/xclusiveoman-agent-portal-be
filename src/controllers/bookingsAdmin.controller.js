@@ -37,10 +37,10 @@ function toPublicBooking(b) {
   };
 }
 
-// GET /api/admin/bookings?search=&status=&agencyId=&page=&pageSize=
+// GET /api/admin/bookings?search=&status=&agencyId=&dateFrom=&dateTo=&page=&pageSize=
 export async function listBookings(req, res, next) {
   try {
-    const { search, status, agencyId, page, pageSize } = req.query;
+    const { search, status, agencyId, dateFrom, dateTo, page, pageSize } = req.query;
 
     // Team Portal Bookings & Docs — a Relationship Manager only ever lists
     // bookings for their own assigned agencies (bookingsAdmin.routes.js's
@@ -59,6 +59,8 @@ export async function listBookings(req, res, next) {
       status,
       agencyId,
       agencyIds,
+      dateFrom,
+      dateTo,
       page,
       pageSize,
     });

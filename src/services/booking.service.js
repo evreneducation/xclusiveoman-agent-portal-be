@@ -46,14 +46,14 @@ function computeFdDepositDue(departureDateISO, totalPrice, pax) {
 
 // depositPaid=0 → pending_payment (self-service's own default, and an admin
 // manual booking recorded with no offline deposit yet); a partial deposit →
-// confirmed; a deposit covering the full price → fully_paid. Mirrors
-// paymentConfirmation.service.js#confirmPayment's own
-// "balanceDue <= 0 ? fully_paid : confirmed" derivation, generalized to also
-// cover the zero-deposit case confirmPayment never has to (it's only ever
-// called with a real payment > 0).
+// balance_due (money owed remains); a deposit covering the full price →
+// fully_paid. Mirrors paymentConfirmation.service.js#confirmPayment's own
+// "newBalanceDue <= 0 ? fully_paid : balance_due" derivation, generalized to
+// also cover the zero-deposit case confirmPayment never has to (it's only
+// ever called with a real payment > 0).
 function deriveStatusFromDeposit(depositPaid, totalPrice) {
   if (depositPaid <= 0) return 'pending_payment';
-  return depositPaid >= totalPrice ? 'fully_paid' : 'confirmed';
+  return depositPaid >= totalPrice ? 'fully_paid' : 'balance_due';
 }
 
 /**
