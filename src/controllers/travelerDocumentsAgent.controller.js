@@ -20,7 +20,9 @@ import { fetchDocumentBuffer, extFromUrl } from '../services/documentZip.service
 // "Once a booking is confirmed" (doc §9.6 step 30) — the concrete statuses
 // this codebase's own confirmPayment()/booking.service.js ever actually
 // produce beyond pending_payment/waitlisted. Matches Task 13's own
-// deposit-driven status derivation (pending_payment -> confirmed/fully_paid).
+// deposit-driven status derivation (pending_payment -> balance_due/fully_paid;
+// 'confirmed' is kept here only for historical bookings written before that
+// derivation used balance_due for a partial payment).
 const UPLOAD_ELIGIBLE_STATUSES = new Set(['confirmed', 'balance_due', 'fully_paid', 'completed']);
 
 const DOC_TYPE_COLUMN = {

@@ -61,6 +61,8 @@ function toPublicTransaction(t) {
     amount: Number(t.amount),
     method: t.method,
     status: t.status,
+    totalPrice: Number(t.total_price),
+    amountPaidToDate: Number(t.amount_paid_to_date),
     invoiceUrl: t.invoice_url,
     voucherUrl: t.voucher_url,
     createdAt: t.created_at,

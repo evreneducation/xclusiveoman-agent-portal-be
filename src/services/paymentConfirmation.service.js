@@ -20,6 +20,16 @@ export async function confirmPayment(payment) {
   const booking = await findBookingById(payment.booking_id);
   if (!booking) return;
 
+  // Whether this payment leaves a balance still owed or settles the booking
+  // in full — computed up front so both the transaction record and the
+  // booking's own status agree on the same word (previously the transaction
+  // always said 'confirmed' regardless of completeness, and partial payments
+  // pushed the booking itself to 'confirmed' too, indistinguishable from a
+  // fully-settled one).
+  const newDepositPaid = Number(booking.deposit_paid) + Number(payment.amount);
+  const newBalanceDue = Math.max(0, Number(booking.total_price) - newDepositPaid);
+  const status = newBalanceDue <= 0 ? 'fully_paid' : 'balance_due';
+
   try {
     await insertTransaction({
       agencyId: booking.agency_id,
@@ -27,7 +37,9 @@ export async function confirmPayment(payment) {
       paymentId: payment.id,
       amount: payment.amount,
       method: payment.method,
-      status: 'confirmed',
+      status,
+      totalPrice: booking.total_price,
+      amountPaidToDate: newDepositPaid,
     });
   } catch (err) {
     // MySQL's duplicate-key error code (ER_DUP_ENTRY), replacing Postgres' '23505'
@@ -35,10 +47,6 @@ export async function confirmPayment(payment) {
     if (err.code === 'ER_DUP_ENTRY') return; // already processed by an earlier delivery
     throw err;
   }
-
-  const newDepositPaid = Number(booking.deposit_paid) + Number(payment.amount);
-  const newBalanceDue = Math.max(0, Number(booking.total_price) - newDepositPaid);
-  const status = newBalanceDue <= 0 ? 'fully_paid' : 'confirmed';
 
   await pool.query(
     `UPDATE bookings SET status = ?, deposit_paid = ?, balance_due = ?, updated_at = now() WHERE id = ?`,
@@ -69,6 +77,6 @@ export async function confirmPayment(payment) {
   io?.to(`agency:${booking.agency_id}`).emit('notification:new', {
     type: 'payment_confirmed',
     title: 'Payment confirmed',
-    body: `₹${payment.amount} received — booking ${status === 'fully_paid' ? 'fully paid' : 'confirmed'}.`,
+    body: `₹${payment.amount} received — booking ${status === 'fully_paid' ? 'fully paid' : 'balance due'}.`,
   });
 }

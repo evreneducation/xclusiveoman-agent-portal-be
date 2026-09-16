@@ -34,7 +34,7 @@ const SELECT_COLUMNS = `
 // distinct from `agencyId` (singular), the existing admin UI's own
 // single-agency filter dropdown. Both can be present; each is its own
 // independent AND'd clause.
-function buildFilters({ status, agencyId, agencyIds, search }) {
+function buildFilters({ status, agencyId, agencyIds, search, dateFrom, dateTo }) {
   const clauses = [];
   const values = [];
 
@@ -54,6 +54,16 @@ function buildFilters({ status, agencyId, agencyIds, search }) {
     clauses.push(`(LOWER(a.name) LIKE LOWER(?) OR LOWER(fp.title) LIKE LOWER(?))`);
     values.push(`%${search}%`, `%${search}%`);
   }
+  // Same inclusive-end-day convention as analytics.model.js's own
+  // buildDateFilters — dateTo covers the whole calendar day, not just 00:00.
+  if (dateFrom) {
+    clauses.push(`b.created_at >= ?`);
+    values.push(dateFrom);
+  }
+  if (dateTo) {
+    clauses.push(`b.created_at < (? + INTERVAL 1 DAY)`);
+    values.push(dateTo);
+  }
 
   const where = clauses.length ? `AND ${clauses.join(' AND ')}` : '';
   return { where, values };
@@ -61,8 +71,8 @@ function buildFilters({ status, agencyId, agencyIds, search }) {
 
 // GET /admin/bookings — same LIMIT/OFFSET + {rows,total,page,pageSize} shape
 // as listPackageRequestsForAdmin (packageRequestsAdmin.model.js).
-export async function listBookingsForAdmin({ status, agencyId, agencyIds, search, page, pageSize } = {}) {
-  const { where, values } = buildFilters({ status, agencyId, agencyIds, search });
+export async function listBookingsForAdmin({ status, agencyId, agencyIds, search, dateFrom, dateTo, page, pageSize } = {}) {
+  const { where, values } = buildFilters({ status, agencyId, agencyIds, search, dateFrom, dateTo });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${JOINS} ${where}`, values);
   const total = Number(countRows[0].count);
