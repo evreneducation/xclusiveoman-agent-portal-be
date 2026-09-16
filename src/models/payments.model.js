@@ -173,12 +173,21 @@ export async function listNeftPending() {
   return rows;
 }
 
-export async function insertTransaction({ agencyId, bookingId, paymentId, amount, method, status }) {
+export async function insertTransaction({
+  agencyId,
+  bookingId,
+  paymentId,
+  amount,
+  method,
+  status,
+  totalPrice,
+  amountPaidToDate,
+}) {
   const id = newId();
   await pool.query(
-    `INSERT INTO transactions (id, agency_id, booking_id, payment_id, amount, method, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, agencyId, bookingId, paymentId, amount, method, status]
+    `INSERT INTO transactions (id, agency_id, booking_id, payment_id, amount, method, status, total_price, amount_paid_to_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, agencyId, bookingId, paymentId, amount, method, status, totalPrice, amountPaidToDate]
   );
   const { rows } = await pool.query('SELECT * FROM transactions WHERE id = ?', [id]);
   return rows[0];

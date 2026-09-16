@@ -48,8 +48,8 @@ function toPublicPackage(fdPackage, ratePerPax, hotel) {
     suitableAgeMin: fdPackage.suitable_age_min,
     rating: fdPackage.rating,
     reviewCount: fdPackage.review_count,
-    isFeatured: fdPackage.is_featured,
-    isBestseller: fdPackage.is_bestseller,
+    isFeatured: !!fdPackage.is_featured,
+    isBestseller: !!fdPackage.is_bestseller,
     ratePerPax,
     // Client-facing Inclusions/Exclusions, admin-authored in FdPackageEditor.jsx
     // (see 0050_fd_packages_inclusions_exclusions.sql) — read-only here,
