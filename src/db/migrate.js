@@ -1,10 +1,15 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-import mysql from 'mysql2/promise';
-import { env } from '../config/env.js';
+const {
+  readdirSync,
+  readFileSync
+} = require('node:fs');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const path = require('node:path');
+const mysql = require('mysql2/promise');
+
+const {
+  env
+} = require('../config/env.js');
+
 const migrationsDir = path.resolve(__dirname, '..', '..', 'migrations');
 
 async function ensureMigrationsTable(conn) {

@@ -1,19 +1,16 @@
-import { verifyOpenToken, verifyClickToken, recordOpen, recordClick } from '../services/marketingTracking.service.js';
+const {
+  verifyOpenToken,
+  verifyClickToken,
+  recordOpen,
+  recordClick
+} = require('../services/marketingTracking.service.js');
 
 // The smallest valid transparent GIF (43 bytes, GIF89a, 1x1, transparent
 // color index) — the same bytes virtually every tracking-pixel
 // implementation uses. Decoded once at module load, not per request.
 const TRANSPARENT_PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEKAAAALAAAAAABAAEAAAICTAEAOw==', 'base64');
 
-// GET /api/marketing/track/open/:token — Task 11 requirement 1. Public, no
-// auth (requirement 16 — the recipient is an external agency contact who
-// can never authenticate against this app). Always returns the same 1x1
-// pixel with 200, regardless of whether the token was valid: an invalid or
-// tampered token silently records nothing rather than erroring, so a
-// blocked/stale tracking pixel is never a broken image in the recipient's
-// inbox, and probing this endpoint with a bad token teaches an attacker
-// nothing (requirement 12's "don't expose sensitive data").
-export async function trackOpen(req, res) {
+async function trackOpen(req, res) {
   const parsed = verifyOpenToken(req.params.token);
   if (parsed) {
     try {
@@ -38,15 +35,9 @@ export async function trackOpen(req, res) {
   res.status(200).send(TRANSPARENT_PIXEL);
 }
 
-// GET /api/marketing/track/click/:token — Task 11 requirements 2/13.
-// Public, no auth. The redirect destination is never taken from the
-// request (no `?url=` or similar) — only from inside the signed token this
-// same backend generated at send time
-// (marketingTracking.service.js#signClickToken), so this can never become
-// an open-redirect: an attacker cannot supply or alter the target URL
-// without invalidating the signature, and an invalid/tampered token simply
-// has nothing safe to redirect to.
-export async function trackClick(req, res) {
+module.exports.trackOpen = trackOpen;
+
+async function trackClick(req, res) {
   const parsed = verifyClickToken(req.params.token);
   if (!parsed) {
     return res.status(400).send('This tracking link is invalid or has expired.');
@@ -62,3 +53,5 @@ export async function trackClick(req, res) {
 
   res.redirect(302, parsed.url);
 }
+
+module.exports.trackClick = trackClick;

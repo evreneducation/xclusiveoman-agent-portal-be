@@ -1,16 +1,8 @@
-/**
- * Break-glass recovery for the admin console's GLOBAL 2FA toggle
- * (admin/pages/Security.jsx / 0076_admin_2fa.sql). Since there's one shared
- * authenticator secret and no per-user backup codes, a super_admin who
- * loses their authenticator device can't get past the login step *or* the
- * Security screen's disable button (both need a live code). Run this
- * directly against the DB to turn 2FA off and wipe the secret, then set it
- * up again from the Security screen.
- *
- * Usage: node scripts/disable-admin-2fa.js
- */
-import 'dotenv/config';
-import { pool } from '../src/db/pool.js';
+require('dotenv/config');
+
+const {
+  pool
+} = require('../src/db/pool.js');
 
 async function main() {
   const { rows: existing } = await pool.query('SELECT id FROM admin_security LIMIT 1');

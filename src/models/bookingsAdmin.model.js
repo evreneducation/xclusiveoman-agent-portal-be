@@ -1,4 +1,6 @@
-import { pool } from '../db/pool.js';
+const {
+  pool
+} = require('../db/pool.js');
 
 // Admin Bookings & Documents (Task 13 — Screen 22, Manual Booking Flow).
 // FD-only by construction, same scoping rule as fdOperations.model.js: this
@@ -69,9 +71,9 @@ function buildFilters({ status, agencyId, agencyIds, search, dateFrom, dateTo })
   return { where, values };
 }
 
-// GET /admin/bookings — same LIMIT/OFFSET + {rows,total,page,pageSize} shape
-// as listPackageRequestsForAdmin (packageRequestsAdmin.model.js).
-export async function listBookingsForAdmin({ status, agencyId, agencyIds, search, dateFrom, dateTo, page, pageSize } = {}) {
+async function listBookingsForAdmin(
+  { status, agencyId, agencyIds, search, dateFrom, dateTo, page, pageSize } = {}
+) {
   const { where, values } = buildFilters({ status, agencyId, agencyIds, search, dateFrom, dateTo });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${JOINS} ${where}`, values);
@@ -91,9 +93,9 @@ export async function listBookingsForAdmin({ status, agencyId, agencyIds, search
   return { rows, total, page: currentPage, pageSize: limit };
 }
 
-// GET /admin/bookings/:id/documents (Task 14) and any other admin
-// booking-detail screen — same JOIN shape as the list above, single row.
-export async function findBookingDetailForAdmin(bookingId) {
+module.exports.listBookingsForAdmin = listBookingsForAdmin;
+
+async function findBookingDetailForAdmin(bookingId) {
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS}
      ${JOINS} AND b.id = ?`,
@@ -101,3 +103,5 @@ export async function findBookingDetailForAdmin(bookingId) {
   );
   return rows[0] || null;
 }
+
+module.exports.findBookingDetailForAdmin = findBookingDetailForAdmin;

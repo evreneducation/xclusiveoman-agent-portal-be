@@ -1,5 +1,10 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  newId
+} = require('../utils/id.js');
 
 // Agent Review & Rating Popup (Task 20 — Screen 32, REV-1..4).
 //
@@ -33,12 +38,7 @@ const LAST_TRAVEL_DATE_EXPR = `DATE_ADD(fdd.date, INTERVAL (COALESCE(MAX(fid.day
 // held a real confirmed seat) — reused here rather than inventing a new one.
 const ELIGIBLE_BOOKING_STATUS_EXCLUSION = `b.status NOT IN ('cancelled', 'waitlisted')`;
 
-// GET /reviews/pending-prompt — doc rule 76: "returns bookings where the
-// last departure date is before today AND no reviews row exists yet —
-// checked on every agent login." Extended with two things rule 76's own
-// bare text doesn't cover (both explained above/at the migration): the
-// dismiss-count cap, and the status exclusion.
-export async function findEligibleBookingsForAgency(agencyId) {
+async function findEligibleBookingsForAgency(agencyId) {
   const { rows } = await pool.query(
     `SELECT
        b.id AS booking_id,
@@ -68,12 +68,9 @@ export async function findEligibleBookingsForAgency(agencyId) {
   return rows;
 }
 
-// Ownership-scoped fetch for both the review-submit and dismiss endpoints —
-// re-verifies agency_id server-side rather than trusting the :id in the
-// URL, same posture as every other agent-facing booking lookup in this
-// codebase (payments.controller.js#assertOwnsBooking, Task 14's own
-// travelerDocumentsAgent.controller.js).
-export async function findBookingForReview(bookingId, agencyId) {
+module.exports.findEligibleBookingsForAgency = findEligibleBookingsForAgency;
+
+async function findBookingForReview(bookingId, agencyId) {
   const { rows } = await pool.query(
     `SELECT
        b.*,
@@ -91,19 +88,16 @@ export async function findBookingForReview(bookingId, agencyId) {
   return rows[0] || null;
 }
 
-export async function findReviewByBookingId(bookingId) {
+module.exports.findBookingForReview = findBookingForReview;
+
+async function findReviewByBookingId(bookingId) {
   const { rows } = await pool.query('SELECT * FROM reviews WHERE booking_id = ?', [bookingId]);
   return rows[0] || null;
 }
 
-// Rating is required, review_text optional (doc §9.10 step 49: "rates and
-// OPTIONALLY writes a review") — status always starts 'needs_review',
-// never settable by the agent (Item 33's own moderation job, out of scope
-// here). The reviews.booking_id UNIQUE constraint is the real
-// duplicate-submission guard; this INSERT will throw a MySQL duplicate-key
-// error (ER_DUP_ENTRY) if a review already exists, which the controller
-// maps to a clean 409.
-export async function createReview({ bookingId, fdPackageId, agencyId, rating, reviewText }) {
+module.exports.findReviewByBookingId = findReviewByBookingId;
+
+async function createReview({ bookingId, fdPackageId, agencyId, rating, reviewText }) {
   const id = newId();
   await pool.query(
     `INSERT INTO reviews (id, booking_id, fd_package_id, agency_id, rating, review_text)
@@ -114,9 +108,9 @@ export async function createReview({ bookingId, fdPackageId, agencyId, rating, r
   return rows[0];
 }
 
-// POST /bookings/:id/dismiss-review-prompt — atomic increment, ownership-
-// scoped in the same WHERE clause (never a separate read-then-write).
-export async function incrementDismissCount(bookingId, agencyId) {
+module.exports.createReview = createReview;
+
+async function incrementDismissCount(bookingId, agencyId) {
   await pool.query(
     `UPDATE bookings SET review_prompt_dismiss_count = review_prompt_dismiss_count + 1, updated_at = now()
      WHERE id = ? AND agency_id = ?`,
@@ -125,3 +119,5 @@ export async function incrementDismissCount(bookingId, agencyId) {
   const { rows } = await pool.query('SELECT * FROM bookings WHERE id = ? AND agency_id = ?', [bookingId, agencyId]);
   return rows[0] || null;
 }
+
+module.exports.incrementDismissCount = incrementDismissCount;

@@ -1,29 +1,37 @@
-import { pool } from '../db/pool.js';
-import { env } from '../config/env.js';
-import { normalizeRmPermissions } from '../config/accessFeatures.js';
-import { listAgenciesByRmIds } from '../models/agencies.model.js';
-import {
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  env
+} = require('../config/env.js');
+
+const {
+  normalizeRmPermissions
+} = require('../config/accessFeatures.js');
+
+const {
+  listAgenciesByRmIds
+} = require('../models/agencies.model.js');
+
+const {
   createUser,
   findUserByEmail,
   findUserById,
   listStaffByRole,
   toPublicUser,
-  updateUser,
-} from '../models/users.model.js';
-import { sendEmail } from '../services/email.service.js';
-import { buildStaffWelcomeEmailHtml } from '../services/emailTemplate.service.js';
+  updateUser
+} = require('../models/users.model.js');
 
-// GET /api/admin/relationship-managers?search=&page=&pageSize=
-// Lists the relationship_manager staff pool, each annotated with the
-// agencies currently pointing at them via agencies.rm_user_id (REL-1/REL-2).
-// `search` (Employees table view) is a free-text match over name/email/
-// phone/WhatsApp number, applied in JS same as admin.controller.js#getAgencies
-// does for its own search — there's no index worth a SQL WHERE for a staff
-// pool this small. `page`/`pageSize` pagination is opt-in (only applied when
-// either is present in the query) and, same as getAgencies, no-store
-// Cache-Control since an edit here (status/permissions) can change the very
-// next request's result.
-export async function list(req, res, next) {
+const {
+  sendEmail
+} = require('../services/email.service.js');
+
+const {
+  buildStaffWelcomeEmailHtml
+} = require('../services/emailTemplate.service.js');
+
+async function list(req, res, next) {
   try {
     res.set('Cache-Control', 'no-store');
     const rms = await listStaffByRole('relationship_manager');
@@ -63,8 +71,9 @@ export async function list(req, res, next) {
   }
 }
 
-// POST /api/admin/relationship-managers
-export async function create(req, res, next) {
+module.exports.list = list;
+
+async function create(req, res, next) {
   const client = await pool.connect();
   try {
     const { fullName, email, phone, whatsappNumber } = req.body;
@@ -118,8 +127,9 @@ export async function create(req, res, next) {
   }
 }
 
-// PATCH /api/admin/relationship-managers/:id
-export async function update(req, res, next) {
+module.exports.create = create;
+
+async function update(req, res, next) {
   try {
     const { id } = req.params;
     const target = await findUserById(id);
@@ -140,3 +150,5 @@ export async function update(req, res, next) {
     next(err);
   }
 }
+
+module.exports.update = update;

@@ -1,11 +1,19 @@
-import { Router } from 'express';
-import * as relationshipManagersController from '../controllers/relationshipManagers.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import {
+const {
+  Router
+} = require('express');
+
+const relationshipManagersController = require('../controllers/relationshipManagers.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
   validateBody,
   createRelationshipManagerSchema,
-  patchRelationshipManagerSchema,
-} from '../validation/schemas.js';
+  patchRelationshipManagerSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -16,4 +24,4 @@ router.get('/', relationshipManagersController.list);
 router.post('/', validateBody(createRelationshipManagerSchema), relationshipManagersController.create);
 router.patch('/:id', validateBody(patchRelationshipManagerSchema), relationshipManagersController.update);
 
-export default router;
+module.exports = router;

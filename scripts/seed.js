@@ -1,18 +1,16 @@
-/**
- * Idempotent dev seed: ensures a default super_admin account exists so the
- * admin portal has something to log in with out of the box. Safe to re-run —
- * skips insertion if the account already exists.
- *
- * No password set here — run `npm run seed-admin-passwords` afterward to
- * backfill this (and every other admin/staff account with none yet) an
- * initial password from ADMIN_LOGIN_PASSWORD (0084_admin_password.sql).
- *
- * Usage: npm run seed
- */
-import 'dotenv/config';
-import { pool } from '../src/db/pool.js';
-import { env } from '../src/config/env.js';
-import { newId } from '../src/utils/id.js';
+require('dotenv/config');
+
+const {
+  pool
+} = require('../src/db/pool.js');
+
+const {
+  env
+} = require('../src/config/env.js');
+
+const {
+  newId
+} = require('../src/utils/id.js');
 
 // Set per-environment via SEED_ADMIN_EMAIL in .env (src/config/env.js) —
 // dev points at a real inbox so OTP emails during local testing are actually

@@ -1,31 +1,61 @@
-import {
+const {
   listPackageRequestsForAdmin,
   findPackageRequestForAdmin,
   updatePackageRequestLeadManager,
   updatePackageRequestCosting,
   updatePackageRequestItinerary,
-  publishPackageRequest,
-} from '../models/packageRequestsAdmin.model.js';
-// Read helpers reused as-is from the agent-side FIT Package Builder model —
-// imported only, never modified, so that module stays untouched.
-import {
+  publishPackageRequest
+} = require('../models/packageRequestsAdmin.model.js');
+
+const {
   listHotelsForRequest,
   listToursForRequest,
   listTransfersForRequest,
   listActivitiesForRequest,
   listTravelersForRequest,
   listItineraryForRequest,
-  composeItinerary,
-} from '../models/packageRequests.model.js';
-import { listStaffByRole, findUserById, toPublicUser } from '../models/users.model.js';
-import { listAgenciesByRmIds } from '../models/agencies.model.js';
-import { roomsForOccupancy } from '../utils/occupancy.js';
-import { computeMealsCost } from '../utils/meals.js';
-import { mealsModel, visaModel } from '../models/catalog.model.js';
-import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
-import { getIo } from '../sockets/index.js';
-import { createNotification } from '../services/notification.service.js';
-import { applyLeadManagerAssignment } from '../services/leadManagerAssignment.service.js';
+  composeItinerary
+} = require('../models/packageRequests.model.js');
+
+const {
+  listStaffByRole,
+  findUserById,
+  toPublicUser
+} = require('../models/users.model.js');
+
+const {
+  listAgenciesByRmIds
+} = require('../models/agencies.model.js');
+
+const {
+  roomsForOccupancy
+} = require('../utils/occupancy.js');
+
+const {
+  computeMealsCost
+} = require('../utils/meals.js');
+
+const {
+  mealsModel,
+  visaModel
+} = require('../models/catalog.model.js');
+
+const {
+  insertAuditLog,
+  listAuditLogsForEntity
+} = require('../models/auditLogs.model.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
+  createNotification
+} = require('../services/notification.service.js');
+
+const {
+  applyLeadManagerAssignment
+} = require('../services/leadManagerAssignment.service.js');
 
 function toListItem(row) {
   return {
@@ -339,7 +369,7 @@ async function quotesPricingScope(req) {
   return {};
 }
 
-export async function list(req, res, next) {
+async function list(req, res, next) {
   try {
     const { status, destination, search, submittedFrom, submittedTo, page, pageSize } = req.query;
     const scope = await quotesPricingScope(req);
@@ -364,6 +394,8 @@ export async function list(req, res, next) {
   }
 }
 
+module.exports.list = list;
+
 // Applied to every :id-scoped package-request route below (get, lead
 // manager assignment, costing, itinerary, publish) — an LM may only ever
 // touch a request already assigned to them, an RM only one raised by one of
@@ -381,8 +413,7 @@ async function assertQuotesPricingAccess(req, row) {
   return true;
 }
 
-// GET /api/admin/package-requests/:id
-export async function get(req, res, next) {
+async function get(req, res, next) {
   try {
     const row = await findPackageRequestForAdmin(req.params.id);
     if (!row) return res.status(404).json({ error: 'not_found' });
@@ -393,16 +424,9 @@ export async function get(req, res, next) {
   }
 }
 
-// GET /api/admin/package-requests/lead-manager-candidates
-// Assignable staff pool for the "Assign Lead Manager" control (REL-3). Reuses
-// the general staff listing rather than the super-admin-only RM/Sales
-// Manager management endpoints, so any staff member with Quote Inbox access
-// can actually populate this dropdown.
-// Lead Manager candidates are Sales Managers only, per policy — same pool
-// leadManagerAssignment.service.js's round-robin draws from, so a manual
-// (re)assignment here can never diverge from what auto-assignment would
-// have picked.
-export async function listLeadManagerCandidates(req, res, next) {
+module.exports.get = get;
+
+async function listLeadManagerCandidates(req, res, next) {
   try {
     const staff = await listStaffByRole('sales_manager');
     res.json({ staff: staff.map(toPublicUser) });
@@ -410,6 +434,8 @@ export async function listLeadManagerCandidates(req, res, next) {
     next(err);
   }
 }
+
+module.exports.listLeadManagerCandidates = listLeadManagerCandidates;
 
 // Quotes & Pricing is read-only for a Relationship Manager (their Access
 // Feature is oversight of their own agencies' quotes, not pricing/publishing
@@ -425,10 +451,7 @@ function blockReadOnlyRole(req, res) {
   return false;
 }
 
-// PATCH /api/admin/package-requests/:id/lead-manager — FIT-8/REL-3. Also
-// advances status submitted -> assigned (and back on unassign) per this
-// task's requirement; leaves status untouched once costing has begun.
-export async function assignLeadManager(req, res, next) {
+async function assignLeadManager(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -477,11 +500,9 @@ export async function assignLeadManager(req, res, next) {
   }
 }
 
-// PATCH /api/admin/package-requests/:id/costing — items 1/2/3/5 ("Save
-// Draft"). Always saves whatever the form currently holds — Publish (below)
-// is a separate, validated step, so a failed publish attempt never discards
-// costing/markup/notes edits.
-export async function saveCosting(req, res, next) {
+module.exports.assignLeadManager = assignLeadManager;
+
+async function saveCosting(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -571,12 +592,9 @@ export async function saveCosting(req, res, next) {
   }
 }
 
-// PATCH /api/admin/package-requests/:id/itinerary — Day-wise Itinerary
-// Planner (FIT-5): lets the admin rearrange/edit the agent's day-by-day plan
-// before or after publishing. Always saves whatever the editor currently
-// holds (same "always send full state" contract as saveCosting above) —
-// there's no separate validate-then-publish step for the itinerary itself.
-export async function saveItinerary(req, res, next) {
+module.exports.saveCosting = saveCosting;
+
+async function saveItinerary(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -601,11 +619,9 @@ export async function saveItinerary(req, res, next) {
   }
 }
 
-// POST /api/admin/package-requests/:id/publish — items 6/9. Validates
-// against whatever's already been saved via saveCosting above (no body) —
-// the FE calls PATCH .../costing immediately before this so the admin's
-// latest edits are persisted either way, pass or fail.
-export async function publish(req, res, next) {
+module.exports.saveItinerary = saveItinerary;
+
+async function publish(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -658,3 +674,5 @@ export async function publish(req, res, next) {
     next(err);
   }
 }
+
+module.exports.publish = publish;

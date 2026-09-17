@@ -1,5 +1,12 @@
-import { listReviewsForAdmin, findReviewByIdForAdmin, setReviewStatus } from '../models/reviewsAdmin.model.js';
-import { insertAuditLog } from '../models/auditLogs.model.js';
+const {
+  listReviewsForAdmin,
+  findReviewByIdForAdmin,
+  setReviewStatus
+} = require('../models/reviewsAdmin.model.js');
+
+const {
+  insertAuditLog
+} = require('../models/auditLogs.model.js');
 
 // Admin Reviews Management (Task 21 — Item 33, Screen 33, REV-3/REV-4).
 // Mounted at /admin/reviews, gated requireRole('ops_admin','super_admin')
@@ -22,8 +29,7 @@ function toPublicReview(r) {
   };
 }
 
-// GET /api/admin/reviews?status=&rating=&search=&page=&pageSize=
-export async function listReviews(req, res, next) {
+async function listReviews(req, res, next) {
   try {
     const { status, rating, search, page, pageSize } = req.query;
     const { rows, total, page: currentPage, pageSize: limit } = await listReviewsForAdmin({
@@ -45,11 +51,9 @@ export async function listReviews(req, res, next) {
   }
 }
 
-// PATCH /api/admin/reviews/:id — { status: 'published' | 'hidden' }.
-// Validated to exactly those two values at the route layer
-// (validateBody(updateReviewStatusSchema)) — REV-3 is "publish/hide" only,
-// 'needs_review' is never an admin-settable target.
-export async function updateReviewStatus(req, res, next) {
+module.exports.listReviews = listReviews;
+
+async function updateReviewStatus(req, res, next) {
   try {
     const result = await setReviewStatus(req.params.id, req.body.status);
     if (!result) return res.status(404).json({ error: 'not_found' });
@@ -80,3 +84,5 @@ export async function updateReviewStatus(req, res, next) {
     next(err);
   }
 }
+
+module.exports.updateReviewStatus = updateReviewStatus;

@@ -1,6 +1,14 @@
-import { readFileSync } from 'node:fs';
-import { env } from '../config/env.js';
-import { buildOtpEmailHtml } from './emailTemplate.service.js';
+const {
+  readFileSync
+} = require('node:fs');
+
+const {
+  env
+} = require('../config/env.js');
+
+const {
+  buildOtpEmailHtml
+} = require('./emailTemplate.service.js');
 
 // Brevo (formerly Sendinblue) transactional email HTTP API — the sole email
 // transport in this app now. SMTP/Nodemailer isn't usable on Render for
@@ -12,24 +20,13 @@ import { buildOtpEmailHtml } from './emailTemplate.service.js';
 // without modification.
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-// Same check callers (Marketing Center's Send Test/Send Campaign —
-// marketingSend.service.js) use to fail fast with one clear "not
-// configured" reason up front instead of discovering it once per recipient
-// inside a send loop.
-export function isBrevoConfigured() {
+function isBrevoConfigured() {
   return !!(env.brevo.apiKey && env.brevo.senderEmail);
 }
 
-// Channel Settings "Test Connection" (Marketing Center Task 9) — a real
-// auth check against Brevo's own /account endpoint (only succeeds once the
-// API key actually authenticates), replacing the old verifySmtpConnection's
-// nodemailer transporter.verify() round-trip. isBrevoConfigured() above
-// answers "do credentials exist"; this answers "does Brevo actually accept
-// them right now" — the stricter bar Channel Settings' "Connected" status
-// requires. Never throws: a bad/missing key is a normal, expected outcome
-// here, reported back as `{ verified, reason }` instead. `reason` is
-// Brevo's own response text — never the API key itself.
-export async function verifyBrevoConnection() {
+module.exports.isBrevoConfigured = isBrevoConfigured;
+
+async function verifyBrevoConnection() {
   if (!isBrevoConfigured()) {
     return { verified: false, reason: 'Brevo is not configured (BREVO_API_KEY/BREVO_SENDER_EMAIL are not both set).' };
   }
@@ -46,6 +43,8 @@ export async function verifyBrevoConnection() {
     return { verified: false, reason: err.message || 'Could not reach the Brevo API.' };
   }
 }
+
+module.exports.verifyBrevoConnection = verifyBrevoConnection;
 
 // Normalizes `to` into Brevo's own [{email}] shape. Every current caller
 // passes a single address, but nodemailer's own `to` field already silently
@@ -122,26 +121,7 @@ function toBrevoAttachments(attachments) {
   }));
 }
 
-/**
- * Sends an email via Brevo's transactional email API when configured;
- * otherwise logs it to the console so every caller stays testable without
- * real credentials — same fallback this function's previous SMTP
- * implementation had.
- *
- * `to` accepts a single address, a comma-separated string, or an array.
- * `replyTo` is a plain email string (Marketing Center's per-agency
- * Relationship Manager reply-to, marketingSend.service.js) — omitted
- * entirely when not given, same as before.
- * `attachments` is nodemailer-shaped; a cid-referenced inline image (the
- * branded logo) is inlined into `html` as a data URI (inlineCidImages),
- * everything else is sent as a real Brevo attachment (toBrevoAttachments)
- * — never silently dropped either way.
- *
- * Throws on failure (never swallows it) — existing callers that catch/log a
- * failed send (Marketing Center's per-recipient loop, traveler-document
- * emails, …) keep working exactly as they did against SMTP.
- */
-export async function sendEmail({ to, subject, html, text, replyTo, attachments }) {
+async function sendEmail({ to, subject, html, text, replyTo, attachments }) {
   if (!isBrevoConfigured()) {
     console.log('--- [email.service] Brevo not configured, logging email instead ---');
     console.log(`To: ${to}`);
@@ -193,15 +173,9 @@ export async function sendEmail({ to, subject, html, text, replyTo, attachments 
   return { delivered: true, logged: false };
 }
 
-/**
- * Email OTP sign-in codes (auth.controller.js#requestLoginOtp) — builds the
- * exact same branded template that call site always used (buildOtpEmailHtml,
- * emailTemplate.service.js — untouched by this migration) and sends it
- * through the same sendEmail/Brevo path every other email in this app now
- * uses. OTP generation/storage/expiry/verification are all handled entirely
- * by the caller, above this function — untouched by this migration.
- */
-export async function sendOtpEmail(email, otp, expiresInMinutes) {
+module.exports.sendEmail = sendEmail;
+
+async function sendOtpEmail(email, otp, expiresInMinutes) {
   const { html, attachments } = buildOtpEmailHtml({ otp, expiresInMinutes });
   return sendEmail({
     to: email,
@@ -211,3 +185,5 @@ export async function sendOtpEmail(email, otp, expiresInMinutes) {
     attachments,
   });
 }
+
+module.exports.sendOtpEmail = sendOtpEmail;

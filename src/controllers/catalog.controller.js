@@ -1,4 +1,4 @@
-import {
+const {
   hotelsModel,
   toursModel,
   activitiesModel,
@@ -10,9 +10,12 @@ import {
   visaModel,
   flightsModel,
   omanOverviewsModel,
-  dealsModel,
-} from '../models/catalog.model.js';
-import { uploadBuffer } from '../services/cloudinary.service.js';
+  dealsModel
+} = require('../models/catalog.model.js');
+
+const {
+  uploadBuffer
+} = require('../services/cloudinary.service.js');
 
 const MODELS = {
   hotels: hotelsModel,
@@ -46,9 +49,7 @@ function singularize(entity) {
   return entity.slice(0, -1);
 }
 
-// Builds one set of {list, get, create, update, remove} handlers for a given
-// catalog entity name (doc §12.3) rather than repeating the pattern per type.
-export function catalogHandlersFor(entity) {
+function catalogHandlersFor(entity) {
   const model = MODELS[entity];
 
   return {
@@ -131,14 +132,9 @@ export function catalogHandlersFor(entity) {
   };
 }
 
-// POST /api/admin/<entity>/images — multipart, one or more files at req.files
-// (field 'images'). Uploaded up front (before the record exists/is saved) so
-// the entity's form can submit a single, already-valid payload — mirrors the
-// FD package image-upload pattern (doc §14.3) but isn't scoped to a record
-// id since the record may not exist yet on the "Add" form. The optional
-// `<singular>Id` body field (e.g. hotelId, tourId) only organizes the
-// Cloudinary folder for an in-progress edit; it has no effect on validation.
-export function uploadImagesHandlerFor(entity) {
+module.exports.catalogHandlersFor = catalogHandlersFor;
+
+function uploadImagesHandlerFor(entity) {
   const idField = `${singularize(entity)}Id`;
 
   return async function uploadImages(req, res, next) {
@@ -159,14 +155,9 @@ export function uploadImagesHandlerFor(entity) {
   };
 }
 
-// POST /api/admin/oman-overviews/pdf — single-file, mirrors
-// auth.controller.js#uploadLicenseDocument exactly: upload first, then the
-// actual create/update call just carries the resulting URL as a plain
-// string field (omanOverviewSchema.pdfUrl), same "upload returns a URL"
-// convention every catalog image upload above already uses, just one file
-// instead of an array and a `resourceType: 'raw'` since Cloudinary doesn't
-// treat a PDF as an image to transform.
-export async function uploadOmanOverviewPdf(req, res, next) {
+module.exports.uploadImagesHandlerFor = uploadImagesHandlerFor;
+
+async function uploadOmanOverviewPdf(req, res, next) {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'missing_file', message: 'Upload a PDF document' });
@@ -184,10 +175,9 @@ export async function uploadOmanOverviewPdf(req, res, next) {
   }
 }
 
-// POST /api/admin/oman-overviews/cover-image — single-file, mirrors
-// uploadDealImage below exactly (default resourceType — a normal image, not
-// the PDF's forced 'raw') just scoped to the oman-overviews folder.
-export async function uploadOmanOverviewCoverImage(req, res, next) {
+module.exports.uploadOmanOverviewPdf = uploadOmanOverviewPdf;
+
+async function uploadOmanOverviewCoverImage(req, res, next) {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'missing_file', message: 'Upload a cover image' });
@@ -202,10 +192,9 @@ export async function uploadOmanOverviewCoverImage(req, res, next) {
   }
 }
 
-// POST /api/admin/deals/image — single-file, mirrors uploadOmanOverviewPdf
-// above exactly, just an image (default resourceType — Cloudinary treats it
-// normally, unlike the PDF's forced 'raw') instead of a PDF.
-export async function uploadDealImage(req, res, next) {
+module.exports.uploadOmanOverviewCoverImage = uploadOmanOverviewCoverImage;
+
+async function uploadDealImage(req, res, next) {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'missing_file', message: 'Upload a photo' });
@@ -219,3 +208,5 @@ export async function uploadDealImage(req, res, next) {
     next(err);
   }
 }
+
+module.exports.uploadDealImage = uploadDealImage;

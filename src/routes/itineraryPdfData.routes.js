@@ -1,6 +1,14 @@
-import { Router } from 'express';
-import { getItineraryDataForPdf } from '../controllers/packageRequests.controller.js';
-import { requirePdfToken } from '../middleware/auth.js';
+const {
+  Router
+} = require('express');
+
+const {
+  getItineraryDataForPdf
+} = require('../controllers/packageRequests.controller.js');
+
+const {
+  requirePdfToken
+} = require('../middleware/auth.js');
 
 // Deliberately a separate router/mount from packageRequests.routes.js: that
 // router's requireAuth expects a real login session's Bearer token, which
@@ -13,4 +21,4 @@ const router = Router();
 router.use(requirePdfToken);
 router.get('/:id/data', getItineraryDataForPdf);
 
-export default router;
+module.exports = router;

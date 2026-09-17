@@ -1,5 +1,8 @@
-import crypto from 'node:crypto';
-import { env } from '../config/env.js';
+const crypto = require('node:crypto');
+
+const {
+  env
+} = require('../config/env.js');
 
 function ensureConfigured() {
   if (!env.cashfree.appId || !env.cashfree.secretKey) {
@@ -27,10 +30,7 @@ function cashfreeError(fallback) {
   return err;
 }
 
-// Doc §14.1 steps 55-56: create a Cashfree order tagged with booking_id, return
-// payment_session_id. `order_meta` wires the browser return redirect and the
-// server-to-server webhook so reconciliation has both a push and a pull path.
-export async function createOrder({ bookingId, amount, customerEmail, customerPhone, customerId }) {
+async function createOrder({ bookingId, amount, customerEmail, customerPhone, customerId }) {
   ensureConfigured();
 
   const res = await fetch(`${env.cashfree.apiBaseUrl}/orders`, {
@@ -64,10 +64,9 @@ export async function createOrder({ bookingId, amount, customerEmail, customerPh
   return { orderId: data.order_id, paymentSessionId: data.payment_session_id };
 }
 
-// GET /orders/{order_id} — used by reconciliation and the reuse/supersede
-// decision in createCashfreeOrder. Returns null (rather than throwing) when
-// the order can't be read, so callers can fall back to their local state.
-export async function getOrder(orderId) {
+module.exports.createOrder = createOrder;
+
+async function getOrder(orderId) {
   ensureConfigured();
   try {
     const res = await fetch(`${env.cashfree.apiBaseUrl}/orders/${encodeURIComponent(orderId)}`, {
@@ -81,10 +80,9 @@ export async function getOrder(orderId) {
   }
 }
 
-// GET /orders/{order_id}/payments — the individual payment attempts on an
-// order, newest first. Used to pull cf_payment_id / a granular payment_status
-// when the order itself is no longer ACTIVE. Returns [] on any failure.
-export async function getOrderPayments(orderId) {
+module.exports.getOrder = getOrder;
+
+async function getOrderPayments(orderId) {
   ensureConfigured();
   try {
     const res = await fetch(`${env.cashfree.apiBaseUrl}/orders/${encodeURIComponent(orderId)}/payments`, {
@@ -99,12 +97,9 @@ export async function getOrderPayments(orderId) {
   }
 }
 
-// PATCH /orders/{order_id} { order_status: 'TERMINATED' } — kills a stale
-// checkout link when a new attempt supersedes it, or on explicit abort.
-// Idempotent by design: an order that is already PAID / TERMINATED / EXPIRED
-// can't be terminated and Cashfree returns an error for it — we swallow that
-// and report { terminated: false } rather than throwing (spec P).
-export async function terminateOrder(orderId) {
+module.exports.getOrderPayments = getOrderPayments;
+
+async function terminateOrder(orderId) {
   ensureConfigured();
   try {
     const res = await fetch(`${env.cashfree.apiBaseUrl}/orders/${encodeURIComponent(orderId)}`, {
@@ -118,8 +113,9 @@ export async function terminateOrder(orderId) {
   }
 }
 
-// Doc §14.1 step 58 / §16: verifies the webhook signature before trusting the payload.
-export function verifyWebhookSignature({ rawBody, timestamp, signature }) {
+module.exports.terminateOrder = terminateOrder;
+
+function verifyWebhookSignature({ rawBody, timestamp, signature }) {
   if (!env.cashfree.webhookSecret || !signature || !timestamp) return false;
 
   const expected = crypto
@@ -133,3 +129,5 @@ export function verifyWebhookSignature({ rawBody, timestamp, signature }) {
     return false; // length mismatch etc. -> not authentic
   }
 }
+
+module.exports.verifyWebhookSignature = verifyWebhookSignature;

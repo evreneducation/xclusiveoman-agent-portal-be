@@ -1,5 +1,10 @@
-import { pool } from '../db/pool.js';
-import { replaceItinerary } from './miceRfqs.model.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  replaceItinerary
+} = require('./miceRfqs.model.js');
 
 // Admin-side queries only (listing with joins/pagination/search, lead-manager
 // assignment) — mirrors packageRequestsAdmin.model.js. Detail sub-lists
@@ -59,7 +64,9 @@ function buildFilters({ status, search, eventFrom, eventTo, leadManagerUserId, a
   return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values };
 }
 
-export async function listMiceRfqsForAdmin({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds, page, pageSize } = {}) {
+async function listMiceRfqsForAdmin(
+  { status, search, eventFrom, eventTo, leadManagerUserId, agencyIds, page, pageSize } = {}
+) {
   const { where, values } = buildFilters({ status, search, eventFrom, eventTo, leadManagerUserId, agencyIds });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${JOINS} ${where}`, values);
@@ -79,12 +86,16 @@ export async function listMiceRfqsForAdmin({ status, search, eventFrom, eventTo,
   return { rows, total, page: currentPage, pageSize: limit };
 }
 
-export async function findMiceRfqForAdmin(id) {
+module.exports.listMiceRfqsForAdmin = listMiceRfqsForAdmin;
+
+async function findMiceRfqForAdmin(id) {
   const { rows } = await pool.query(`SELECT ${SELECT_COLUMNS} ${JOINS} WHERE mr.id = ?`, [id]);
   return rows[0] || null;
 }
 
-export async function updateMiceRfqLeadManager(id, leadManagerUserId) {
+module.exports.findMiceRfqForAdmin = findMiceRfqForAdmin;
+
+async function updateMiceRfqLeadManager(id, leadManagerUserId) {
   await pool.query(
     `UPDATE mice_rfqs SET lead_manager_user_id = ?, updated_at = now() WHERE id = ?`,
     [leadManagerUserId, id]
@@ -93,11 +104,12 @@ export async function updateMiceRfqLeadManager(id, leadManagerUserId) {
   return rows[0] || null;
 }
 
-// MICE Costing & Markup Panel ("Save Draft"). net_cost_total is the doc's
-// own column for the aggregate Landing Cost (mirrors package_requests'
-// net_cost_breakdown.landingCost) — cost_breakdown holds only the five
-// per-component auto/override/total figures, not a duplicate of the total.
-export async function updateMiceRfqCosting(id, { costBreakdown, landingCost, markupRule, sellPrice, internalNotes, status }) {
+module.exports.updateMiceRfqLeadManager = updateMiceRfqLeadManager;
+
+async function updateMiceRfqCosting(
+  id,
+  { costBreakdown, landingCost, markupRule, sellPrice, internalNotes, status }
+) {
   await pool.query(
     `UPDATE mice_rfqs
      SET cost_breakdown = ?, net_cost_total = ?, markup_rule = ?, sell_price = ?, internal_notes = ?,
@@ -109,13 +121,9 @@ export async function updateMiceRfqCosting(id, { costBreakdown, landingCost, mar
   return rows[0] || null;
 }
 
-// Day-wise Itinerary Planner — admin edit. Reuses the exact same
-// replaceItinerary the agent builder writes through (miceRfqs.model.js) —
-// "the finalized version should be shown back to the agent exactly as
-// arranged" just falls out of both sides reading/writing the same rows, no
-// separate admin copy. Mirrors packageRequestsAdmin.model.js's
-// updatePackageRequestItinerary.
-export async function updateMiceRfqItinerary(id, days) {
+module.exports.updateMiceRfqCosting = updateMiceRfqCosting;
+
+async function updateMiceRfqItinerary(id, days) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -129,10 +137,9 @@ export async function updateMiceRfqItinerary(id, days) {
   }
 }
 
-// "Publish Proposal". Costing/markup are saved separately
-// (updateMiceRfqCosting, above) before this is ever called — this only
-// flips status and stamps who/when, same split as package_requests.
-export async function publishMiceRfq(id, publishedByUserId) {
+module.exports.updateMiceRfqItinerary = updateMiceRfqItinerary;
+
+async function publishMiceRfq(id, publishedByUserId) {
   await pool.query(
     `UPDATE mice_rfqs
      SET status = 'published', published_at = now(), published_by_user_id = ?, updated_at = now()
@@ -142,3 +149,5 @@ export async function publishMiceRfq(id, publishedByUserId) {
   const { rows } = await pool.query(`SELECT * FROM mice_rfqs WHERE id = ?`, [id]);
   return rows[0] || null;
 }
+
+module.exports.publishMiceRfq = publishMiceRfq;

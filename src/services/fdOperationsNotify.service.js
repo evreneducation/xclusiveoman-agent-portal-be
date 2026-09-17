@@ -1,8 +1,22 @@
-import { createNotification } from './notification.service.js';
-import { sendEmail } from './email.service.js';
-import { getIo } from '../sockets/index.js';
-import { listAgencyOwnerEmails } from '../models/users.model.js';
-import { listDepartureAgencyIds } from '../models/fdOperations.model.js';
+const {
+  createNotification
+} = require('./notification.service.js');
+
+const {
+  sendEmail
+} = require('./email.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
+  listAgencyOwnerEmails
+} = require('../models/users.model.js');
+
+const {
+  listDepartureAgencyIds
+} = require('../models/fdOperations.model.js');
 
 // FD Operations Tracker (Task 12) — driver-dispatch and tour-update
 // notifications, fanned out to every agency with a real FD booking on the
@@ -64,11 +78,7 @@ async function notifyDepartureAgencies(departureDateId, { socketEvent, socketPay
   }
 }
 
-// OPS-3 — driver/pickup dispatch. No dedicated doc-named socket event
-// exists for this (unlike tour:update below), so this follows the same
-// `noun:verb` naming style the doc's own events already use
-// (lead:assigned, document:ready).
-export async function notifyDriverDispatched(departureDateId, { packageTitle, driverName, vehicle, pickupDetails }) {
+async function notifyDriverDispatched(departureDateId, { packageTitle, driverName, vehicle, pickupDetails }) {
   const message = `${packageTitle} — driver ${driverName} (${vehicle}), pickup: ${pickupDetails}`;
   await notifyDepartureAgencies(departureDateId, {
     socketEvent: 'driver:dispatched',
@@ -81,10 +91,9 @@ export async function notifyDriverDispatched(departureDateId, { packageTitle, dr
   });
 }
 
-// OPS-4 — tour update broadcast. `tour:update` is the doc's own named event
-// for this exact purpose (§13 WebSocket Event Spec) — reused verbatim, not
-// invented here.
-export async function notifyTourUpdatePublished(departureDateId, { packageTitle, updateType, message }) {
+module.exports.notifyDriverDispatched = notifyDriverDispatched;
+
+async function notifyTourUpdatePublished(departureDateId, { packageTitle, updateType, message }) {
   await notifyDepartureAgencies(departureDateId, {
     socketEvent: 'tour:update',
     socketPayload: { fdDepartureDateId: departureDateId, updateType, message },
@@ -95,3 +104,5 @@ export async function notifyTourUpdatePublished(departureDateId, { packageTitle,
     emailBody: `An update was published for ${packageTitle}:\n\n${message}`,
   });
 }
+
+module.exports.notifyTourUpdatePublished = notifyTourUpdatePublished;

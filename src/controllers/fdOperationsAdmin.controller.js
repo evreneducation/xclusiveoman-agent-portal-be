@@ -1,10 +1,10 @@
-import {
+const {
   listDeparturesWithOperationsState,
   findDepartureWithOperationsState,
   computeStageInfo,
   isBookingConfirmed,
   getOrCreateOperations,
-  advanceStage as advanceStageModel,
+  advanceStage: advanceStageModel,
   insertDriverDispatchAndAdvanceStage,
   listPaxManifest,
   listDepartureAgencyIds,
@@ -12,10 +12,18 @@ import {
   listSupplierLogs,
   listDriverDispatches,
   insertTourUpdate,
-  listTourUpdates,
-} from '../models/fdOperations.model.js';
-import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
-import { notifyDriverDispatched, notifyTourUpdatePublished } from '../services/fdOperationsNotify.service.js';
+  listTourUpdates
+} = require('../models/fdOperations.model.js');
+
+const {
+  insertAuditLog,
+  listAuditLogsForEntity
+} = require('../models/auditLogs.model.js');
+
+const {
+  notifyDriverDispatched,
+  notifyTourUpdatePublished
+} = require('../services/fdOperationsNotify.service.js');
 
 // Admin FD Operations Tracker (Task 12 — Screen 19). FD-only (requirement
 // I4) — every read/write here goes through fdOperations.model.js, which
@@ -153,15 +161,7 @@ function buildActivityHistory({ stageAuditLogs, supplierLogs, driverDispatches, 
   return items.sort((a, b) => new Date(b.at) - new Date(a.at));
 }
 
-// GET /api/admin/operations/departures?search=&stage=&page=&pageSize= —
-// only departures with at least one real FD booking (see the model's own
-// JOIN). `stage` filters on the same computeStageInfo() derivation the
-// detail endpoint uses, so a departure's badge here can never disagree with
-// what its own detail page shows. Filtering/pagination happen in JS after
-// derivation — see fdOperations.model.js#listDeparturesWithOperationsState's
-// own comment for why (one source of truth for "what stage", not a
-// duplicated SQL CASE expression).
-export async function listDepartures(req, res, next) {
+async function listDepartures(req, res, next) {
   try {
     const { search, stage, page, pageSize } = req.query;
     const rows = await listDeparturesWithOperationsState({ search });
@@ -185,8 +185,9 @@ export async function listDepartures(req, res, next) {
   }
 }
 
-// GET /api/admin/operations/departures/:departureDateId
-export async function getDepartureDetail(req, res, next) {
+module.exports.listDepartures = listDepartures;
+
+async function getDepartureDetail(req, res, next) {
   try {
     const { departureDateId } = req.params;
     const row = await findDepartureWithOperationsState(departureDateId);
@@ -213,14 +214,9 @@ export async function getDepartureDetail(req, res, next) {
   }
 }
 
-// POST /api/admin/operations/departures/:departureDateId/stage — advances
-// exactly one of the 5 manually-settable stages (never 'driver_sent' — see
-// validation/schemas.js#advanceFdOperationsStageSchema). Requires stage 1
-// (Booking Confirmed, derived) to already be true, and every prior stage in
-// STAGE_ORDER to already be complete — enforced atomically by
-// fdOperations.model.js#advanceStage's own UPDATE ... WHERE clause, not by
-// a separate check-then-write here (no race window).
-export async function advanceStage(req, res, next) {
+module.exports.getDepartureDetail = getDepartureDetail;
+
+async function advanceStage(req, res, next) {
   try {
     const { departureDateId } = req.params;
     const { stage } = req.body;
@@ -270,8 +266,9 @@ export async function advanceStage(req, res, next) {
   }
 }
 
-// POST /api/admin/operations/departures/:departureDateId/supplier-log
-export async function addSupplierLog(req, res, next) {
+module.exports.advanceStage = advanceStage;
+
+async function addSupplierLog(req, res, next) {
   try {
     const { departureDateId } = req.params;
     const departure = await findDepartureWithOperationsState(departureDateId);
@@ -288,14 +285,9 @@ export async function addSupplierLog(req, res, next) {
   }
 }
 
-// POST /api/admin/operations/departures/:departureDateId/driver-details —
-// requirement: "Preserve the chronological lifecycle" applies here too:
-// docs/supplier/visa must already be complete (same as advancing straight
-// to the 'driver_sent' position in STAGE_ORDER would require) before a
-// dispatch can be sent; the dispatch itself then atomically both creates
-// the record and advances the stage
-// (insertDriverDispatchAndAdvanceStage — one transaction, can't disagree).
-export async function dispatchDriver(req, res, next) {
+module.exports.addSupplierLog = addSupplierLog;
+
+async function dispatchDriver(req, res, next) {
   try {
     const { departureDateId } = req.params;
     const departure = await findDepartureWithOperationsState(departureDateId);
@@ -358,10 +350,9 @@ export async function dispatchDriver(req, res, next) {
   }
 }
 
-// POST /api/admin/operations/departures/:departureDateId/tour-update —
-// independent of the 7-stage flow (requirement: doesn't require or advance
-// any particular stage), available any time a departure has real bookings.
-export async function publishTourUpdate(req, res, next) {
+module.exports.dispatchDriver = dispatchDriver;
+
+async function publishTourUpdate(req, res, next) {
   try {
     const { departureDateId } = req.params;
     const departure = await findDepartureWithOperationsState(departureDateId);
@@ -380,8 +371,5 @@ export async function publishTourUpdate(req, res, next) {
   }
 }
 
-// Exported for the route file's own reference if ever needed (e.g. a future
-// admin UI listing which agencies a departure's notifications went to) —
-// not currently used outside this controller, kept here rather than
-// re-imported from the model in more than one place.
-export { listDepartureAgencyIds };
+module.exports.publishTourUpdate = publishTourUpdate;
+module.exports.listDepartureAgencyIds = listDepartureAgencyIds;

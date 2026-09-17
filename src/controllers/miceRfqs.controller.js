@@ -1,6 +1,12 @@
-import { pool } from '../db/pool.js';
-import { getIo } from '../sockets/index.js';
-import {
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
   createMiceRfq,
   addHotelSelections,
   addTourSelections,
@@ -23,10 +29,17 @@ import {
   respondToMiceRfq,
   listItineraryForRfq,
   replaceItinerary,
-  composeItinerary,
-} from '../models/miceRfqs.model.js';
-import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
-import { createNotification } from '../services/notification.service.js';
+  composeItinerary
+} = require('../models/miceRfqs.model.js');
+
+const {
+  insertAuditLog,
+  listAuditLogsForEntity
+} = require('../models/auditLogs.model.js');
+
+const {
+  createNotification
+} = require('../services/notification.service.js');
 
 // Task 4 — MICE Notification Events (agent's own submit/accept/decline/
 // revision-request actions; Lead Manager Assigned/Proposal Published are the
@@ -225,9 +238,7 @@ async function toPublicMiceRfq(row) {
   };
 }
 
-// GET /api/mice/rfqs — "My MICE Requests" (items 1/2/3): every request
-// (draft or otherwise) belonging to the agent's own agency.
-export async function list(req, res, next) {
+async function list(req, res, next) {
   try {
     const rows = await listMiceRfqsForAgency(req.user.agency_id);
     res.json({ miceRfqs: rows.map(toListItem) });
@@ -236,12 +247,9 @@ export async function list(req, res, next) {
   }
 }
 
-// POST /api/mice/rfqs — MICE-7: submits the curation in one atomic step
-// (unchanged from Task 1 — still the "just submit, never saved a draft"
-// path), landing it in the admin MICE Request Management inbox as
-// `submitted`. No 'draft_saved'/'submitted' audit rows are written here;
-// buildAgentActivityHistory falls back to created_at for this path.
-export async function create(req, res, next) {
+module.exports.list = list;
+
+async function create(req, res, next) {
   const client = await pool.connect();
   try {
     const {
@@ -301,10 +309,9 @@ export async function create(req, res, next) {
   }
 }
 
-// POST /api/mice/rfqs/draft — item 1 "Save Draft" (starting fresh).
-// Deliberately lenient (draftMiceRfqSchema) — a half-built RFQ must never be
-// lost.
-export async function createDraft(req, res, next) {
+module.exports.create = create;
+
+async function createDraft(req, res, next) {
   const client = await pool.connect();
   try {
     const {
@@ -345,10 +352,9 @@ export async function createDraft(req, res, next) {
   }
 }
 
-// PATCH /api/mice/rfqs/:id — item 1 "Continue Editing" autosave. Only ever
-// succeeds against a row still in 'draft' (model-level WHERE guard) and
-// owned by the caller's own agency.
-export async function updateDraft(req, res, next) {
+module.exports.createDraft = createDraft;
+
+async function updateDraft(req, res, next) {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -385,10 +391,9 @@ export async function updateDraft(req, res, next) {
   }
 }
 
-// POST /api/mice/rfqs/:id/submit — item 1 "Submit Draft". Re-validated with
-// the same strict rules as the direct POST / create() above, enforced by
-// createMiceRfqSchema on this route (see routes file).
-export async function submit(req, res, next) {
+module.exports.updateDraft = updateDraft;
+
+async function submit(req, res, next) {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -452,10 +457,9 @@ export async function submit(req, res, next) {
   }
 }
 
-// DELETE /api/mice/rfqs/:id — item 1 "Delete Draft". Scoped to status='draft'
-// at the model level, so a submitted/costed/published request can never be
-// deleted through this path.
-export async function remove(req, res, next) {
+module.exports.submit = submit;
+
+async function remove(req, res, next) {
   try {
     const { id } = req.params;
     const current = await findMiceRfqWithLeadManager(id);
@@ -470,8 +474,9 @@ export async function remove(req, res, next) {
   }
 }
 
-// GET /api/mice/rfqs/:id — agent's own submission only.
-export async function get(req, res, next) {
+module.exports.remove = remove;
+
+async function get(req, res, next) {
   try {
     const row = await findMiceRfqWithLeadManager(req.params.id);
     if (!row || row.agency_id !== req.user.agency_id) {
@@ -483,10 +488,9 @@ export async function get(req, res, next) {
   }
 }
 
-// POST /api/mice/rfqs/:id/respond — item 5: Accept / Request Revision /
-// Decline. Only ever fires from 'published' (model-level guard), matching
-// "When the proposal status is Published" in the doc.
-export async function respond(req, res, next) {
+module.exports.get = get;
+
+async function respond(req, res, next) {
   try {
     const { id } = req.params;
     const { action, comments } = req.body;
@@ -536,3 +540,5 @@ export async function respond(req, res, next) {
     next(err);
   }
 }
+
+module.exports.respond = respond;

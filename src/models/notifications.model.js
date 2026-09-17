@@ -1,13 +1,16 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-// Raw `notifications` table access (doc §11.8/§12.10) — only the
-// NotificationService (services/notification.service.js) calls these; every
-// other module goes through the service instead of writing SQL here itself.
+const {
+  newId
+} = require('../utils/id.js');
 
-export async function insertNotification({
-  recipientUserId, recipientRole, type, title, message, referenceType, referenceId,
-}) {
+async function insertNotification(
+  {
+    recipientUserId, recipientRole, type, title, message, referenceType, referenceId,
+  }
+) {
   const id = newId();
   await pool.query(
     `INSERT INTO notifications
@@ -19,7 +22,9 @@ export async function insertNotification({
   return rows[0];
 }
 
-export async function listNotificationsForUser(userId, { unreadOnly = false, limit = 50, offset = 0 } = {}) {
+module.exports.insertNotification = insertNotification;
+
+async function listNotificationsForUser(userId, { unreadOnly = false, limit = 50, offset = 0 } = {}) {
   const clauses = ['recipient_user_id = ?'];
   const values = [userId];
   if (unreadOnly) clauses.push('is_read = false');
@@ -35,7 +40,9 @@ export async function listNotificationsForUser(userId, { unreadOnly = false, lim
   return rows;
 }
 
-export async function countUnreadForUser(userId) {
+module.exports.listNotificationsForUser = listNotificationsForUser;
+
+async function countUnreadForUser(userId) {
   const { rows } = await pool.query(
     `SELECT COUNT(*) AS count FROM notifications WHERE recipient_user_id = ? AND is_read = false`,
     [userId]
@@ -43,9 +50,9 @@ export async function countUnreadForUser(userId) {
   return rows[0].count;
 }
 
-// Scoped to recipient_user_id so a notification can only ever be marked read
-// by the user it belongs to — mirrors mice_rfqs' status-guarded UPDATEs.
-export async function markNotificationRead(id, userId) {
+module.exports.countUnreadForUser = countUnreadForUser;
+
+async function markNotificationRead(id, userId) {
   await pool.query(
     `UPDATE notifications SET is_read = true WHERE id = ? AND recipient_user_id = ?`,
     [id, userId]
@@ -62,7 +69,9 @@ export async function markNotificationRead(id, userId) {
   return rows[0] || null;
 }
 
-export async function markAllNotificationsRead(userId) {
+module.exports.markNotificationRead = markNotificationRead;
+
+async function markAllNotificationsRead(userId) {
   // No RETURNING here in the original — this needs an actual affected-row
   // count, not just "did it match". src/db/pool.js's adapter normalizes
   // mysql2's ResultSetHeader.affectedRows into `rowCount`, the same field pg
@@ -74,7 +83,9 @@ export async function markAllNotificationsRead(userId) {
   return rowCount;
 }
 
-export function toPublicNotification(row) {
+module.exports.markAllNotificationsRead = markAllNotificationsRead;
+
+function toPublicNotification(row) {
   if (!row) return null;
   return {
     id: row.id,
@@ -89,3 +100,5 @@ export function toPublicNotification(row) {
     createdAt: row.created_at,
   };
 }
+
+module.exports.toPublicNotification = toPublicNotification;

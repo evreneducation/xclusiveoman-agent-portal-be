@@ -1,7 +1,20 @@
-import { Router } from 'express';
-import * as ticketsAdminController from '../controllers/supportTicketsAdmin.controller.js';
-import { requireAuth, requireRole, requireFeature } from '../middleware/auth.js';
-import { validateBody, ticketMessageSchema, updateTicketSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const ticketsAdminController = require('../controllers/supportTicketsAdmin.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  ticketMessageSchema,
+  updateTicketSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -31,4 +44,4 @@ router.get('/:id', ticketsAdminController.getTicket);
 router.patch('/:id', validateBody(updateTicketSchema), ticketsAdminController.updateTicket);
 router.post('/:id/messages', validateBody(ticketMessageSchema), ticketsAdminController.replyToTicket);
 
-export default router;
+module.exports = router;

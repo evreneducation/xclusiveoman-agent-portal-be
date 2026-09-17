@@ -1,21 +1,16 @@
-/**
- * One-off/idempotent backfill for 0084_admin_password.sql — every existing
- * Admin Console account (ops_admin/super_admin/sales_marketing/support/
- * finance — the same ADMIN_CONSOLE_ROLES auth.controller.js#belongsToPortal
- * checks, never Agent/Team) gets a real bcrypt password_hash, seeded from
- * the current ADMIN_LOGIN_PASSWORD env value.
- *
- * Only fills rows where password_hash IS NULL, so re-running this after an
- * admin has already changed their own password (once that exists) leaves
- * theirs untouched — this only ever sets an *initial* password, never resets
- * one that's already been set.
- *
- * Usage: npm run seed-admin-passwords
- */
-import 'dotenv/config';
-import { pool } from '../src/db/pool.js';
-import { env } from '../src/config/env.js';
-import { hashPassword } from '../src/services/auth.service.js';
+require('dotenv/config');
+
+const {
+  pool
+} = require('../src/db/pool.js');
+
+const {
+  env
+} = require('../src/config/env.js');
+
+const {
+  hashPassword
+} = require('../src/services/auth.service.js');
 
 const ADMIN_CONSOLE_ROLES = ['ops_admin', 'super_admin', 'sales_marketing', 'support', 'finance'];
 

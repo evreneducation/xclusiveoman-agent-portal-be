@@ -1,6 +1,14 @@
-import { insertAuditLog } from '../models/auditLogs.model.js';
-import { createNotification } from './notification.service.js';
-import { listStaffByRole } from '../models/users.model.js';
+const {
+  insertAuditLog
+} = require('../models/auditLogs.model.js');
+
+const {
+  createNotification
+} = require('./notification.service.js');
+
+const {
+  listStaffByRole
+} = require('../models/users.model.js');
 
 // Marketing Center Task 8 — Admin Activity + in-app Notifications for
 // campaign lifecycle events. Deliberately NOT a new notification system:
@@ -89,35 +97,7 @@ async function notifyMarketingStaff({ type, title, message, referenceId }) {
   );
 }
 
-// Called from exactly one place per event today —
-// marketing.controller.js#scheduleCampaign (scheduled), #cancelCampaign
-// (cancelled), and marketingSend.service.js#executeCampaignSend
-// (sent/partially_failed/failed, the single function both the send-now and
-// scheduled-send paths call) — each sitting at a state transition the
-// database itself only ever lets happen once for a given campaign id:
-//   - executeCampaignSend only runs once per campaign (send-now calls it
-//     synchronously right after creation; the scheduler only ever claims a
-//     campaign via `UPDATE ... WHERE status = 'scheduled' ... FOR UPDATE
-//     SKIP LOCKED`, so an overlapping poll tick or a restart can never
-//     claim — and therefore never re-execute — the same row twice).
-//   - cancelScheduledCampaign's `WHERE status = 'scheduled'` guard means a
-//     second cancel attempt on an already-cancelled/already-sending
-//     campaign returns no row, and the controller below only calls this
-//     when a row actually came back.
-//   - scheduleCampaign only calls this once, right after the one INSERT
-//     that creates the campaign.
-// So no separate duplicate-detection key (e.g. a
-// `marketing_campaign:<id>:<event>` unique constraint) is needed — the
-// existing atomic state-transition guarantees already are the dedupe
-// mechanism, per the same "use the existing database/state transition
-// pattern" this table's other callers (e.g. leadManagerAssignment.service.js)
-// already rely on instead of inventing idempotency keys of their own.
-//
-// Best-effort: never throws. The campaign's own state change has always
-// already succeeded and been durably committed by the time this runs — the
-// same "a notification hiccup must never fail the action" posture
-// notifyAdminsOfNewAgent takes toward registration.
-export async function recordCampaignEvent(event, campaign, { actorUserId } = {}) {
+async function recordCampaignEvent(event, campaign, { actorUserId } = {}) {
   const meta = EVENT_META[event];
   if (!meta || !campaign) return;
 
@@ -157,3 +137,5 @@ export async function recordCampaignEvent(event, campaign, { actorUserId } = {})
     console.error(`[marketingActivity] Failed to record "${event}" event for campaign ${campaign.id}`, err);
   }
 }
+
+module.exports.recordCampaignEvent = recordCampaignEvent;

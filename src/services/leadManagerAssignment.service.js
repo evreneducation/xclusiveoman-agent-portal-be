@@ -1,25 +1,28 @@
-import { pool } from '../db/pool.js';
-import { updatePackageRequestLeadManager } from '../models/packageRequestsAdmin.model.js';
-import { findUserById } from '../models/users.model.js';
-import { insertAuditLog } from '../models/auditLogs.model.js';
-import { createNotification } from './notification.service.js';
-import { getIo } from '../sockets/index.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-/**
- * Round-robin Lead Manager assignment for Custom FIT requests: every request
- * gets a Lead Manager the moment it reaches the admin queue
- * (create()/submit() in packageRequests.controller.js) — no manual pick
- * needed, and the pool is restricted to the sales_manager role only, per
- * policy (never any other staff role). The general-purpose "Assign a Lead
- * Manager" admin action (packageRequestsAdmin.controller.js's
- * assignLeadManager) still exists as a manual override, but its own
- * candidate list is filtered to sales_manager too, for the same reason.
- *
- * Same derived-rotation shape as rmAssignment.service.js's
- * pickNextRoundRobinRm — no separate "next in line" pointer table, so it
- * can't drift out of sync with reality on its own.
- */
-export async function pickNextRoundRobinLeadManager() {
+const {
+  updatePackageRequestLeadManager
+} = require('../models/packageRequestsAdmin.model.js');
+
+const {
+  findUserById
+} = require('../models/users.model.js');
+
+const {
+  insertAuditLog
+} = require('../models/auditLogs.model.js');
+
+const {
+  createNotification
+} = require('./notification.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+async function pickNextRoundRobinLeadManager() {
   const { rows: salesManagers } = await pool.query(
     `SELECT id FROM users WHERE role = 'sales_manager' AND status = 'active' ORDER BY created_at ASC`
   );
@@ -35,24 +38,20 @@ export async function pickNextRoundRobinLeadManager() {
   return salesManagers[assignedSoFar % salesManagers.length].id;
 }
 
-/**
- * Writes the assignment and fires the same side effects (socket emits,
- * Activity History entry, agent notification) regardless of whether a human
- * admin picked the Lead Manager or the round-robin above did — one place
- * these can't drift apart in what the agent/admin end up seeing.
- * `actorUserId` is left null for an automatic assignment (no admin actually
- * clicked anything — insertAuditLog already tolerates a null actor).
- */
-export async function applyLeadManagerAssignment({
-  packageRequestId,
-  leadManagerUserId,
-  previousLeadManagerUserId,
-  nextStatus,
-  actorUserId,
-  destination,
-  agencyId,
-  createdByUserId,
-}) {
+module.exports.pickNextRoundRobinLeadManager = pickNextRoundRobinLeadManager;
+
+async function applyLeadManagerAssignment(
+  {
+    packageRequestId,
+    leadManagerUserId,
+    previousLeadManagerUserId,
+    nextStatus,
+    actorUserId,
+    destination,
+    agencyId,
+    createdByUserId,
+  }
+) {
   await updatePackageRequestLeadManager(packageRequestId, leadManagerUserId, nextStatus);
 
   // doc §13: lead:assigned -> staff (assigned user).
@@ -81,3 +80,5 @@ export async function applyLeadManagerAssignment({
     referenceId: packageRequestId,
   });
 }
+
+module.exports.applyLeadManagerAssignment = applyLeadManagerAssignment;

@@ -1,14 +1,29 @@
-import {
+const {
   listTicketsForAdmin,
   findTicketForAdmin,
   updateTicketAssignmentAndStatus,
   insertTicketMessage,
-  listMessagesForTicket,
-} from '../models/supportTickets.model.js';
-import { listStaffByRole, toPublicUser, findUserById } from '../models/users.model.js';
-import { listAgenciesByRmIds } from '../models/agencies.model.js';
-import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
-import { notifyAgencyOfReply } from '../services/supportTicketNotify.service.js';
+  listMessagesForTicket
+} = require('../models/supportTickets.model.js');
+
+const {
+  listStaffByRole,
+  toPublicUser,
+  findUserById
+} = require('../models/users.model.js');
+
+const {
+  listAgenciesByRmIds
+} = require('../models/agencies.model.js');
+
+const {
+  insertAuditLog,
+  listAuditLogsForEntity
+} = require('../models/auditLogs.model.js');
+
+const {
+  notifyAgencyOfReply
+} = require('../services/supportTicketNotify.service.js');
 
 // Admin Support & Helpdesk (Task 18 — SUP-2/SUP-3). Mounted at
 // /api/admin/support/tickets, gated requireRole('support','super_admin') —
@@ -72,11 +87,7 @@ function buildActivityHistory({ auditLogs, messages }) {
   return items.sort((a, b) => new Date(a.at) - new Date(b.at));
 }
 
-// GET /api/admin/support/tickets/assignment-candidates — support-role staff
-// + super_admin only (Task 18 scope decision), same "narrow, policy-defined
-// pool" reasoning as packageRequestsAdmin's own Lead Manager candidates
-// (Sales Managers only).
-export async function listAssignmentCandidates(req, res, next) {
+async function listAssignmentCandidates(req, res, next) {
   try {
     const [support, superAdmins] = await Promise.all([listStaffByRole('support'), listStaffByRole('super_admin')]);
     res.json({ staff: [...support, ...superAdmins].map(toPublicUser) });
@@ -84,6 +95,8 @@ export async function listAssignmentCandidates(req, res, next) {
     next(err);
   }
 }
+
+module.exports.listAssignmentCandidates = listAssignmentCandidates;
 
 // Team Portal Support Tickets scoping (Access Feature 'supportTickets',
 // relationship_manager only — sales_manager has no such key in
@@ -101,8 +114,7 @@ async function assertOwnAgencyTicket(req, ticket) {
   return ids.includes(ticket.agency_id);
 }
 
-// GET /api/admin/support/tickets?status=&priority=&assignedToUserId=&search=&page=&pageSize=
-export async function listTickets(req, res, next) {
+async function listTickets(req, res, next) {
   try {
     const { status, priority, assignedToUserId, search, page, pageSize } = req.query;
 
@@ -133,8 +145,9 @@ export async function listTickets(req, res, next) {
   }
 }
 
-// GET /api/admin/support/tickets/:id
-export async function getTicket(req, res, next) {
+module.exports.listTickets = listTickets;
+
+async function getTicket(req, res, next) {
   try {
     const ticket = await findTicketForAdmin(req.params.id);
     if (!ticket) return res.status(404).json({ error: 'not_found' });
@@ -155,11 +168,9 @@ export async function getTicket(req, res, next) {
   }
 }
 
-// PATCH /api/admin/support/tickets/:id — assign and/or change status.
-// Each provided field gets its own audit_logs entry (Task 18: "Audit
-// assignment and status changes"), matching Task 12's own one-entry-per-
-// real-change convention rather than one lumped entry.
-export async function updateTicket(req, res, next) {
+module.exports.getTicket = getTicket;
+
+async function updateTicket(req, res, next) {
   try {
     const existing = await findTicketForAdmin(req.params.id);
     if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -213,8 +224,9 @@ export async function updateTicket(req, res, next) {
   }
 }
 
-// POST /api/admin/support/tickets/:id/messages — SUP-3, staff side.
-export async function replyToTicket(req, res, next) {
+module.exports.updateTicket = updateTicket;
+
+async function replyToTicket(req, res, next) {
   try {
     const ticket = await findTicketForAdmin(req.params.id);
     if (!ticket) return res.status(404).json({ error: 'not_found' });
@@ -229,3 +241,5 @@ export async function replyToTicket(req, res, next) {
     next(err);
   }
 }
+
+module.exports.replyToTicket = replyToTicket;

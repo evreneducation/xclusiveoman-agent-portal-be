@@ -1,14 +1,27 @@
-import { findBookingById } from '../models/bookings.model.js';
-import {
+const {
+  findBookingById
+} = require('../models/bookings.model.js');
+
+const {
   listTravelersWithDocuments,
   findTravelerInBooking,
   findTravelerDocumentsByTravelerId,
   saveAgentDocuments,
-  findVoucherByBookingId,
-} from '../models/documents.model.js';
-import { insertAuditLog } from '../models/auditLogs.model.js';
-import { uploadBuffer } from '../services/cloudinary.service.js';
-import { fetchDocumentBuffer, extFromUrl } from '../services/documentZip.service.js';
+  findVoucherByBookingId
+} = require('../models/documents.model.js');
+
+const {
+  insertAuditLog
+} = require('../models/auditLogs.model.js');
+
+const {
+  uploadBuffer
+} = require('../services/cloudinary.service.js');
+
+const {
+  fetchDocumentBuffer,
+  extFromUrl
+} = require('../services/documentZip.service.js');
 
 // Agent-side Traveler Document Upload (Task 14 — DOC-1, DOC-6). Mounted
 // into the existing bookings.routes.js router (requireAuth,
@@ -58,8 +71,7 @@ async function loadOwnedBookingOr404(req, res) {
   return booking;
 }
 
-// GET /api/bookings/:id/documents
-export async function getDocuments(req, res, next) {
+async function getDocuments(req, res, next) {
   try {
     const booking = await loadOwnedBookingOr404(req, res);
     if (!booking) return;
@@ -87,9 +99,9 @@ export async function getDocuments(req, res, next) {
   }
 }
 
-// POST /api/bookings/:id/travelers/:travelerId/documents — DOC-1. multipart
-// fields: passportScan, passportPhoto (either or both; at least one required).
-export async function uploadDocuments(req, res, next) {
+module.exports.getDocuments = getDocuments;
+
+async function uploadDocuments(req, res, next) {
   try {
     const booking = await loadOwnedBookingOr404(req, res);
     if (!booking) return;
@@ -143,11 +155,9 @@ export async function uploadDocuments(req, res, next) {
   }
 }
 
-// GET /api/bookings/:id/travelers/:travelerId/documents/:type/download —
-// every document type here is downloadable as soon as it exists (agent's own
-// passport uploads always were; visa_copy no longer waits on a separate
-// admin release — see this file's own top comment).
-export async function downloadTravelerDocument(req, res, next) {
+module.exports.uploadDocuments = uploadDocuments;
+
+async function downloadTravelerDocument(req, res, next) {
   try {
     const { travelerId, type } = req.params;
     const column = DOC_TYPE_COLUMN[type];
@@ -180,9 +190,9 @@ export async function downloadTravelerDocument(req, res, next) {
   }
 }
 
-// GET /api/bookings/:id/voucher/download — downloadable as soon as it's
-// uploaded, no separate admin release step.
-export async function downloadVoucher(req, res, next) {
+module.exports.downloadTravelerDocument = downloadTravelerDocument;
+
+async function downloadVoucher(req, res, next) {
   try {
     const booking = await loadOwnedBookingOr404(req, res);
     if (!booking) return;
@@ -198,3 +208,5 @@ export async function downloadVoucher(req, res, next) {
     next(err);
   }
 }
+
+module.exports.downloadVoucher = downloadVoucher;

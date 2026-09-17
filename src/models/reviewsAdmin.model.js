@@ -1,4 +1,6 @@
-import { pool } from '../db/pool.js';
+const {
+  pool
+} = require('../db/pool.js');
 
 // Admin Reviews Management (Task 21 — Item 33, Screen 33, REV-3/REV-4).
 // Deliberately its own model rather than forced onto catalog.model.js's
@@ -46,9 +48,7 @@ function buildFilters({ status, rating, search }) {
   return { where, values };
 }
 
-// GET /admin/reviews — same LIMIT/OFFSET + {rows,total,page,pageSize} shape
-// as listBookingsForAdmin/listPackageRequestsForAdmin.
-export async function listReviewsForAdmin({ status, rating, search, page, pageSize } = {}) {
+async function listReviewsForAdmin({ status, rating, search, page, pageSize } = {}) {
   const { where, values } = buildFilters({ status, rating, search });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${JOINS} ${where}`, values);
@@ -68,13 +68,17 @@ export async function listReviewsForAdmin({ status, rating, search, page, pageSi
   return { rows, total, page: currentPage, pageSize: limit };
 }
 
-export async function findReviewByIdForAdmin(id) {
+module.exports.listReviewsForAdmin = listReviewsForAdmin;
+
+async function findReviewByIdForAdmin(id) {
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS} ${JOINS} AND r.id = ?`,
     [id]
   );
   return rows[0] || null;
 }
+
+module.exports.findReviewByIdForAdmin = findReviewByIdForAdmin;
 
 // Recomputes fd_packages.rating/review_count from `published` reviews only
 // (REV-4 — hidden/needs_review reviews must never affect the average) and
@@ -104,25 +108,7 @@ async function rollupPackageRating(client, fdPackageId) {
   );
 }
 
-// PATCH /admin/reviews/:id — the moderation action itself. Status update +
-// rating rollup happen in one transaction (per this task's explicit
-// requirement) so a package's rating can never end up computed against a
-// review status that didn't actually commit. Returns:
-//   - null                          if no review with this id exists (404)
-//   - { review, changed: false }    if the requested status already matches
-//                                    (idempotent no-op — no audit log, no
-//                                    redundant rollup write; a full COUNT/AVG
-//                                    recompute would be harmless either way,
-//                                    but skipping it entirely is the more
-//                                    literal reading of "avoid a meaningless
-//                                    duplicate")
-//   - { review, changed: true, previousStatus } otherwise, with the rollup
-//     already applied — the caller (controller) does the audit log using
-//     `previousStatus`/the new status, same as every other admin action in
-//     this codebase logs outside its own DB transaction (e.g.
-//     reviewsAgent.controller.js#submitReview already does insertAuditLog
-//     after, not inside, its write).
-export async function setReviewStatus(id, status) {
+async function setReviewStatus(id, status) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -154,3 +140,5 @@ export async function setReviewStatus(id, status) {
     client.release();
   }
 }
+
+module.exports.setReviewStatus = setReviewStatus;
