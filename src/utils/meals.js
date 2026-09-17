@@ -16,18 +16,17 @@ function mealTypeCost(row, meals, prefix) {
   return meal ? Number(meal.price_per_day || 0) * Number(people) * Number(days) : 0;
 }
 
-export function computeMealsCost(row, meals) {
+function computeMealsCost(row, meals) {
   return mealTypeCost(row, meals, 'lunch') + mealTypeCost(row, meals, 'dinner');
 }
 
-// Days from a package's free-text Duration field ("7 Days", "5", …). Still
-// used for FD meal add-on pricing (fdPackages.model.js#repriceMealAddons /
-// fdPackagesAdmin.controller.js#resolveAddonPriceAndName — price_per_day ×
-// this) and elsewhere. Mirrors the frontend's own parseDurationDays
-// (shared/fdPackage/index.js) exactly.
-export function parseDurationDays(duration) {
+module.exports.computeMealsCost = computeMealsCost;
+
+function parseDurationDays(duration) {
   if (!duration) return null;
   const match = String(duration).match(/(\d+)\s*d(?:ay)?s?\b/i);
   const days = Number(match ? match[1] : duration);
   return Number.isFinite(days) && days > 0 ? days : null;
 }
+
+module.exports.parseDurationDays = parseDurationDays;

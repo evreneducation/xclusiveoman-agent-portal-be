@@ -1,5 +1,8 @@
-import mysql from 'mysql2/promise';
-import { env } from '../config/env.js';
+const mysql = require('mysql2/promise');
+
+const {
+  env
+} = require('../config/env.js');
 
 // mysql2 returns [rows, fields] and connections don't have the same method
 // names as pg's. Every model/controller/service in this codebase was written
@@ -31,7 +34,7 @@ function normalize(result) {
   return { rows: [], rowCount: result.affectedRows, insertId: result.insertId };
 }
 
-export const pool = {
+const pool = {
   async query(text, params) {
     const [result] = await rawPool.query(text, params);
     return normalize(result);
@@ -53,6 +56,10 @@ export const pool = {
   },
 };
 
-export async function query(text, params) {
+module.exports.pool = pool;
+
+async function query(text, params) {
   return pool.query(text, params);
 }
+
+module.exports.query = query;

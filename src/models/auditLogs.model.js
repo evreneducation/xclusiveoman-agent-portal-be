@@ -1,12 +1,12 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-// Generic, polymorphic activity trail (doc §11.8 / §15 rule 78). `entity` +
-// `entity_id` point at any row (currently only 'package_request', for the
-// Quote Details "Activity History" timeline) so this one table can back
-// other admin screens later without another migration.
+const {
+  newId
+} = require('../utils/id.js');
 
-export async function insertAuditLog({ actorUserId, entity, entityId, field, oldValue, newValue }) {
+async function insertAuditLog({ actorUserId, entity, entityId, field, oldValue, newValue }) {
   await pool.query(
     `INSERT INTO audit_logs (id, actor_user_id, entity, entity_id, field, old_value, new_value)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -22,7 +22,9 @@ export async function insertAuditLog({ actorUserId, entity, entityId, field, old
   );
 }
 
-export async function listAuditLogsForEntity(entity, entityId) {
+module.exports.insertAuditLog = insertAuditLog;
+
+async function listAuditLogsForEntity(entity, entityId) {
   const { rows } = await pool.query(
     `SELECT al.*, u.full_name AS actor_full_name
      FROM audit_logs al
@@ -33,3 +35,5 @@ export async function listAuditLogsForEntity(entity, entityId) {
   );
   return rows;
 }
+
+module.exports.listAuditLogsForEntity = listAuditLogsForEntity;

@@ -1,18 +1,12 @@
-/**
- * One-time bootstrap: inserts the very first super_admin directly, bypassing
- * the API (which requires an existing super_admin to create staff). This is
- * an operational necessity, not demo/seed data.
- *
- * No password set here — this account can't sign in at /admin/login until
- * `npm run seed-admin-passwords` backfills it an initial one from
- * ADMIN_LOGIN_PASSWORD (0084_admin_password.sql; that script fills any
- * admin/staff row with a NULL password_hash, this one included).
- *
- * Usage: node scripts/create-super-admin.js <email> "<full name>"
- */
-import 'dotenv/config';
-import { pool } from '../src/db/pool.js';
-import { newId } from '../src/utils/id.js';
+require('dotenv/config');
+
+const {
+  pool
+} = require('../src/db/pool.js');
+
+const {
+  newId
+} = require('../src/utils/id.js');
 
 async function main() {
   const [, , email, fullName] = process.argv;

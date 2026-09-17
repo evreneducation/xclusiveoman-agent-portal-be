@@ -1,8 +1,28 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
-import { hotelsModel, toursModel, transfersModel, activitiesModel, mealsModel, visaModel, flightsModel } from './catalog.model.js';
-import { roomsForAdults } from '../utils/occupancy.js';
-import { parseDurationDays } from '../utils/meals.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  newId
+} = require('../utils/id.js');
+
+const {
+  hotelsModel,
+  toursModel,
+  transfersModel,
+  activitiesModel,
+  mealsModel,
+  visaModel,
+  flightsModel
+} = require('./catalog.model.js');
+
+const {
+  roomsForAdults
+} = require('../utils/occupancy.js');
+
+const {
+  parseDurationDays
+} = require('../utils/meals.js');
 
 const FD_COLUMNS = [
   'title', 'theme', 'duration', 'hero_image_url', 'short_description',
@@ -34,7 +54,7 @@ function serializeValue(v) {
   return v;
 }
 
-export async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {
+async function listFdPackages({ status, destination, theme, featured, bestseller } = {}) {
   const clauses = [];
   const values = [];
 
@@ -69,11 +89,9 @@ export async function listFdPackages({ status, destination, theme, featured, bes
   return rows;
 }
 
-// Admin catalog card (ProductCatalog → FD Packages) shows a seats-left
-// progress bar and a departure date range per package, so roll up each
-// package's fd_departure_dates here rather than making the admin UI fetch
-// every package's dates one by one.
-export async function listAllFdPackagesForAdmin() {
+module.exports.listFdPackages = listFdPackages;
+
+async function listAllFdPackagesForAdmin() {
   const { rows } = await pool.query(`
     SELECT fd_packages.*,
       hotels.name AS hotel_name,
@@ -94,7 +112,9 @@ export async function listAllFdPackagesForAdmin() {
   return rows;
 }
 
-export async function findFdPackageById(id) {
+module.exports.listAllFdPackagesForAdmin = listAllFdPackagesForAdmin;
+
+async function findFdPackageById(id) {
   const { rows } = await pool.query(
     `SELECT fd_packages.*, hotels.name AS hotel_name
      FROM fd_packages
@@ -105,7 +125,9 @@ export async function findFdPackageById(id) {
   return rows[0] || null;
 }
 
-export async function createFdPackage(fields) {
+module.exports.findFdPackageById = findFdPackageById;
+
+async function createFdPackage(fields) {
   const cols = FD_COLUMNS.filter((c) => fields[c] !== undefined);
   const values = cols.map((c) => serializeValue(fields[c]));
   const id = newId();
@@ -118,17 +140,15 @@ export async function createFdPackage(fields) {
   return rows[0];
 }
 
-// fd_itinerary_days/items, fd_departure_dates, and fd_addons all cascade off
-// fd_package_id (ON DELETE CASCADE). bookings.fd_departure_date_id does not
-// — it has no cascade — so this throws a foreign-key-violation error,
-// surfaced by errorHandler.js as a 409, if any booking still exists against
-// one of this package's departure dates. That's intentional: a package with
-// real bookings shouldn't just vanish.
-export async function deleteFdPackage(id) {
+module.exports.createFdPackage = createFdPackage;
+
+async function deleteFdPackage(id) {
   await pool.query('DELETE FROM fd_packages WHERE id = ?', [id]);
 }
 
-export async function updateFdPackage(id, fields) {
+module.exports.deleteFdPackage = deleteFdPackage;
+
+async function updateFdPackage(id, fields) {
   const cols = FD_COLUMNS.filter((c) => fields[c] !== undefined);
   if (cols.length === 0) return findFdPackageById(id);
 
@@ -148,14 +168,9 @@ export async function updateFdPackage(id, fields) {
   return updated;
 }
 
-// --- Day-by-day itinerary builder ---
-// Mirrors package_request_itinerary_days/items and
-// packageRequests.model.js's listItineraryForRequest/replaceItinerary/
-// composeItinerary — see 0034_fd_itinerary_items.sql. Days are virtual (Day
-// 1..N derived from Duration by the caller) — only a day's notes and its
-// assigned items persist, and only for days that actually have something on
-// them.
-export async function listItineraryForPackage(fdPackageId) {
+module.exports.updateFdPackage = updateFdPackage;
+
+async function listItineraryForPackage(fdPackageId) {
   const [{ rows: days }, { rows: items }] = await Promise.all([
     pool.query('SELECT * FROM fd_itinerary_days WHERE fd_package_id = ? ORDER BY day_number', [fdPackageId]),
     pool.query(
@@ -166,16 +181,9 @@ export async function listItineraryForPackage(fdPackageId) {
   return { days, items };
 }
 
-// Same "always send full state, clear and reinsert" shape as
-// packageRequests.model.js's replaceItinerary. `days` shape: [{ dayNumber,
-// notes, items: [{ type, id, note?, adults? }] }] — position within a day is
-// each item's index in its `items` array. `adults` (hotel occupancy) is only
-// meaningful on 'hotel' items; sent as-is for anything else, which just
-// leaves the column null since nothing reads it back off a non-hotel row.
-// Runs in its own transaction (unlike package-requests' replaceItinerary, an
-// FD package's itinerary save isn't part of a larger multi-table request, so
-// there's no outer `client` to join).
-export async function replaceItinerary(fdPackageId, days) {
+module.exports.listItineraryForPackage = listItineraryForPackage;
+
+async function replaceItinerary(fdPackageId, days) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -205,18 +213,9 @@ export async function replaceItinerary(fdPackageId, days) {
   return listItineraryForPackage(fdPackageId);
 }
 
-// The full catalog, keyed by item type — an FD package's itinerary has no
-// separate "agent selection" step first (unlike a Custom FIT request), so
-// any hotel/tour/transfer/activity in the catalog can be placed on any day;
-// composeItinerary/computeNetRatePerPax resolve each placed item's
-// name/city/images/price against these pools. `meal` is here too, for
-// computeMealsCost to resolve the package's selected lunch/dinner entries
-// against. `visa` (Task 5) is the single-row Visa catalog, read by
-// booking.service.js#createFdBooking to price a package's visa_enabled flag
-// at booking time. Shared by the admin editor and the agent-facing
-// departures endpoints so both resolve itinerary items and price the
-// package identically.
-export async function loadCatalogPools() {
+module.exports.replaceItinerary = replaceItinerary;
+
+async function loadCatalogPools() {
   const [hotels, tours, transfers, activities, meals, visa, flights] = await Promise.all([
     hotelsModel.list(),
     toursModel.list(),
@@ -232,6 +231,8 @@ export async function loadCatalogPools() {
   // a flight is never placed as a day-by-day itinerary item.
   return { hotel: hotels, tour: tours, transfer: transfers, activity: activities, meal: meals, visa, flight: flights };
 }
+
+module.exports.loadCatalogPools = loadCatalogPools;
 
 // Pricing is no longer a manually-entered tiered rate (Gold/Silver/Bronze) —
 // it's the sum of what's actually placed in the day-by-day itinerary, so the
@@ -259,7 +260,7 @@ const HOTEL_RATE_FALLBACK_ORDER = [
   { field: 'triple_price', capacity: 3 },
 ];
 
-export function resolveHotelPerPaxRate(hotel) {
+function resolveHotelPerPaxRate(hotel) {
   if (!hotel) return null;
   for (const { field, capacity } of HOTEL_RATE_FALLBACK_ORDER) {
     if (hotel[field] != null) return Number(hotel[field]) / capacity;
@@ -267,7 +268,9 @@ export function resolveHotelPerPaxRate(hotel) {
   return null;
 }
 
-export function computeNetRatePerPax(items, pools) {
+module.exports.resolveHotelPerPaxRate = resolveHotelPerPaxRate;
+
+function computeNetRatePerPax(items, pools) {
   return (items || []).reduce((total, it) => {
     if (it.item_type === 'hotel') {
       const hotel = (pools.hotel || []).find((h) => h.id === it.item_id);
@@ -280,6 +283,8 @@ export function computeNetRatePerPax(items, pools) {
     return total + (Number(ref[field]) || 0);
   }, 0);
 }
+
+module.exports.computeNetRatePerPax = computeNetRatePerPax;
 
 // The effective net rate: fdPackage.rate_per_pax when the admin has set an
 // override, else the itinerary total plus any included visa (Task 5 — a
@@ -302,15 +307,7 @@ function resolveFlightsPerPax(fdPackage, pools) {
   return Number(onward?.price || 0) + Number(ret?.price || 0);
 }
 
-// Public "Flight Details" section on the departure detail page
-// (agent/pages/DepartureDetail.jsx's collapsible Flight Details card) —
-// only present when flights are included directly on the package
-// (flights_enabled) and both the onward/return flight still resolve in the
-// catalog pool (same guard resolveFlightsPerPax above uses). Returns null
-// otherwise so the frontend can key "show this section" off whether
-// departure.flights came back at all, rather than re-deriving the same
-// enabled/resolved checks itself.
-export function resolveFlightDetails(fdPackage, pools) {
+function resolveFlightDetails(fdPackage, pools) {
   if (!fdPackage.flights_enabled) return null;
   const flights = pools.flight || [];
   const onward = flights.find((f) => f.id === fdPackage.onward_flight_id);
@@ -328,22 +325,16 @@ export function resolveFlightDetails(fdPackage, pools) {
   return { onward: toPublicFlight(onward), return: toPublicFlight(ret) };
 }
 
-// fd_packages.hotel_id is a legacy column from before hotels were placed
-// directly on the day-by-day itinerary (like tours/transfers/activities
-// already are) — FdPackageEditor.jsx has no "select the package's hotel"
-// field any more, only per-day hotel placement (setHotelForDay), so
-// hotel_id is never set for a package built in the current admin UI and
-// anything keyed off it alone (destination, hotel details) would be null
-// forever. This resolves the first hotel actually placed on the itinerary
-// instead (`items` here is listItineraryForPackage's raw rows, already
-// ordered by day_number, position), falling back to the legacy column only
-// for an older package that set it and has no itinerary hotel of its own.
-export function resolvePrimaryHotelId(fdPackage, items) {
+module.exports.resolveFlightDetails = resolveFlightDetails;
+
+function resolvePrimaryHotelId(fdPackage, items) {
   const firstHotelItem = (items || []).find((it) => it.item_type === 'hotel');
   return firstHotelItem?.item_id || fdPackage.hotel_id || null;
 }
 
-export function resolveRatePerPax(fdPackage, items, pools) {
+module.exports.resolvePrimaryHotelId = resolvePrimaryHotelId;
+
+function resolveRatePerPax(fdPackage, items, pools) {
   if (fdPackage.rate_per_pax != null) return Number(fdPackage.rate_per_pax);
   // Meals are opt-in fd_addons now (0075) — priced onto a booking's total at
   // booking time, never part of the package's advertised net rate.
@@ -352,14 +343,9 @@ export function resolveRatePerPax(fdPackage, items, pools) {
   return computeNetRatePerPax(items, pools) + visaPerPax + flightsPerPax;
 }
 
-// Composes the persisted days/items rows into the [{dayNumber, notes, items:
-// [{type, id, name, ...}]}] shape both the admin editor and the agent
-// departure detail page read — same logic as packageRequests.model.js's
-// composeItinerary, but resolved against the *full* catalog pools rather than
-// a pre-selected subset: an FD package has no separate "agent selection"
-// step the way a Custom FIT request does, so any catalog item can be placed
-// on any day.
-export function composeItinerary(days, items, pools) {
+module.exports.resolveRatePerPax = resolveRatePerPax;
+
+function composeItinerary(days, items, pools) {
   const byDay = new Map();
   for (const d of days) {
     byDay.set(d.day_number, { dayNumber: d.day_number, notes: d.notes || '', items: [] });
@@ -387,7 +373,9 @@ export function composeItinerary(days, items, pools) {
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
 }
 
-export async function listDepartureDates(fdPackageId) {
+module.exports.composeItinerary = composeItinerary;
+
+async function listDepartureDates(fdPackageId) {
   const { rows } = await pool.query(
     'SELECT * FROM fd_departure_dates WHERE fd_package_id = ? ORDER BY date',
     [fdPackageId]
@@ -395,12 +383,16 @@ export async function listDepartureDates(fdPackageId) {
   return rows;
 }
 
-export async function findDepartureDateById(id) {
+module.exports.listDepartureDates = listDepartureDates;
+
+async function findDepartureDateById(id) {
   const { rows } = await pool.query('SELECT * FROM fd_departure_dates WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
-export async function addDepartureDate(fdPackageId, { date, seatsTotal, location }) {
+module.exports.findDepartureDateById = findDepartureDateById;
+
+async function addDepartureDate(fdPackageId, { date, seatsTotal, location }) {
   const id = newId();
   await pool.query(
     'INSERT INTO fd_departure_dates (id, fd_package_id, date, seats_total, location) VALUES (?, ?, ?, ?, ?)',
@@ -410,19 +402,15 @@ export async function addDepartureDate(fdPackageId, { date, seatsTotal, location
   return rows[0];
 }
 
-export async function removeDepartureDate(id) {
+module.exports.addDepartureDate = addDepartureDate;
+
+async function removeDepartureDate(id) {
   await pool.query('DELETE FROM fd_departure_dates WHERE id = ?', [id]);
 }
 
-// The guard here (`seats_total - seats_booked >= ?`) is a condition on
-// seats_booked, the very column this UPDATE increments — after a
-// successful increment the remaining-seats figure can drop below `pax`
-// again (e.g. exactly filling the last seats), so a follow-up SELECT
-// reusing this same WHERE clause could wrongly look like the guard blocked
-// it. Instead this checks `rowCount` directly — src/db/pool.js's adapter
-// normalizes mysql2's ResultSetHeader.affectedRows into this same field pg
-// used to return, 0 exactly when the guard blocked the update.
-export async function incrementSeatsBooked(client, departureDateId, pax) {
+module.exports.removeDepartureDate = removeDepartureDate;
+
+async function incrementSeatsBooked(client, departureDateId, pax) {
   const { rowCount } = await client.query(
     `UPDATE fd_departure_dates
      SET seats_booked = seats_booked + ?
@@ -434,7 +422,9 @@ export async function incrementSeatsBooked(client, departureDateId, pax) {
   return rows[0] || null;
 }
 
-export async function listAddons(fdPackageId) {
+module.exports.incrementSeatsBooked = incrementSeatsBooked;
+
+async function listAddons(fdPackageId) {
   const { rows } = await pool.query(
     `SELECT fd_addons.*, activities.name AS activity_name, tours.name AS tour_name,
        transfers.name AS transfer_name, flights.name AS flight_name,
@@ -451,7 +441,9 @@ export async function listAddons(fdPackageId) {
   return rows;
 }
 
-export async function findAddonsByIds(fdPackageId, addonIds) {
+module.exports.listAddons = listAddons;
+
+async function findAddonsByIds(fdPackageId, addonIds) {
   if (!addonIds || addonIds.length === 0) return [];
   const { rows } = await pool.query(
     'SELECT * FROM fd_addons WHERE fd_package_id = ? AND id IN (?)',
@@ -460,13 +452,12 @@ export async function findAddonsByIds(fdPackageId, addonIds) {
   return rows;
 }
 
-// Task 5 — pricePerPax is derived server-side by the caller (fdPackagesAdmin
-// .controller.js#postAddon reads it straight off the selected catalog item)
-// rather than admin-typed; `location` is gone, the old manual-entry-only
-// concept it existed for. flightId (0064_fd_package_flights.sql) always
-// resolves to a pricePerPax of 0 — the flights catalog has no rate column —
-// same as every other exclusive option here, just with nothing to charge.
-export async function addAddon(fdPackageId, { activityId, tourId, transferId, flightId, mealId, pricePerPax }) {
+module.exports.findAddonsByIds = findAddonsByIds;
+
+async function addAddon(
+  fdPackageId,
+  { activityId, tourId, transferId, flightId, mealId, pricePerPax }
+) {
   const id = newId();
   await pool.query(
     `INSERT INTO fd_addons (id, fd_package_id, activity_id, tour_id, transfer_id, flight_id, meal_id, price_per_pax)
@@ -476,6 +467,8 @@ export async function addAddon(fdPackageId, { activityId, tourId, transferId, fl
   const { rows } = await pool.query('SELECT * FROM fd_addons WHERE id = ?', [id]);
   return rows[0];
 }
+
+module.exports.addAddon = addAddon;
 
 // Meal add-on prices are price_per_day x the package's Duration, so a later
 // Duration change has to reprice them (activities/tours/transfers/flights
@@ -495,6 +488,8 @@ async function repriceMealAddons(fdPackageId, duration) {
   );
 }
 
-export async function removeAddon(id) {
+async function removeAddon(id) {
   await pool.query('DELETE FROM fd_addons WHERE id = ?', [id]);
 }
+
+module.exports.removeAddon = removeAddon;

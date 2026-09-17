@@ -1,5 +1,10 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  newId
+} = require('../utils/id.js');
 
 // Admin Support & Helpdesk (Task 18 — Screen 27/28, SUP-1..3). Agent-side
 // (own-agency) and admin-side (all agencies, joined) queries live together
@@ -21,9 +26,7 @@ const ADMIN_SELECT_COLUMNS = `
   assignee.full_name AS assigned_to_name
 `;
 
-// --- Agent-side (own agency only) ---
-
-export async function createTicket({ agencyId, createdByUserId, subject, description, priority }) {
+async function createTicket({ agencyId, createdByUserId, subject, description, priority }) {
   const id = newId();
   await pool.query(
     `INSERT INTO support_tickets (id, agency_id, created_by_user_id, subject, description, priority)
@@ -34,13 +37,9 @@ export async function createTicket({ agencyId, createdByUserId, subject, descrip
   return rows[0];
 }
 
-// GET /support/tickets — an agency's own ticket count is small (same scale
-// as "My Bookings", which also has no pagination), so this returns every
-// ticket for the agency, newest first — no separate detail endpoint exists
-// for the agent (matches the doc's own literal route table, which lists no
-// agent ticket-detail GET); the frontend finds one ticket's thread from
-// this same response instead of a second fetch.
-export async function listTicketsForAgency(agencyId) {
+module.exports.createTicket = createTicket;
+
+async function listTicketsForAgency(agencyId) {
   const { rows } = await pool.query(
     'SELECT * FROM support_tickets WHERE agency_id = ? ORDER BY created_at DESC',
     [agencyId]
@@ -48,13 +47,14 @@ export async function listTicketsForAgency(agencyId) {
   return rows;
 }
 
-// Ownership-scoped fetch — every agent-side write (reply) re-verifies this
-// rather than trusting a bare ticket_id, same posture as
-// payments.controller.js#assertOwnsBooking.
-export async function findTicketForAgency(ticketId, agencyId) {
+module.exports.listTicketsForAgency = listTicketsForAgency;
+
+async function findTicketForAgency(ticketId, agencyId) {
   const { rows } = await pool.query('SELECT * FROM support_tickets WHERE id = ? AND agency_id = ?', [ticketId, agencyId]);
   return rows[0] || null;
 }
+
+module.exports.findTicketForAgency = findTicketForAgency;
 
 // --- Admin-side (all agencies) ---
 
@@ -91,10 +91,9 @@ function buildAdminFilters({ status, priority, assignedToUserId, agencyIds, sear
   return { where, values };
 }
 
-// GET /admin/support/tickets — same LIMIT/OFFSET + {rows,total,page,pageSize}
-// shape as every other admin list in this codebase (packageRequestsAdmin,
-// bookingsAdmin, …).
-export async function listTicketsForAdmin({ status, priority, assignedToUserId, agencyIds, search, page, pageSize } = {}) {
+async function listTicketsForAdmin(
+  { status, priority, assignedToUserId, agencyIds, search, page, pageSize } = {}
+) {
   const { where, values } = buildAdminFilters({ status, priority, assignedToUserId, agencyIds, search });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count ${ADMIN_JOINS} ${where}`, values);
@@ -114,17 +113,16 @@ export async function listTicketsForAdmin({ status, priority, assignedToUserId, 
   return { rows, total, page: currentPage, pageSize: limit };
 }
 
-export async function findTicketForAdmin(ticketId) {
+module.exports.listTicketsForAdmin = listTicketsForAdmin;
+
+async function findTicketForAdmin(ticketId) {
   const { rows } = await pool.query(`SELECT ${ADMIN_SELECT_COLUMNS} ${ADMIN_JOINS} WHERE t.id = ?`, [ticketId]);
   return rows[0] || null;
 }
 
-// PATCH /admin/support/tickets/:id — assign and/or change status (doc's own
-// route purpose: "Assign, change status"). Both are optional/independent —
-// COALESCE keeps whichever field wasn't provided unchanged. Priority is
-// never editable here (Task 18 scope: set once at creation, admin only
-// filters by it).
-export async function updateTicketAssignmentAndStatus(ticketId, { assignedToUserId, status }) {
+module.exports.findTicketForAdmin = findTicketForAdmin;
+
+async function updateTicketAssignmentAndStatus(ticketId, { assignedToUserId, status }) {
   await pool.query(
     `UPDATE support_tickets
      SET assigned_to_user_id = CASE WHEN ? THEN ? ELSE assigned_to_user_id END,
@@ -137,9 +135,9 @@ export async function updateTicketAssignmentAndStatus(ticketId, { assignedToUser
   return rows[0] || null;
 }
 
-// --- Messages (shared by both sides) ---
+module.exports.updateTicketAssignmentAndStatus = updateTicketAssignmentAndStatus;
 
-export async function insertTicketMessage({ ticketId, senderUserId, message }) {
+async function insertTicketMessage({ ticketId, senderUserId, message }) {
   const id = newId();
   await pool.query(
     `INSERT INTO ticket_messages (id, ticket_id, sender_user_id, message) VALUES (?, ?, ?, ?)`,
@@ -154,10 +152,9 @@ export async function insertTicketMessage({ ticketId, senderUserId, message }) {
   return rows[0];
 }
 
-// Joined with sender identity — used by both the agent's embedded-in-list
-// thread view and the admin detail view, so the two can never render a
-// message thread differently.
-export async function listMessagesForTicket(ticketId) {
+module.exports.insertTicketMessage = insertTicketMessage;
+
+async function listMessagesForTicket(ticketId) {
   const { rows } = await pool.query(
     `SELECT tm.*, u.full_name AS sender_name, u.role AS sender_role
      FROM ticket_messages tm
@@ -168,3 +165,5 @@ export async function listMessagesForTicket(ticketId) {
   );
   return rows;
 }
+
+module.exports.listMessagesForTicket = listMessagesForTicket;

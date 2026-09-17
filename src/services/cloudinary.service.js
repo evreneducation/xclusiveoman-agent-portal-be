@@ -1,5 +1,10 @@
-import { v2 as cloudinary } from 'cloudinary';
-import { env } from '../config/env.js';
+const {
+  v2: cloudinary
+} = require('cloudinary');
+
+const {
+  env
+} = require('../config/env.js');
 
 let configured = false;
 
@@ -18,11 +23,7 @@ function ensureConfigured() {
   return true;
 }
 
-/**
- * Server-mediated upload (doc §14.3): the API secret never leaves the server.
- * folderParts builds the doc's convention xclusive-oman/{env}/{entity}/{entity_id}/{doc_type}.
- */
-export async function uploadBuffer(buffer, { folderParts, publicId, resourceType = 'auto' } = {}) {
+async function uploadBuffer(buffer, { folderParts, publicId, resourceType = 'auto' } = {}) {
   if (!ensureConfigured()) {
     throw Object.assign(new Error('Cloudinary is not configured (set CLOUDINARY_* in .env)'), {
       status: 503,
@@ -40,3 +41,5 @@ export async function uploadBuffer(buffer, { folderParts, publicId, resourceType
     stream.end(buffer);
   });
 }
+
+module.exports.uploadBuffer = uploadBuffer;

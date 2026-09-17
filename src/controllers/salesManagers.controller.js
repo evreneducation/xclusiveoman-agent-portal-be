@@ -1,23 +1,33 @@
-import { pool } from '../db/pool.js';
-import { env } from '../config/env.js';
-import { normalizeLmPermissions } from '../config/accessFeatures.js';
-import {
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  env
+} = require('../config/env.js');
+
+const {
+  normalizeLmPermissions
+} = require('../config/accessFeatures.js');
+
+const {
   createUser,
   findUserByEmail,
   findUserById,
   listStaffByRole,
   toPublicUser,
-  updateUser,
-} from '../models/users.model.js';
-import { sendEmail } from '../services/email.service.js';
-import { buildStaffWelcomeEmailHtml } from '../services/emailTemplate.service.js';
+  updateUser
+} = require('../models/users.model.js');
 
-// GET /api/admin/sales-managers?search=&page=&pageSize=
-// Lists the sales_manager staff pool. Unlike relationship managers, sales
-// managers have no per-agency assignment concept (no agencies.*_user_id FK).
-// Same search/pagination/no-store convention as
-// relationshipManagers.controller.js#list — see its own comment.
-export async function list(req, res, next) {
+const {
+  sendEmail
+} = require('../services/email.service.js');
+
+const {
+  buildStaffWelcomeEmailHtml
+} = require('../services/emailTemplate.service.js');
+
+async function list(req, res, next) {
   try {
     res.set('Cache-Control', 'no-store');
     let salesManagers = (await listStaffByRole('sales_manager')).map(toPublicUser);
@@ -46,8 +56,9 @@ export async function list(req, res, next) {
   }
 }
 
-// POST /api/admin/sales-managers
-export async function create(req, res, next) {
+module.exports.list = list;
+
+async function create(req, res, next) {
   const client = await pool.connect();
   try {
     const { fullName, email, phone, whatsappNumber } = req.body;
@@ -107,8 +118,9 @@ export async function create(req, res, next) {
   }
 }
 
-// PATCH /api/admin/sales-managers/:id
-export async function update(req, res, next) {
+module.exports.create = create;
+
+async function update(req, res, next) {
   try {
     const { id } = req.params;
     const target = await findUserById(id);
@@ -131,3 +143,5 @@ export async function update(req, res, next) {
     next(err);
   }
 }
+
+module.exports.update = update;

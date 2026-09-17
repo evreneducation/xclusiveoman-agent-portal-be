@@ -1,7 +1,20 @@
-import { Router } from 'express';
-import * as adminController from '../controllers/admin.controller.js';
-import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
-import { validateBody, patchAdminAgencySchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const adminController = require('../controllers/admin.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature,
+  STAFF_ROLES
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  patchAdminAgencySchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -21,4 +34,4 @@ router.patch(
   adminController.patchAgency
 );
 
-export default router;
+module.exports = router;

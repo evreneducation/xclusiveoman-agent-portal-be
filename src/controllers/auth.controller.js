@@ -1,9 +1,28 @@
-import { pool } from '../db/pool.js';
-import { env } from '../config/env.js';
-import { newId } from '../utils/id.js';
-import { createAgency } from '../models/agencies.model.js';
-import { createUser, findUserByEmail, findUserById, listStaffByRole, toPublicUser } from '../models/users.model.js';
-import {
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  env
+} = require('../config/env.js');
+
+const {
+  newId
+} = require('../utils/id.js');
+
+const {
+  createAgency
+} = require('../models/agencies.model.js');
+
+const {
+  createUser,
+  findUserByEmail,
+  findUserById,
+  listStaffByRole,
+  toPublicUser
+} = require('../models/users.model.js');
+
+const {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
@@ -11,14 +30,33 @@ import {
   generateNumericOtp,
   signAdminMfaToken,
   verifyAdminMfaToken,
-  comparePassword,
-} from '../services/auth.service.js';
-import { adminSecurityModel } from '../models/adminSecurity.model.js';
-import { verifyTotpStep } from '../services/totp.service.js';
-import { sendEmail, sendOtpEmail } from '../services/email.service.js';
-import { buildAgentRegistrationReceivedEmailHtml } from '../services/emailTemplate.service.js';
-import { createNotification } from '../services/notification.service.js';
-import { uploadBuffer } from '../services/cloudinary.service.js';
+  comparePassword
+} = require('../services/auth.service.js');
+
+const {
+  adminSecurityModel
+} = require('../models/adminSecurity.model.js');
+
+const {
+  verifyTotpStep
+} = require('../services/totp.service.js');
+
+const {
+  sendEmail,
+  sendOtpEmail
+} = require('../services/email.service.js');
+
+const {
+  buildAgentRegistrationReceivedEmailHtml
+} = require('../services/emailTemplate.service.js');
+
+const {
+  createNotification
+} = require('../services/notification.service.js');
+
+const {
+  uploadBuffer
+} = require('../services/cloudinary.service.js');
 
 // Email OTP login — Agent/Team's sole authentication mechanism (no
 // per-user password anywhere — users.password_hash was dropped,
@@ -149,18 +187,7 @@ async function sendAgentRegistrationReceivedEmail({ agency, user }) {
   }
 }
 
-// POST /api/auth/register/license-document — public, multipart, single file
-// at req.file (field 'licenseDocument'). Uploaded up front, same
-// upload-then-reference-the-URL pattern the catalog editors use
-// (uploadImagesHandlerFor, catalog.controller.js) — the agency doesn't
-// exist yet when this fires (it's mid-signup), so there's no record id to
-// scope the Cloudinary folder to; 'pending' stands in for it the same way
-// uploadImagesHandlerFor's own idField falls back to 'new'. No auth — the
-// whole point is this runs before any account/session exists — but the
-// `upload` middleware (multer, middleware/upload.js) still validates MIME
-// type (jpeg/png/webp/pdf — jpg files report as image/jpeg, so ".jpg" is
-// already covered) and a 10MB size cap before this ever runs.
-export async function uploadLicenseDocument(req, res, next) {
+async function uploadLicenseDocument(req, res, next) {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'missing_file', message: 'Upload your IATA/License document' });
@@ -176,10 +203,9 @@ export async function uploadLicenseDocument(req, res, next) {
   }
 }
 
-// POST /api/auth/register — AUTH-1: public agency + owner signup, status=pending.
-// No password collected — the new owner signs in afterward (once approved)
-// the same way everyone else does now: email OTP.
-export async function register(req, res, next) {
+module.exports.uploadLicenseDocument = uploadLicenseDocument;
+
+async function register(req, res, next) {
   const { agencyName, agencyType, licenseNumber, licenseDocumentUrl, country, ownerFullName, email, phone } = req.body;
 
   const client = await pool.connect();
@@ -225,12 +251,9 @@ export async function register(req, res, next) {
   }
 }
 
-// POST /api/auth/request-otp — Email OTP login, step 1. Explicitly reports
-// whether the email is registered/active (product decision, requested by
-// the team — trades the usual anti-enumeration posture for a clearer
-// sign-in error message on the login form). Only a real, active user ever
-// gets a code generated + emailed.
-export async function requestLoginOtp(req, res, next) {
+module.exports.register = register;
+
+async function requestLoginOtp(req, res, next) {
   try {
     const { email, portal } = req.body;
     const user = await findUserByEmail(email);
@@ -317,12 +340,9 @@ export async function requestLoginOtp(req, res, next) {
   }
 }
 
-// POST /api/auth/verify-otp — Email OTP login, step 2. Issues the same
-// {accessToken, user} shape/issueTokens() call every other sign-in path
-// here uses, so nothing downstream of a successful sign-in (LoginModal's
-// isStaffUser/hard-navigation, either portal's own AuthProvider bootstrap)
-// needed to change.
-export async function verifyLoginOtp(req, res, next) {
+module.exports.requestLoginOtp = requestLoginOtp;
+
+async function verifyLoginOtp(req, res, next) {
   try {
     const { email, otp } = req.body;
     const user = await findUserByEmail(email);
@@ -376,20 +396,9 @@ export async function verifyLoginOtp(req, res, next) {
   }
 }
 
-// POST /api/auth/admin-login — Admin Console login only; Agent/Team logins
-// are unaffected and still go through requestLoginOtp/verifyLoginOtp above.
-// Per-account bcrypt password (users.password_hash — reintroduced by
-// 0084_admin_password.sql after being fully dropped in 0060_drop_password.sql,
-// this time scoped to Admin Console accounts only, each with their own hash
-// rather than one shared secret). New admin/staff rows start with no hash
-// set until scripts/seedAdminPasswords.js backfills one from
-// env.adminLoginPassword — comparePassword (auth.service.js) resolves false
-// for a NULL hash, so an unseeded account just can't log in yet rather than
-// throwing. Once the password checks out, this rejoins verifyLoginOtp's own
-// tail exactly — same belongsToPortal gate, same mfaRequired handoff into
-// verify-mfa when the Security screen's global 2FA toggle is on, same
-// issueTokens() session — so nothing past this point changed.
-export async function adminLogin(req, res, next) {
+module.exports.verifyLoginOtp = verifyLoginOtp;
+
+async function adminLogin(req, res, next) {
   try {
     const { email, password } = req.body;
 
@@ -428,11 +437,9 @@ export async function adminLogin(req, res, next) {
   }
 }
 
-// POST /api/auth/verify-mfa — Email OTP login, step 3, only for admin-console
-// users when the global 2FA toggle is on. Trades the mfaToken from
-// verify-otp (proof step 1 & 2 passed) plus a live authenticator code for
-// the same {accessToken, user} session every other sign-in path issues.
-export async function verifyLoginMfa(req, res, next) {
+module.exports.adminLogin = adminLogin;
+
+async function verifyLoginMfa(req, res, next) {
   try {
     const { mfaToken, code } = req.body;
 
@@ -481,8 +488,9 @@ export async function verifyLoginMfa(req, res, next) {
   }
 }
 
-// POST /api/auth/refresh
-export async function refresh(req, res, next) {
+module.exports.verifyLoginMfa = verifyLoginMfa;
+
+async function refresh(req, res, next) {
   try {
     const token = req.cookies?.[REFRESH_COOKIE_NAME];
     if (!token) {
@@ -502,15 +510,19 @@ export async function refresh(req, res, next) {
   }
 }
 
-// POST /api/auth/logout
-export async function logout(req, res) {
+module.exports.refresh = refresh;
+
+async function logout(req, res) {
   // clearCookie must be called with the same attributes the cookie was set
   // with (sameSite/secure included) or some browsers won't match it to clear.
   res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
   res.status(204).send();
 }
 
-// GET /api/auth/me
-export async function me(req, res) {
+module.exports.logout = logout;
+
+async function me(req, res) {
   res.json({ user: toPublicUser(req.user) });
 }
+
+module.exports.me = me;

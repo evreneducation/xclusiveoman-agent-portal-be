@@ -1,15 +1,34 @@
-import { Router } from 'express';
-import {
+const {
+  Router
+} = require('express');
+
+const {
   catalogHandlersFor,
   uploadImagesHandlerFor,
   uploadOmanOverviewPdf,
   uploadOmanOverviewCoverImage,
-  uploadDealImage,
-} from '../controllers/catalog.controller.js';
-import { hotelsModel, toursModel, activitiesModel, transfersModel } from '../models/catalog.model.js';
-import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
-import {
+  uploadDealImage
+} = require('../controllers/catalog.controller.js');
+
+const {
+  hotelsModel,
+  toursModel,
+  activitiesModel,
+  transfersModel
+} = require('../models/catalog.model.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature,
+  STAFF_ROLES
+} = require('../middleware/auth.js');
+
+const {
+  upload
+} = require('../middleware/upload.js');
+
+const {
   validateBody,
   hotelSchema,
   tourSchema,
@@ -22,8 +41,8 @@ import {
   flightSchema,
   omanOverviewSchema,
   dealSchema,
-  toSnakeCaseColumns,
-} from '../validation/schemas.js';
+  toSnakeCaseColumns
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -192,8 +211,7 @@ for (const { path } of ENTITIES) {
   router.get(`/${path}/:id`, requireAuth, handlers.get);
 }
 
-// Admin CRUD, mounted under /admin/<entity> from routes/index.js.
-export const adminCatalogRouter = Router();
+const adminCatalogRouter = Router();
 // requireFeature('catalog') — the Team Portal's Catalog Access Feature; only
 // ever narrows sales_manager (relationship_manager has no 'catalog' key in
 // RM_FEATURE_KEYS, so is 403'd here regardless of its other checkboxes).
@@ -238,4 +256,5 @@ adminCatalogRouter.post('/oman-overviews/cover-image', upload.single('image'), u
 // the PDF route above, field name 'image' instead of 'pdf'.
 adminCatalogRouter.post('/deals/image', upload.single('image'), uploadDealImage);
 
-export default router;
+module.exports = router;
+module.exports.adminCatalogRouter = adminCatalogRouter;

@@ -1,8 +1,26 @@
-import { Router } from 'express';
-import { z } from 'zod';
-import * as controller from '../controllers/miceRfqsAdmin.controller.js';
-import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
-import { validateBody, assignMiceRfqLeadManagerSchema, miceRfqCostingSchema, itinerarySchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const {
+  z
+} = require('zod');
+
+const controller = require('../controllers/miceRfqsAdmin.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature,
+  STAFF_ROLES
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  assignMiceRfqLeadManagerSchema,
+  miceRfqCostingSchema,
+  itinerarySchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -23,4 +41,4 @@ router.patch('/:id/costing', validateBody(miceRfqCostingSchema), controller.save
 router.patch('/:id/itinerary', validateBody(z.object({ days: itinerarySchema })), controller.saveItinerary);
 router.post('/:id/publish', controller.publish);
 
-export default router;
+module.exports = router;

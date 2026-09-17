@@ -1,14 +1,26 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
-import {
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  newId
+} = require('../utils/id.js');
+
+const {
   listItineraryForPackage,
   resolveRatePerPax,
   loadCatalogPools,
   findAddonsByIds,
-  incrementSeatsBooked,
-} from '../models/fdPackages.model.js';
-import { listTravelersForRequest } from '../models/packageRequests.model.js';
-import { findBookingBySource } from '../models/bookings.model.js';
+  incrementSeatsBooked
+} = require('../models/fdPackages.model.js');
+
+const {
+  listTravelersForRequest
+} = require('../models/packageRequests.model.js');
+
+const {
+  findBookingBySource
+} = require('../models/bookings.model.js');
 
 // FD booking creation — the one real "create a bookings row" transaction in
 // this codebase (Task 13). Extracted out of departures.controller.js#createBooking
@@ -56,48 +68,21 @@ function deriveStatusFromDeposit(depositPaid, totalPrice) {
   return depositPaid >= totalPrice ? 'fully_paid' : 'balance_due';
 }
 
-/**
- * Creates one FD booking, atomically, exactly like the pre-Task-13
- * self-service flow did inline: resolve server-side pricing (unless an
- * agreed override is given), atomically decrement seats (or waitlist if
- * sold out — see incrementSeatsBooked's own race-safe WHERE clause), insert
- * the booking, its travelers, and its addons, all in one transaction.
- *
- * @param {object} fdPackage - already-fetched, already status-validated by the caller.
- * @param {object} departureDate - already-fetched, already verified to belong to fdPackage by the caller.
- * @param {string} agencyId - already-validated by the caller (self-service: req.user.agency_id; admin: an approved agency).
- * @param {string} createdByUserId
- * @param {'self_service'|'manual_admin'} createdVia
- * @param {number} pax
- * @param {string[]} [addonIds]
- * @param {Object<string, number[]>} [addonDayNumbers] - fd_addons id -> itinerary day numbers,
- *   for meal-type addons limited to specific days (0080_booking_addon_days.sql).
- * @param {Array<{name:string, passportNo?:string, dob?:string, roomShareGroup?:string}>} [travelers]
- * @param {number} [agreedTotalPrice] - Admin Manual Booking's MAN-3 override (agreed sell price).
- *   Deliberately bypasses server-computed pricing when present — the whole
- *   point of a manual booking is that admin already negotiated the real
- *   price by phone; recomputing it from the catalog would silently
- *   overwrite that. Still validated (positive finite number) by the
- *   caller's zod schema before it ever reaches here — "never trust a
- *   client price" for self-service means "always compute it server-side";
- *   for admin it means "never accept a malformed one", which is a
- *   different, narrower guarantee this function still upholds by simply
- *   never accepting anything except a plain positive number.
- * @param {number} [depositPaid] - Offline deposit an admin captured; self-service always omits this (stays 0).
- */
-export async function createFdBooking({
-  fdPackage,
-  departureDate,
-  agencyId,
-  createdByUserId,
-  createdVia,
-  pax,
-  addonIds = [],
-  addonDayNumbers = {},
-  travelers = [],
-  agreedTotalPrice,
-  depositPaid = 0,
-}) {
+async function createFdBooking(
+  {
+    fdPackage,
+    departureDate,
+    agencyId,
+    createdByUserId,
+    createdVia,
+    pax,
+    addonIds = [],
+    addonDayNumbers = {},
+    travelers = [],
+    agreedTotalPrice,
+    depositPaid = 0,
+  }
+) {
   const client = await pool.connect();
   try {
     const [addons, itinerary, pools] = await Promise.all([
@@ -205,19 +190,9 @@ export async function createFdBooking({
   }
 }
 
-// FIT quote -> booking conversion (FIT-13: "an accepted+paid quote converts
-// to a booking" — package_requests.status already has a 'converted' value,
-// and booking_source_type already includes 'package_request', but nothing
-// ever actually inserted one; agent's respond() previously just flipped the
-// quote to 'accepted' and stopped there). Called from
-// packageRequests.controller.js#respond right after that status transition
-// commits.
-//
-// FIT quotes have no per-package deposit/balance-due policy defined either
-// (same gap FD packages had before DEFAULT_BALANCE_DUE_DAYS_BEFORE above) —
-// reuses that same 30-day-before-trip default off the quote's own
-// date_from, rather than inventing a second, undocumented policy.
-export async function createBookingFromPackageRequest(packageRequest) {
+module.exports.createFdBooking = createFdBooking;
+
+async function createBookingFromPackageRequest(packageRequest) {
   // Idempotent by construction, not just by the caller's own guard: a
   // package_request can only ever transition published -> accepted once
   // (respondToPackageRequest's own WHERE status='published' clause makes a
@@ -277,3 +252,5 @@ export async function createBookingFromPackageRequest(packageRequest) {
     client.release();
   }
 }
+
+module.exports.createBookingFromPackageRequest = createBookingFromPackageRequest;

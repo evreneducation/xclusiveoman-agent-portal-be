@@ -1,5 +1,10 @@
-import { pool } from '../db/pool.js';
-import { replaceItinerary } from './packageRequests.model.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  replaceItinerary
+} = require('./packageRequests.model.js');
 
 // Admin-side queries only (listing with joins/pagination/search, lead-manager
 // assignment). Detail sub-lists (hotels/tours/transfers/activities/travelers)
@@ -68,9 +73,11 @@ function buildFilters({ status, destination, search, submittedFrom, submittedTo,
   return { where: `WHERE ${clauses.join(' AND ')}`, values };
 }
 
-export async function listPackageRequestsForAdmin({
-  status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds, page, pageSize,
-} = {}) {
+async function listPackageRequestsForAdmin(
+  {
+    status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds, page, pageSize,
+  } = {}
+) {
   const { where, values } = buildFilters({ status, destination, search, submittedFrom, submittedTo, leadManagerUserId, agencyIds });
 
   const { rows: countRows } = await pool.query(
@@ -93,7 +100,9 @@ export async function listPackageRequestsForAdmin({
   return { rows, total, page: currentPage, pageSize: limit };
 }
 
-export async function findPackageRequestForAdmin(id) {
+module.exports.listPackageRequestsForAdmin = listPackageRequestsForAdmin;
+
+async function findPackageRequestForAdmin(id) {
   const { rows } = await pool.query(
     `SELECT ${SELECT_COLUMNS} ${JOINS} WHERE pr.id = ?`,
     [id]
@@ -101,7 +110,9 @@ export async function findPackageRequestForAdmin(id) {
   return rows[0] || null;
 }
 
-export async function updatePackageRequestLeadManager(id, leadManagerUserId, status) {
+module.exports.findPackageRequestForAdmin = findPackageRequestForAdmin;
+
+async function updatePackageRequestLeadManager(id, leadManagerUserId, status) {
   await pool.query(
     `UPDATE package_requests
      SET lead_manager_user_id = ?, status = ?, updated_at = now()
@@ -112,14 +123,12 @@ export async function updatePackageRequestLeadManager(id, leadManagerUserId, sta
   return rows[0] || null;
 }
 
-// Quote Details — Editable Costing + Markup Panel ("Save Draft"). Always
-// writes net_cost_breakdown/markup_rule/sell_price/internal_notes/inclusions/
-// exclusions together since the FE always saves the full costing state in
-// one call. inclusions/exclusions (0048_package_request_inclusions_exclusions.sql)
-// are the client-facing counterpart to internal_notes — admin-authored free
-// text shown read-only on the agent's own quote view once published
-// (packageRequests.controller.js), unlike internal_notes which stays admin-only.
-export async function updatePackageRequestCosting(id, { netCostBreakdown, markupRule, sellPrice, internalNotes, inclusions, exclusions, status }) {
+module.exports.updatePackageRequestLeadManager = updatePackageRequestLeadManager;
+
+async function updatePackageRequestCosting(
+  id,
+  { netCostBreakdown, markupRule, sellPrice, internalNotes, inclusions, exclusions, status }
+) {
   await pool.query(
     `UPDATE package_requests
      SET net_cost_breakdown = ?, markup_rule = ?, sell_price = ?, internal_notes = ?,
@@ -131,11 +140,9 @@ export async function updatePackageRequestCosting(id, { netCostBreakdown, markup
   return rows[0] || null;
 }
 
-// Quote Details — Day-wise Itinerary Planner (FIT-5). Admin edits reuse the
-// same replaceItinerary the agent builder writes through — "the finalized
-// version should be shown back to the agent exactly as approved" just falls
-// out of both sides reading/writing the same rows, no separate admin copy.
-export async function updatePackageRequestItinerary(id, days) {
+module.exports.updatePackageRequestCosting = updatePackageRequestCosting;
+
+async function updatePackageRequestItinerary(id, days) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -151,10 +158,9 @@ export async function updatePackageRequestItinerary(id, days) {
   return rows[0] || null;
 }
 
-// Quote Details — "Publish Quote". Costing/markup are saved separately
-// (updatePackageRequestCosting, above) before this is ever called — this
-// only flips status and stamps who/when.
-export async function publishPackageRequest(id, publishedByUserId) {
+module.exports.updatePackageRequestItinerary = updatePackageRequestItinerary;
+
+async function publishPackageRequest(id, publishedByUserId) {
   await pool.query(
     `UPDATE package_requests
      SET status = 'published', published_at = now(), published_by_user_id = ?, updated_at = now()
@@ -164,3 +170,5 @@ export async function publishPackageRequest(id, publishedByUserId) {
   const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
   return rows[0] || null;
 }
+
+module.exports.publishPackageRequest = publishPackageRequest;

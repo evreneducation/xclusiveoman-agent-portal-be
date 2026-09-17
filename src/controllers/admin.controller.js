@@ -1,11 +1,38 @@
-import { pool } from '../db/pool.js';
-import { env } from '../config/env.js';
-import { listAgencies, findAgencyById, listAgenciesByRmIds, updateAgency } from '../models/agencies.model.js';
-import { findUserById, listAgencyOwnerEmails } from '../models/users.model.js';
-import { sendEmail } from '../services/email.service.js';
-import { buildAgentApprovedEmailHtml } from '../services/emailTemplate.service.js';
-import { pickNextRoundRobinRm } from '../services/rmAssignment.service.js';
-import { getIo } from '../sockets/index.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  env
+} = require('../config/env.js');
+
+const {
+  listAgencies,
+  findAgencyById,
+  listAgenciesByRmIds,
+  updateAgency
+} = require('../models/agencies.model.js');
+
+const {
+  findUserById,
+  listAgencyOwnerEmails
+} = require('../models/users.model.js');
+
+const {
+  sendEmail
+} = require('../services/email.service.js');
+
+const {
+  buildAgentApprovedEmailHtml
+} = require('../services/emailTemplate.service.js');
+
+const {
+  pickNextRoundRobinRm
+} = require('../services/rmAssignment.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
 
 // `owner` (Task 10 — Audience Segments) is the agency's active
 // agency_owner row from listAgencyOwnerEmails, when the caller has one to
@@ -31,28 +58,7 @@ function toAdminAgency(agency, owner) {
   };
 }
 
-// GET /api/admin/agencies?status=&country=&inactiveSinceDays=&search=&page=&pageSize=
-// — country/inactiveSinceDays back Marketing Center's three audience
-// segments. listAgencies() already accepted country (added for, and still
-// shared with, services/marketingSend.service.js#resolveAudience — the same
-// function that resolves an actual campaign's real recipients); this
-// handler simply forwards them from the query string now too (Task 10 —
-// Audience Segments), same as `status`/`inactiveSinceDays` already were.
-// A segment's shown count/members can therefore never drift from what
-// sending to it would actually do — both read the exact same WHERE clauses.
-//
-// `search` (Task 10, extended for Agent Approvals) is a free-text match over
-// agency name / owner name / owner email / country / license number,
-// applied here in JS rather than in listAgencies' SQL — it
-// needs the owner data this handler already joins in below (listAgencies
-// itself only ever joins the assigned RM, not the owner), and it only ever
-// narrows an already-segment-filtered result, never decides segment
-// membership itself (that's still 100% the SQL WHERE clauses above).
-// Parsed manually rather than through the validateBody/zod schemas (those
-// are only used on writes in this codebase) — an unrecognised/invalid
-// value for any of these is simply ignored, falling through to "no filter",
-// same as `status` already did.
-export async function getAgencies(req, res, next) {
+async function getAgencies(req, res, next) {
   try {
     // This is admin data an approve/reject action can change from one
     // request to the next — no reason for the browser to conditionally
@@ -126,8 +132,9 @@ export async function getAgencies(req, res, next) {
   }
 }
 
-// PATCH /api/admin/agencies/:id — ADM-6 / AUTH-2: approve/reject + credit + RM, in one step.
-export async function patchAgency(req, res, next) {
+module.exports.getAgencies = getAgencies;
+
+async function patchAgency(req, res, next) {
   try {
     const { id } = req.params;
     const existing = await findAgencyById(id);
@@ -202,3 +209,5 @@ export async function patchAgency(req, res, next) {
     next(err);
   }
 }
+
+module.exports.patchAgency = patchAgency;

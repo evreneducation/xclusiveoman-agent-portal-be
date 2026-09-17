@@ -1,5 +1,4 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+const path = require('node:path');
 
 // Marketing Center (email channel) — a branded HTML wrapper for the plain
 // subject/body an admin composes in Compose's Message card (there's no rich
@@ -10,18 +9,8 @@ import { fileURLToPath } from 'node:url';
 // reusable (not Marketing-specific in its own code) even though today only
 // Marketing's two send paths call it.
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// A local file, not a remote/frontend URL: the same PNG the FE's own
-// Login/AgentLayout/ItineraryDocument pages already use
-// (xclusiveoman-agent-portal-fe/public/Xclusive_Oman_Logo_2.png, copied
-// here once) — read straight off disk and attached as a real MIME part
-// referenced by `cid:`, the most broadly-supported way to guarantee an
-// inline image actually renders in a recipient's mail client. A hot-linked
-// frontend dev-server URL wouldn't be reachable by anyone but this machine,
-// and Outlook's desktop (Word-engine) renderer doesn't reliably support
-// base64 data-URI images the way browsers do.
-export const LOGO_ATTACHMENT_PATH = path.resolve(__dirname, '..', 'assets', 'xclusive-oman-logo.png');
+const LOGO_ATTACHMENT_PATH = path.resolve(__dirname, '..', 'assets', 'xclusive-oman-logo.png');
+module.exports.LOGO_ATTACHMENT_PATH = LOGO_ATTACHMENT_PATH;
 const LOGO_CID = 'xclusive-oman-logo';
 
 // Same brand tokens as the admin/agent frontends' own Tailwind config
@@ -112,24 +101,7 @@ function insertLinkAnchors(html, links) {
   });
 }
 
-/**
- * Wraps a plain subject + body into a branded HTML email — table-based
- * layout with only inline styles (email clients, unlike browsers, don't
- * reliably support external/`<style>` CSS; Outlook's Word engine in
- * particular), a single ~600px column, logo header, accent divider, and a
- * light branded footer.
- *
- * Returns `{ html, attachments, links }`. `attachments` must be passed
- * straight through to email.service.js#sendEmail's own `attachments` param
- * alongside `html` — otherwise the `cid:` logo reference resolves to
- * nothing. `html` contains `{{TRACK_LINK_0}}`, `{{TRACK_LINK_1}}`, …
- * placeholders (one per entry in `links`, same order/index) wherever a URL
- * was auto-linkified from the body — resolve them with resolveTrackedLinks()
- * below before sending. There is no pixel placeholder here at all (unlike
- * links, which live inline in the body); call appendTrackingPixel()
- * separately, only when a real recipient exists to attribute the open to.
- */
-export function buildMarketingEmailHtml({ subject, bodyText }) {
+function buildMarketingEmailHtml({ subject, bodyText }) {
   const { tokenized, links } = extractLinks(bodyText);
   const bodyHtml = insertLinkAnchors(textToHtmlParagraphs(tokenized), links);
 
@@ -180,13 +152,9 @@ export function buildMarketingEmailHtml({ subject, bodyText }) {
   return { html, attachments, links };
 }
 
-// Resolves every `{{TRACK_LINK_n}}` placeholder buildMarketingEmailHtml()
-// left in `html` to a real href, via `resolveUrl(realDestinationUrl, index)`
-// — the caller decides what that resolves to: a signed click-tracking URL
-// (Send Campaign — marketingSend.service.js, one call per recipient, since
-// each needs its own token) or the real URL unchanged (Send Test — no
-// recipient row exists to attribute a click to, so nothing to track).
-export function resolveTrackedLinks(html, links, resolveUrl) {
+module.exports.buildMarketingEmailHtml = buildMarketingEmailHtml;
+
+function resolveTrackedLinks(html, links, resolveUrl) {
   let out = html;
   links.forEach((url, index) => {
     out = out.split(`{{TRACK_LINK_${index}}}`).join(resolveUrl(url, index));
@@ -194,15 +162,9 @@ export function resolveTrackedLinks(html, links, resolveUrl) {
   return out;
 }
 
-// Email OTP login (auth.controller.js#requestLoginOtp) — intentionally
-// logo-free for now (temporary/simple, not the branded shell every other
-// template here uses): the header band is a plain text wordmark instead of
-// the `cid:`-referenced logo image, so this sends no attachment at all and
-// references no logo file/URL/data-URI anywhere. Every other template in
-// this file (buildMarketingEmailHtml, buildStaffWelcomeEmailHtml, etc.)
-// still uses the real logo, untouched — branded OTP rendering is a
-// separate, later piece of work.
-export function buildOtpEmailHtml({ otp, expiresInMinutes }) {
+module.exports.resolveTrackedLinks = resolveTrackedLinks;
+
+function buildOtpEmailHtml({ otp, expiresInMinutes }) {
   const digits = escapeHtml(otp);
   const html = `<!doctype html>
 <html>
@@ -245,6 +207,8 @@ export function buildOtpEmailHtml({ otp, expiresInMinutes }) {
 
   return { html, attachments: [] };
 }
+
+module.exports.buildOtpEmailHtml = buildOtpEmailHtml;
 
 // Shared table-based/inline-styles shell (logo header, accent divider,
 // ACCENT_SOFT footer) for the account-lifecycle emails below (staff
@@ -306,13 +270,9 @@ function renderEmailButton(label, href) {
   return `<a href="${escapeHtml(href)}" style="display:inline-block; margin-top:4px; padding:12px 28px; background:${ACCENT}; color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:14px; font-weight:700; text-decoration:none; border-radius:6px;">${escapeHtml(label)}</a>`;
 }
 
-// Sent when an admin adds a Relationship Manager or Lead Manager
-// (relationshipManagers.controller.js#create / salesManagers.controller.js
-// #create — the latter role is still `sales_manager` in the DB/API, "Lead
-// Manager" is only the admin UI's display label, Employees.jsx). `roleLabel`
-// is passed in by the caller rather than derived from a role slug here, so
-// this template stays agnostic of any specific role.
-export function buildStaffWelcomeEmailHtml({ fullName, roleLabel, email, loginUrl, ctaLabel = 'Sign in to the Admin Console' }) {
+function buildStaffWelcomeEmailHtml(
+  { fullName, roleLabel, email, loginUrl, ctaLabel = 'Sign in to the Admin Console' }
+) {
   const bodyHtml = `
     <h1 style="margin:0 0 12px; font-size:20px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Welcome to Xclusive Oman, ${escapeHtml(fullName)}</h1>
     <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:${INK};">
@@ -326,11 +286,9 @@ export function buildStaffWelcomeEmailHtml({ fullName, roleLabel, email, loginUr
   return { html: renderBrandedEmailShell({ bodyHtml }), attachments: brandedEmailAttachments() };
 }
 
-// Sent right after a new agency + owner registers (auth.controller.js
-// #register) — acknowledges the submission landed and sets expectations
-// (pending admin review), distinct from buildAgentApprovedEmailHtml below,
-// which fires later, only once that review actually approves the agency.
-export function buildAgentRegistrationReceivedEmailHtml({ fullName, agencyName }) {
+module.exports.buildStaffWelcomeEmailHtml = buildStaffWelcomeEmailHtml;
+
+function buildAgentRegistrationReceivedEmailHtml({ fullName, agencyName }) {
   const bodyHtml = `
     <h1 style="margin:0 0 12px; font-size:20px; line-height:1.35; color:${INK}; font-family:Arial, Helvetica, sans-serif;">Thanks for registering, ${escapeHtml(fullName)}</h1>
     <p style="margin:0 0 16px; font-size:14px; line-height:1.6; color:${INK};">
@@ -343,15 +301,9 @@ export function buildAgentRegistrationReceivedEmailHtml({ fullName, agencyName }
   return { html: renderBrandedEmailShell({ bodyHtml }), attachments: brandedEmailAttachments() };
 }
 
-// Sent once an agency's status flips to 'approved' (admin.controller.js
-// #patchAgency) — replaces that handler's previous plain-text sendEmail
-// call with this same branded shell every other account-lifecycle email
-// here uses. `rm` (the RM round-robin-assigned in that same approval —
-// REL-1, pickNextRoundRobinRm) is optional: an approval can go through with
-// no RM pool configured yet (patchAgency's own `if (rmUserId)` guard), in
-// which case this simply omits the card below rather than showing a broken
-// "assigned to nobody".
-export function buildAgentApprovedEmailHtml({ fullName, agencyName, loginUrl, rm }) {
+module.exports.buildAgentRegistrationReceivedEmailHtml = buildAgentRegistrationReceivedEmailHtml;
+
+function buildAgentApprovedEmailHtml({ fullName, agencyName, loginUrl, rm }) {
   const rmCardHtml = rm
     ? `
     <div style="margin:0 0 24px; padding:16px 20px; background:${ACCENT_SOFT}; border:1px solid ${ACCENT}; border-radius:8px;">
@@ -376,15 +328,11 @@ export function buildAgentApprovedEmailHtml({ fullName, agencyName, loginUrl, rm
   return { html: renderBrandedEmailShell({ bodyHtml }), attachments: brandedEmailAttachments() };
 }
 
-// Appends the 1x1 open-tracking pixel just before </body> — kept as its own
-// step (never a placeholder baked into the base template) so a template
-// with no tracking desired (Send Test) simply never calls this, rather
-// than needing to strip/blank out a leftover `<img src="">` (an empty `src`
-// is a real footgun in some browsers/clients, historically triggering a
-// request to the current page itself). width/height are real attributes,
-// not just CSS, so the pixel is genuinely 1x1 even if inline styles are
-// stripped by an aggressive email client.
-export function appendTrackingPixel(html, pixelUrl) {
+module.exports.buildAgentApprovedEmailHtml = buildAgentApprovedEmailHtml;
+
+function appendTrackingPixel(html, pixelUrl) {
   const pixelTag = `<img src="${pixelUrl}" width="1" height="1" alt="" style="display:block; border:0;" />`;
   return html.includes('</body>') ? html.replace('</body>', `${pixelTag}</body>`) : `${html}${pixelTag}`;
 }
+
+module.exports.appendTrackingPixel = appendTrackingPixel;

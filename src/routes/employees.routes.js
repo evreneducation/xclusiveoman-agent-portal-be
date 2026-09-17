@@ -1,7 +1,18 @@
-import { Router } from 'express';
-import * as employeesController from '../controllers/employees.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { validateBody, patchGenericEmployeeSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const employeesController = require('../controllers/employees.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  patchGenericEmployeeSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -13,4 +24,4 @@ router.get('/roles', employeesController.listRoles);
 router.get('/', employeesController.list);
 router.patch('/:id', validateBody(patchGenericEmployeeSchema), employeesController.update);
 
-export default router;
+module.exports = router;

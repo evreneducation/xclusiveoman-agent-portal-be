@@ -1,10 +1,8 @@
-import multer from 'multer';
+const multer = require('multer');
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 
-// Doc §16: file upload endpoints validate MIME type and size before generating
-// a Cloudinary signature (here, before the server-mediated upload call).
-export const upload = multer({
+const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter(req, file, cb) {
@@ -14,3 +12,5 @@ export const upload = multer({
     cb(null, true);
   },
 });
+
+module.exports.upload = upload;

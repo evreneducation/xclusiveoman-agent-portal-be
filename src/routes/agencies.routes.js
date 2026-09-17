@@ -1,8 +1,20 @@
-import { Router } from 'express';
-import * as agenciesController from '../controllers/agencies.controller.js';
-import * as paymentsController from '../controllers/payments.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { validateBody, patchAgencyMeSchema, createSubUserSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const agenciesController = require('../controllers/agencies.controller.js');
+const paymentsController = require('../controllers/payments.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  patchAgencyMeSchema,
+  createSubUserSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -19,4 +31,4 @@ router.post(
   agenciesController.createSubUser
 );
 
-export default router;
+module.exports = router;

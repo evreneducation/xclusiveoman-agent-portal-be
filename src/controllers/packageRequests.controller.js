@@ -1,8 +1,20 @@
-import { pool } from '../db/pool.js';
-import { getIo } from '../sockets/index.js';
-import { generateItineraryPdf } from '../services/itineraryPdf.service.js';
-import { createBookingFromPackageRequest } from '../services/booking.service.js';
-import {
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
+  generateItineraryPdf
+} = require('../services/itineraryPdf.service.js');
+
+const {
+  createBookingFromPackageRequest
+} = require('../services/booking.service.js');
+
+const {
   createPackageRequest,
   addHotelSelections,
   addTourSelections,
@@ -28,12 +40,26 @@ import {
   replaceTravelers,
   submitDraftPackageRequest,
   deleteDraftPackageRequest,
-  respondToPackageRequest,
-} from '../models/packageRequests.model.js';
-import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
-import { createNotification } from '../services/notification.service.js';
-import { findUserById } from '../models/users.model.js';
-import { pickNextRoundRobinLeadManager, applyLeadManagerAssignment } from '../services/leadManagerAssignment.service.js';
+  respondToPackageRequest
+} = require('../models/packageRequests.model.js');
+
+const {
+  insertAuditLog,
+  listAuditLogsForEntity
+} = require('../models/auditLogs.model.js');
+
+const {
+  createNotification
+} = require('../services/notification.service.js');
+
+const {
+  findUserById
+} = require('../models/users.model.js');
+
+const {
+  pickNextRoundRobinLeadManager,
+  applyLeadManagerAssignment
+} = require('../services/leadManagerAssignment.service.js');
 
 // Task 3 — FIT Notification Events (agent's own submit/accept/decline/
 // revision-request actions; Lead Manager Assigned/Quote Published are the
@@ -252,9 +278,7 @@ async function toPublicPackageRequest(row) {
   };
 }
 
-// GET /api/package-requests — "My FIT Requests / Quotes" (items 1/2/8):
-// every request (draft or otherwise) belonging to the agent's own agency.
-export async function list(req, res, next) {
+async function list(req, res, next) {
   try {
     const rows = await listPackageRequestsForAgency(req.user.agency_id);
     res.json({ packageRequests: rows.map(toListItem) });
@@ -262,6 +286,8 @@ export async function list(req, res, next) {
     next(err);
   }
 }
+
+module.exports.list = list;
 
 // Every request that lands in the admin queue gets a Lead Manager
 // automatically, round-robin across active Sales Managers only (see
@@ -290,12 +316,7 @@ async function autoAssignLeadManager(row) {
   }
 }
 
-// POST /api/package-requests — FIT-1..FIT-7: submits the wizard in one
-// atomic step (unchanged from before this task — still the "just submit,
-// never saved a draft" path), landing it in the admin Quote Inbox as
-// `submitted`. No 'draft_saved'/'submitted' audit rows are written here;
-// buildAgentActivityHistory falls back to created_at for this path.
-export async function create(req, res, next) {
+async function create(req, res, next) {
   const client = await pool.connect();
   try {
     const {
@@ -358,10 +379,9 @@ export async function create(req, res, next) {
   }
 }
 
-// POST /api/package-requests/draft — item 1 "Save Draft" (starting fresh).
-// Deliberately lenient (draftPackageRequestSchema) — a half-built package
-// must never be lost.
-export async function createDraft(req, res, next) {
+module.exports.create = create;
+
+async function createDraft(req, res, next) {
   const client = await pool.connect();
   try {
     const {
@@ -407,10 +427,9 @@ export async function createDraft(req, res, next) {
   }
 }
 
-// PATCH /api/package-requests/:id — item 1 "Continue Editing" autosave.
-// Only ever succeeds against a row still in 'draft' (model-level WHERE
-// guard) and owned by the caller's own agency.
-export async function updateDraft(req, res, next) {
+module.exports.createDraft = createDraft;
+
+async function updateDraft(req, res, next) {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -448,11 +467,9 @@ export async function updateDraft(req, res, next) {
   }
 }
 
-// POST /api/package-requests/:id/submit — item 1 "Submit Draft once
-// completed". Re-validated with the same strict rules as the direct POST
-// / create() above (destination/dates/pax/hotel/travelers), enforced by
-// createPackageRequestSchema on this route (see routes file).
-export async function submit(req, res, next) {
+module.exports.updateDraft = updateDraft;
+
+async function submit(req, res, next) {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -521,10 +538,9 @@ export async function submit(req, res, next) {
   }
 }
 
-// DELETE /api/package-requests/:id — item 1 "Delete Draft". Scoped to
-// status='draft' at the model level, so a submitted/priced/published
-// request can never be deleted through this path.
-export async function remove(req, res, next) {
+module.exports.submit = submit;
+
+async function remove(req, res, next) {
   try {
     const { id } = req.params;
     const current = await findPackageRequestWithLeadManager(id);
@@ -539,8 +555,9 @@ export async function remove(req, res, next) {
   }
 }
 
-// GET /api/package-requests/:id — agent's own submission only.
-export async function get(req, res, next) {
+module.exports.remove = remove;
+
+async function get(req, res, next) {
   try {
     const row = await findPackageRequestWithLeadManager(req.params.id);
     if (!row || row.agency_id !== req.user.agency_id) {
@@ -552,15 +569,9 @@ export async function get(req, res, next) {
   }
 }
 
-// GET /api/package-requests/:id/itinerary.pdf — server-side PDF export of
-// the same "Detailed Itinerary" document the Review & Submit step's
-// ItineraryDocument.jsx renders on screen (see itineraryPdf.service.js for
-// why this replaced the old window.print() flow). Sits behind this router's
-// normal requireAuth/requireRole (packageRequests.routes.js) — same
-// ownership check as get() above — the short-lived pdfToken the Puppeteer
-// render itself authenticates with is minted here, after that check passes,
-// never accepted from the client.
-export async function downloadItineraryPdf(req, res, next) {
+module.exports.get = get;
+
+async function downloadItineraryPdf(req, res, next) {
   try {
     const { id } = req.params;
     const row = await findPackageRequestWithLeadManager(id);
@@ -596,19 +607,9 @@ export async function downloadItineraryPdf(req, res, next) {
   }
 }
 
-// GET /api/itinerary-pdf/:id/data — not mounted on this router (see
-// routes/itineraryPdfData.routes.js): sits behind requirePdfToken instead of
-// requireAuth, since this is the endpoint the Puppeteer-rendered print page
-// itself calls (agent/pages/ItineraryPrint.jsx), a browser context with no
-// login session/cookies. Returns the exact same shape as get() above so
-// ItineraryPrint.jsx can build the same ItineraryDocument props
-// PackageBuilder.jsx's Review step does, just reached a different way.
-//
-// req.pdfClaims (set by requirePdfToken) already scopes the token to one
-// packageRequestId + one userId — both re-checked against fresh DB state
-// here rather than trusted as-is, same posture requireAuth takes toward a
-// normal access token's claims.
-export async function getItineraryDataForPdf(req, res, next) {
+module.exports.downloadItineraryPdf = downloadItineraryPdf;
+
+async function getItineraryDataForPdf(req, res, next) {
   try {
     const { id } = req.params;
     if (req.pdfClaims.packageRequestId !== id) {
@@ -629,10 +630,9 @@ export async function getItineraryDataForPdf(req, res, next) {
   }
 }
 
-// POST /api/package-requests/:id/respond — item 5: Accept / Request
-// Revision / Decline. Only ever fires from 'published' (model-level guard),
-// matching "If the quote status is Published" in the doc.
-export async function respond(req, res, next) {
+module.exports.getItineraryDataForPdf = getItineraryDataForPdf;
+
+async function respond(req, res, next) {
   try {
     const { id } = req.params;
     const { action, comments } = req.body;
@@ -697,3 +697,5 @@ export async function respond(req, res, next) {
     next(err);
   }
 }
+
+module.exports.respond = respond;

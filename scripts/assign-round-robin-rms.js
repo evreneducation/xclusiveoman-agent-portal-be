@@ -1,22 +1,16 @@
-/**
- * One-off backfill: assigns a Relationship Manager to every agency that
- * currently has none (agencies.rm_user_id IS NULL), distributing them
- * round-robin across the active relationship_manager staff pool.
- *
- * Reuses updateAgency() — the exact same write path the existing
- * "Assign Relationship Manager" admin action already uses
- * (PATCH /admin/agencies/:id) — rather than a second, parallel assignment
- * code path.
- *
- * Safe to re-run: only ever touches agencies where rm_user_id IS NULL, so
- * already-assigned agencies are never reassigned.
- *
- * Usage: npm run assign-rms
- */
-import 'dotenv/config';
-import { pool } from '../src/db/pool.js';
-import { listStaffByRole } from '../src/models/users.model.js';
-import { updateAgency } from '../src/models/agencies.model.js';
+require('dotenv/config');
+
+const {
+  pool
+} = require('../src/db/pool.js');
+
+const {
+  listStaffByRole
+} = require('../src/models/users.model.js');
+
+const {
+  updateAgency
+} = require('../src/models/agencies.model.js');
 
 async function main() {
   const rms = (await listStaffByRole('relationship_manager')).filter((rm) => rm.status === 'active');

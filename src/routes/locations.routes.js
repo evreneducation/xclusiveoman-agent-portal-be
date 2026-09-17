@@ -1,7 +1,19 @@
-import { Router } from 'express';
-import * as locationsController from '../controllers/locations.controller.js';
-import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
-import { validateBody, departureLocationSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const locationsController = require('../controllers/locations.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  STAFF_ROLES
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  departureLocationSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -13,4 +25,4 @@ router.get('/', requireAuth, locationsController.list);
 // /admin routers' own blanket requireRole gates call out in routes/index.js.
 router.post('/', requireAuth, requireRole(...STAFF_ROLES), validateBody(departureLocationSchema), locationsController.create);
 
-export default router;
+module.exports = router;

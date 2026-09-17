@@ -1,6 +1,12 @@
-import cron from 'node-cron';
-import { pool } from '../db/pool.js';
-import { executeCampaignSend } from '../services/marketingSend.service.js';
+const cron = require('node-cron');
+
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  executeCampaignSend
+} = require('../services/marketingSend.service.js');
 
 // Marketing Center Task 6 — Schedule Campaign. `node-cron` was already a
 // package.json dependency (added for this feature, apparently, since
@@ -48,7 +54,7 @@ async function claimDueCampaigns(client) {
 // this just avoids redundant claim queries in the common single-process case.
 let running = false;
 
-export async function runDueCampaigns() {
+async function runDueCampaigns() {
   if (running) return;
   running = true;
   try {
@@ -82,11 +88,12 @@ export async function runDueCampaigns() {
   }
 }
 
-// Scheduling granularity is "to the minute" (the Compose UI's time input
-// has no seconds), so a 60s poll is exactly as precise as the feature
-// needs — not an arbitrary number.
-export function startMarketingScheduler() {
+module.exports.runDueCampaigns = runDueCampaigns;
+
+function startMarketingScheduler() {
   cron.schedule('* * * * *', () => {
     runDueCampaigns().catch((err) => console.error('[marketingScheduler] Unexpected error', err));
   });
 }
+
+module.exports.startMarketingScheduler = startMarketingScheduler;

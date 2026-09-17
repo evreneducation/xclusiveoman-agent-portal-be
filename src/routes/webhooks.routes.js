@@ -1,6 +1,9 @@
-import { Router } from 'express';
-import express from 'express';
-import * as paymentsController from '../controllers/payments.controller.js';
+const {
+  Router
+} = require('express');
+
+const express = require('express');
+const paymentsController = require('../controllers/payments.controller.js');
 
 const router = Router();
 
@@ -8,4 +11,4 @@ const router = Router();
 // so this route is mounted ahead of the global express.json() parser in app.js.
 router.post('/cashfree', express.raw({ type: '*/*' }), paymentsController.cashfreeWebhook);
 
-export default router;
+module.exports = router;

@@ -1,5 +1,8 @@
-import { Router } from 'express';
-import * as cmsController from '../controllers/cms.controller.js';
+const {
+  Router
+} = require('express');
+
+const cmsController = require('../controllers/cms.controller.js');
 
 // Public CMS Page Viewer (Task 21 — Item 34 continuation). Deliberately no
 // requireAuth/requireRole here — mirrors marketingTracking.routes.js's own
@@ -12,4 +15,4 @@ const router = Router();
 
 router.get('/pages/:slug', cmsController.getPublishedPage);
 
-export default router;
+module.exports = router;

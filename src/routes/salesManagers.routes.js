@@ -1,11 +1,19 @@
-import { Router } from 'express';
-import * as salesManagersController from '../controllers/salesManagers.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import {
+const {
+  Router
+} = require('express');
+
+const salesManagersController = require('../controllers/salesManagers.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
   validateBody,
   createSalesManagerSchema,
-  patchSalesManagerSchema,
-} from '../validation/schemas.js';
+  patchSalesManagerSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -17,4 +25,4 @@ router.get('/', salesManagersController.list);
 router.post('/', validateBody(createSalesManagerSchema), salesManagersController.create);
 router.patch('/:id', validateBody(patchSalesManagerSchema), salesManagersController.update);
 
-export default router;
+module.exports = router;

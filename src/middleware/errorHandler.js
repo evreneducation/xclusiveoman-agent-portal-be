@@ -1,9 +1,10 @@
-export function notFoundHandler(req, res) {
+function notFoundHandler(req, res) {
   res.status(404).json({ error: 'not_found', message: `No route for ${req.method} ${req.path}` });
 }
 
-// eslint-disable-next-line no-unused-vars
-export function errorHandler(err, req, res, next) {
+module.exports.notFoundHandler = notFoundHandler;
+
+function errorHandler(err, req, res, next) {
   console.error(err);
 
   if (err.code === '23505') {
@@ -33,3 +34,5 @@ export function errorHandler(err, req, res, next) {
     message: status === 500 ? 'Something went wrong' : err.message,
   });
 }
+
+module.exports.errorHandler = errorHandler;

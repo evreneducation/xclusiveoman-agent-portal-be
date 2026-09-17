@@ -1,15 +1,28 @@
-import {
+const {
   createOrder,
   verifyWebhookSignature,
   getOrder,
   getOrderPayments,
-  terminateOrder,
-} from '../services/cashfree.service.js';
-import { uploadBuffer } from '../services/cloudinary.service.js';
-import { confirmPayment } from '../services/paymentConfirmation.service.js';
-import { sendEmail } from '../services/email.service.js';
-import { getIo } from '../sockets/index.js';
-import {
+  terminateOrder
+} = require('../services/cashfree.service.js');
+
+const {
+  uploadBuffer
+} = require('../services/cloudinary.service.js');
+
+const {
+  confirmPayment
+} = require('../services/paymentConfirmation.service.js');
+
+const {
+  sendEmail
+} = require('../services/email.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
   createPayment,
   findPaymentById,
   findPaymentByCashfreeOrderId,
@@ -23,10 +36,16 @@ import {
   markPaymentRejected,
   listNeftPending,
   listAgencyTransactions,
-  listAllTransactions,
-} from '../models/payments.model.js';
-import { findBookingById } from '../models/bookings.model.js';
-import { findUserById } from '../models/users.model.js';
+  listAllTransactions
+} = require('../models/payments.model.js');
+
+const {
+  findBookingById
+} = require('../models/bookings.model.js');
+
+const {
+  findUserById
+} = require('../models/users.model.js');
 
 // A payment in one of these states is done — never move it to another state
 // (spec A). Used to short-circuit the webhook, reconciliation and abort.
@@ -174,11 +193,7 @@ async function reconcileCashfreePayment(payment, booking) {
   return payment;
 }
 
-// POST /api/payments/cashfree/create-order
-// Idempotent + one-active-attempt-per-booking (spec C). Response keeps the
-// existing `{ payment, paymentSessionId }` contract and adds `paymentId` /
-// `orderId`.
-export async function createCashfreeOrder(req, res, next) {
+async function createCashfreeOrder(req, res, next) {
   try {
     const { bookingId, amount, clientAttemptToken } = req.body;
     const booking = await assertOwnsBooking(req, res, bookingId);
@@ -317,10 +332,9 @@ export async function createCashfreeOrder(req, res, next) {
   }
 }
 
-// GET /api/payments/:id — owner-scoped reconciliation/poll target (spec G).
-// For a still-open Cashfree attempt it also does a live gateway check so a
-// missed/slow webhook still resolves.
-export async function getPaymentStatus(req, res, next) {
+module.exports.createCashfreeOrder = createCashfreeOrder;
+
+async function getPaymentStatus(req, res, next) {
   try {
     const payment = await findPaymentById(req.params.id);
     if (!payment) return res.status(404).json({ error: 'not_found' });
@@ -337,9 +351,9 @@ export async function getPaymentStatus(req, res, next) {
   }
 }
 
-// GET /api/payments/by-order/:orderId — the Cashfree return page only carries
-// the order_id; resolve it (owner-scoped) so the page can start polling.
-export async function getPaymentByOrder(req, res, next) {
+module.exports.getPaymentStatus = getPaymentStatus;
+
+async function getPaymentByOrder(req, res, next) {
   try {
     const payment = await findPaymentByCashfreeOrderId(req.params.orderId);
     if (!payment) return res.status(404).json({ error: 'not_found' });
@@ -356,10 +370,9 @@ export async function getPaymentByOrder(req, res, next) {
   }
 }
 
-// POST /api/payments/:id/abort — owner-scoped (spec H). Cancels a
-// pending/awaiting_payment attempt and kills its Cashfree order. Idempotent
-// no-op for any other state; never cancels a confirmed payment.
-export async function abortPayment(req, res, next) {
+module.exports.getPaymentByOrder = getPaymentByOrder;
+
+async function abortPayment(req, res, next) {
   try {
     const payment = await findPaymentById(req.params.id);
     if (!payment) return res.status(404).json({ error: 'not_found' });
@@ -394,10 +407,9 @@ export async function abortPayment(req, res, next) {
   }
 }
 
-// POST /api/webhooks/cashfree — public, signature-verified (doc §14.1/§16).
-// Identifies the payment ONLY by Cashfree's order_id, is safe against
-// duplicate / out-of-order delivery, and never touches a terminal payment.
-export async function cashfreeWebhook(req, res) {
+module.exports.abortPayment = abortPayment;
+
+async function cashfreeWebhook(req, res) {
   const signature = req.headers['x-webhook-signature'];
   const timestamp = req.headers['x-webhook-timestamp'];
   const rawBody = req.body?.toString('utf8') || '';
@@ -474,8 +486,9 @@ export async function cashfreeWebhook(req, res) {
   res.status(200).json({ received: true });
 }
 
-// POST /api/payments/:bookingId/neft-slip — multipart, requires the slip file at req.file.
-export async function uploadNeftSlip(req, res, next) {
+module.exports.cashfreeWebhook = cashfreeWebhook;
+
+async function uploadNeftSlip(req, res, next) {
   try {
     const { bookingId } = req.params;
     const booking = await assertOwnsBooking(req, res, bookingId);
@@ -513,8 +526,9 @@ export async function uploadNeftSlip(req, res, next) {
   }
 }
 
-// GET /api/admin/neft-verifications?status=pending
-export async function getNeftPending(req, res, next) {
+module.exports.uploadNeftSlip = uploadNeftSlip;
+
+async function getNeftPending(req, res, next) {
   try {
     const rows = await listNeftPending();
     res.json({ payments: rows.map(toPublicPayment) });
@@ -523,8 +537,9 @@ export async function getNeftPending(req, res, next) {
   }
 }
 
-// POST /api/admin/payments/:id/verify — { approve: boolean, reason?: string }
-export async function verifyNeftPayment(req, res, next) {
+module.exports.getNeftPending = getNeftPending;
+
+async function verifyNeftPayment(req, res, next) {
   try {
     const payment = await findPaymentById(req.params.id);
     if (!payment) return res.status(404).json({ error: 'not_found' });
@@ -564,8 +579,9 @@ export async function verifyNeftPayment(req, res, next) {
   }
 }
 
-// GET /api/agencies/me/transactions
-export async function getMyTransactions(req, res, next) {
+module.exports.verifyNeftPayment = verifyNeftPayment;
+
+async function getMyTransactions(req, res, next) {
   try {
     const rows = await listAgencyTransactions(req.user.agency_id);
     res.json({ transactions: rows.map(toPublicTransaction) });
@@ -574,8 +590,9 @@ export async function getMyTransactions(req, res, next) {
   }
 }
 
-// GET /api/admin/transactions?method=&status=&date_from=
-export async function getAllTransactions(req, res, next) {
+module.exports.getMyTransactions = getMyTransactions;
+
+async function getAllTransactions(req, res, next) {
   try {
     const { method, status, date_from: dateFrom } = req.query;
     const rows = await listAllTransactions({ method, status, dateFrom });
@@ -584,3 +601,5 @@ export async function getAllTransactions(req, res, next) {
     next(err);
   }
 }
+
+module.exports.getAllTransactions = getAllTransactions;

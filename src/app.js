@@ -1,14 +1,22 @@
-import express from 'express';
-import cors from 'cors';
-import cookieParser from 'cookie-parser';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import { env } from './config/env.js';
-import routes from './routes/index.js';
-import webhooksRoutes from './routes/webhooks.routes.js';
-import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
+const express = require('express');
+const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
+const morgan = require('morgan');
 
-export function createApp() {
+const {
+  env
+} = require('./config/env.js');
+
+const routes = require('./routes/index.js');
+const webhooksRoutes = require('./routes/webhooks.routes.js');
+
+const {
+  notFoundHandler,
+  errorHandler
+} = require('./middleware/errorHandler.js');
+
+function createApp() {
   const app = express();
 
   // Needed for express-rate-limit (middleware/rateLimiter.js) to key off the
@@ -41,3 +49,5 @@ export function createApp() {
 
   return app;
 }
+
+module.exports.createApp = createApp;

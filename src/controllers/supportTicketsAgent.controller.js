@@ -1,11 +1,14 @@
-import {
+const {
   createTicket,
   listTicketsForAgency,
   findTicketForAgency,
   insertTicketMessage,
-  listMessagesForTicket,
-} from '../models/supportTickets.model.js';
-import { notifyStaffOfReply } from '../services/supportTicketNotify.service.js';
+  listMessagesForTicket
+} = require('../models/supportTickets.model.js');
+
+const {
+  notifyStaffOfReply
+} = require('../services/supportTicketNotify.service.js');
 
 // Agent-side Support & Helpdesk (Task 18 — SUP-1/SUP-3). Mounted at
 // /api/support/tickets with the existing agency_owner/agency_staff gate —
@@ -37,11 +40,7 @@ function toPublicTicket(t, messages) {
   };
 }
 
-// GET /api/support/tickets — every ticket for the caller's own agency, each
-// with its full message thread embedded (agency ticket volume is small,
-// same scale as "My Bookings" — no separate detail endpoint exists, matching
-// the doc's own literal route table, which lists no agent ticket-detail GET).
-export async function listMyTickets(req, res, next) {
+async function listMyTickets(req, res, next) {
   try {
     const tickets = await listTicketsForAgency(req.user.agency_id);
     const withMessages = await Promise.all(
@@ -53,8 +52,9 @@ export async function listMyTickets(req, res, next) {
   }
 }
 
-// POST /api/support/tickets — SUP-1.
-export async function createMyTicket(req, res, next) {
+module.exports.listMyTickets = listMyTickets;
+
+async function createMyTicket(req, res, next) {
   try {
     const { subject, description, priority } = req.body;
     const ticket = await createTicket({
@@ -70,8 +70,9 @@ export async function createMyTicket(req, res, next) {
   }
 }
 
-// POST /api/support/tickets/:id/messages — SUP-3.
-export async function replyToMyTicket(req, res, next) {
+module.exports.createMyTicket = createMyTicket;
+
+async function replyToMyTicket(req, res, next) {
   try {
     const ticket = await findTicketForAgency(req.params.id, req.user.agency_id);
     if (!ticket) return res.status(404).json({ error: 'not_found' });
@@ -85,3 +86,5 @@ export async function replyToMyTicket(req, res, next) {
     next(err);
   }
 }
+
+module.exports.replyToMyTicket = replyToMyTicket;

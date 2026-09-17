@@ -1,34 +1,43 @@
-import { sendEmail } from '../services/email.service.js';
-import { buildMarketingEmailHtml, resolveTrackedLinks } from '../services/emailTemplate.service.js';
-import { zonedDateTimeToUtc } from '../utils/timezone.js';
-import {
+const {
+  sendEmail
+} = require('../services/email.service.js');
+
+const {
+  buildMarketingEmailHtml,
+  resolveTrackedLinks
+} = require('../services/emailTemplate.service.js');
+
+const {
+  zonedDateTimeToUtc
+} = require('../utils/timezone.js');
+
+const {
   cancelScheduledCampaign,
   findCampaignById,
   listCampaignsForAdmin,
   listRecipientsForAdmin,
   toPublicCampaign,
   toPublicCampaignDetail,
-  toPublicRecipient,
-} from '../models/marketingCampaigns.model.js';
-import {
+  toPublicRecipient
+} = require('../models/marketingCampaigns.model.js');
+
+const {
   executeCampaignSend,
   getChannelStatuses,
   insertCampaignWithRecipients,
   isKnownMarketingProvider,
   resolveRecipients,
   testProviderConnection,
-  unavailableProviderReason,
-} from '../services/marketingSend.service.js';
-import { recordCampaignEvent } from '../services/marketingActivity.service.js';
+  unavailableProviderReason
+} = require('../services/marketingSend.service.js');
+
+const {
+  recordCampaignEvent
+} = require('../services/marketingActivity.service.js');
 
 const NO_RECIPIENTS_MESSAGE = 'No eligible agencies (approved, with an active owner account) match this audience selection.';
 
-// POST /api/admin/marketing/send-test — a single, one-off email using
-// whatever Provider/Subject/Body is currently selected in Compose. Never
-// touches the audience or the campaign tables — "must NOT send to the
-// selected audience" — so there's no persistence here at all, unlike
-// createCampaign/scheduleCampaign below.
-export async function sendTest(req, res, next) {
+async function sendTest(req, res, next) {
   try {
     const { channel, provider, subject, body, recipientEmail } = req.body;
 
@@ -75,13 +84,9 @@ export async function sendTest(req, res, next) {
   }
 }
 
-// POST /api/admin/marketing/campaigns (Task 5, unchanged behavior/response
-// shape — only the internals were refactored into marketingSend.service.js
-// so Task 6's scheduler can reuse them) — resolves the audience itself
-// (never trusts a frontend-supplied recipient list/count), persists the
-// campaign + one recipient row per resolved, emailable agency, then sends
-// immediately.
-export async function createCampaign(req, res, next) {
+module.exports.sendTest = sendTest;
+
+async function createCampaign(req, res, next) {
   try {
     const { name, channel, provider, audienceType, audienceValue, subject, body, replyToAccountManager } = req.body;
 
@@ -116,16 +121,9 @@ export async function createCampaign(req, res, next) {
   }
 }
 
-// POST /api/admin/marketing/campaigns/schedule (Task 6) — same audience
-// resolution and persistence as createCampaign above, just:
-//   1. converts the admin's zoned date/time to a real UTC instant and
-//      re-validates it's in the future (defense in depth beyond the zod
-//      schema's own refine — the backend never trusts a single layer of
-//      "the frontend already checked this"),
-//   2. inserts the campaign as `status: 'scheduled'` with that instant as
-//      `scheduled_at`, and never calls executeCampaignSend — nothing is
-//      sent here. jobs/marketingScheduler.job.js picks it up once due.
-export async function scheduleCampaign(req, res, next) {
+module.exports.createCampaign = createCampaign;
+
+async function scheduleCampaign(req, res, next) {
   try {
     const {
       name,
@@ -178,12 +176,9 @@ export async function scheduleCampaign(req, res, next) {
   }
 }
 
-// POST /api/admin/marketing/campaigns/:id/cancel (Task 6) — only ever
-// affects a campaign still in `scheduled` state (enforced by the model's
-// own WHERE clause, not a check-then-update race here); 404 either way if
-// it doesn't exist or already moved on (sending/sent/etc.) — no need to
-// distinguish those cases for the admin cancelling it.
-export async function cancelCampaign(req, res, next) {
+module.exports.scheduleCampaign = scheduleCampaign;
+
+async function cancelCampaign(req, res, next) {
   try {
     const { id } = req.params;
     const cancelled = await cancelScheduledCampaign(id);
@@ -205,11 +200,9 @@ export async function cancelCampaign(req, res, next) {
   }
 }
 
-// GET /api/admin/marketing/campaigns?search=&status=&channel=&page=&pageSize=
-// Campaign History (Task 7) — real marketing_campaigns rows only, search
-// (name) + status/channel filters + pagination, same response shape as
-// packageRequestsAdmin.controller.js#list.
-export async function listCampaigns(req, res, next) {
+module.exports.cancelCampaign = cancelCampaign;
+
+async function listCampaigns(req, res, next) {
   try {
     const { search, status, channel, page, pageSize } = req.query;
     const { rows, total, page: currentPage, pageSize: limit } = await listCampaignsForAdmin({
@@ -224,11 +217,9 @@ export async function listCampaigns(req, res, next) {
   }
 }
 
-// GET /api/admin/marketing/campaigns/:id — Campaign Details (Task 7,
-// requirement 9). toPublicCampaignDetail adds body/replyToAccountManager on
-// top of the summary fields toPublicCampaign already returns — never any
-// provider credential/secret, since this table doesn't store one.
-export async function getCampaign(req, res, next) {
+module.exports.listCampaigns = listCampaigns;
+
+async function getCampaign(req, res, next) {
   try {
     const campaign = await findCampaignById(req.params.id);
     if (!campaign) return res.status(404).json({ error: 'not_found' });
@@ -238,10 +229,9 @@ export async function getCampaign(req, res, next) {
   }
 }
 
-// GET /api/admin/marketing/campaigns/:id/recipients — Recipient Details
-// (Task 7, requirement 10), paginated the same way the list above is so a
-// large-audience campaign never loads unboundedly.
-export async function listCampaignRecipients(req, res, next) {
+module.exports.getCampaign = getCampaign;
+
+async function listCampaignRecipients(req, res, next) {
   try {
     const campaign = await findCampaignById(req.params.id);
     if (!campaign) return res.status(404).json({ error: 'not_found' });
@@ -257,15 +247,9 @@ export async function listCampaignRecipients(req, res, next) {
   }
 }
 
-// GET /api/admin/marketing/channels — Channel Settings (Task 9). Real,
-// backend-verified status per provider — never the hard-coded
-// "Configuration required" ComposeTab's old CONNECTION_STATUS_META used to
-// show for every provider regardless of actual state. Never includes a
-// credential/secret: this response is built entirely from
-// getChannelStatuses()'s { channel, provider, label, status, message }
-// shape, which never reads (let alone echoes back) the Brevo API key or any
-// other credential value.
-export async function getChannels(req, res, next) {
+module.exports.listCampaignRecipients = listCampaignRecipients;
+
+async function getChannels(req, res, next) {
   try {
     const providers = await getChannelStatuses();
     res.json({ providers });
@@ -274,11 +258,9 @@ export async function getChannels(req, res, next) {
   }
 }
 
-// POST /api/admin/marketing/channels/:provider/test-connection — Task 9.
-// Purely diagnostic (nothing is persisted — there is no provider config row
-// to update), so this is safe to call as often as an admin wants. Unknown
-// provider ids 404 rather than silently reporting a made-up status.
-export async function testChannelConnection(req, res, next) {
+module.exports.getChannels = getChannels;
+
+async function testChannelConnection(req, res, next) {
   try {
     const { provider } = req.params;
     if (!isKnownMarketingProvider(provider)) {
@@ -290,3 +272,5 @@ export async function testChannelConnection(req, res, next) {
     next(err);
   }
 }
+
+module.exports.testChannelConnection = testChannelConnection;

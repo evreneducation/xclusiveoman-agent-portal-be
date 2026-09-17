@@ -1,7 +1,19 @@
-import { Router } from 'express';
-import * as ticketsController from '../controllers/supportTicketsAgent.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { validateBody, createTicketSchema, ticketMessageSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const ticketsController = require('../controllers/supportTicketsAgent.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  createTicketSchema,
+  ticketMessageSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -14,4 +26,4 @@ router.get('/', ticketsController.listMyTickets);
 router.post('/', validateBody(createTicketSchema), ticketsController.createMyTicket);
 router.post('/:id/messages', validateBody(ticketMessageSchema), ticketsController.replyToMyTicket);
 
-export default router;
+module.exports = router;

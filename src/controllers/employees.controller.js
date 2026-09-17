@@ -1,6 +1,18 @@
-import { pool } from '../db/pool.js';
-import { listStaff, listStaffByRole, findUserById, updateUser, toPublicUser } from '../models/users.model.js';
-import { listAgenciesByRmIds } from '../models/agencies.model.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  listStaff,
+  listStaffByRole,
+  findUserById,
+  updateUser,
+  toPublicUser
+} = require('../models/users.model.js');
+
+const {
+  listAgenciesByRmIds
+} = require('../models/agencies.model.js');
 
 const KNOWN_ROLE_LABELS = {
   relationship_manager: 'Relationship Manager',
@@ -29,18 +41,7 @@ function roleRank(role) {
   return role === 'relationship_manager' ? 0 : role === 'sales_manager' ? 1 : 2;
 }
 
-// GET /api/admin/employees/roles — powers the Employees page's role
-// dropdown (replaces the old fixed Relationship Manager/Lead Manager tab
-// pair). Relationship Manager and Lead Manager always appear (even with
-// zero staff yet) since they're this app's two functional, fully-featured
-// roles — Create/Edit for those still goes through their own dedicated
-// endpoints (relationshipManagers/salesManagers.controller.js). Every other
-// role is whatever's actually been typed into the "Other" field on the Add
-// Employee modal and saved (customRoleEmployees.controller.js) — it only
-// shows up here once at least one person holds it, and disappears again if
-// that becomes zero (e.g. everyone with it is later edited to a different
-// role) — nothing keeps a placeholder around for a custom role no one has.
-export async function listRoles(req, res, next) {
+async function listRoles(req, res, next) {
   try {
     // Postgres' `COUNT(*)::int` cast dropped — MySQL's COUNT(*) already
     // comes back as a plain number, no cast needed/available.
@@ -62,13 +63,9 @@ export async function listRoles(req, res, next) {
   }
 }
 
-// GET /api/admin/employees?role=&search=&page=&pageSize= — generic staff
-// listing for any role, unlike relationshipManagers/salesManagers
-// .controller.js's own list() (each hardcoded to one role, with their own
-// Access-Features-aware create/update flows, untouched). Powers the
-// Employees page's table once a role is picked from the dropdown above.
-// `role` omitted lists every staff user regardless of role.
-export async function list(req, res, next) {
+module.exports.listRoles = listRoles;
+
+async function list(req, res, next) {
   try {
     res.set('Cache-Control', 'no-store');
     const { role, search } = req.query;
@@ -119,15 +116,9 @@ export async function list(req, res, next) {
   }
 }
 
-// PATCH /api/admin/employees/:id — basic-field edit (full name/phone/
-// WhatsApp/status) for any staff user regardless of role. Access Features
-// (permissions) only exist for Relationship Manager/Lead Manager and stay
-// on their own dedicated PATCH endpoints
-// (relationshipManagers/salesManagers.controller.js#update) —
-// patchGenericEmployeeSchema (validation/schemas.js) never accepts a
-// `permissions` field here, so this can't be used to grant Access Features
-// to a custom-role account that has no defined feature set.
-export async function update(req, res, next) {
+module.exports.list = list;
+
+async function update(req, res, next) {
   try {
     const { id } = req.params;
     const target = await findUserById(id);
@@ -143,3 +134,5 @@ export async function update(req, res, next) {
     next(err);
   }
 }
+
+module.exports.update = update;

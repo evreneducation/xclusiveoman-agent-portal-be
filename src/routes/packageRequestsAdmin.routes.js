@@ -1,13 +1,26 @@
-import { Router } from 'express';
-import { z } from 'zod';
-import * as controller from '../controllers/packageRequestsAdmin.controller.js';
-import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
-import {
+const {
+  Router
+} = require('express');
+
+const {
+  z
+} = require('zod');
+
+const controller = require('../controllers/packageRequestsAdmin.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature,
+  STAFF_ROLES
+} = require('../middleware/auth.js');
+
+const {
   validateBody,
   assignPackageRequestLeadManagerSchema,
   packageRequestCostingSchema,
-  itinerarySchema,
-} from '../validation/schemas.js';
+  itinerarySchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -30,4 +43,4 @@ router.patch('/:id/costing', validateBody(packageRequestCostingSchema), controll
 router.patch('/:id/itinerary', validateBody(z.object({ days: itinerarySchema })), controller.saveItinerary);
 router.post('/:id/publish', controller.publish);
 
-export default router;
+module.exports = router;

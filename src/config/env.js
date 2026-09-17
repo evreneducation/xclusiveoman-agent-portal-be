@@ -1,4 +1,4 @@
-import 'dotenv/config';
+require('dotenv/config');
 
 const required = [
   "DATABASE_URL_PROD",
@@ -12,10 +12,10 @@ for (const key of required) {
   }
 }
 
-export const env = {
+const env = {
   port: Number(process.env.PORT || 4000),
   nodeEnv: process.env.NODE_ENV || "development",
-  databaseUrl: process.env.DATABASE_URL_PROD,
+  databaseUrl: process.env.DATABASE_URL,
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET,
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,
   jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || "15m",
@@ -61,14 +61,17 @@ export const env = {
   // above, which points at the *frontend*). Defaults to this same process's
   // own port for local dev, so tracking works out of the box without any
   // new required configuration.
-  apiBaseUrl: process.env.API_BASE_URL || `http://localhost:${Number(process.env.PORT || 4000)}`,
+  apiBaseUrl:
+    process.env.API_BASE_URL ||
+    `http://localhost:${Number(process.env.PORT || 4000)}`,
   // Signs/verifies marketing tracking-pixel and click-redirect tokens
   // (services/marketingTracking.service.js). Falls back to
   // JWT_REFRESH_SECRET (already a required startup env var above) so
   // tracking works in every existing deployment with zero new required
   // configuration — a dedicated MARKETING_TRACKING_SECRET is optional, for
   // stricter isolation between the two token purposes.
-  marketingTrackingSecret: process.env.MARKETING_TRACKING_SECRET || process.env.JWT_REFRESH_SECRET,
+  marketingTrackingSecret:
+    process.env.MARKETING_TRACKING_SECRET || process.env.JWT_REFRESH_SECRET,
   // Brevo (formerly Sendinblue) transactional email HTTP API —
   // services/email.service.js#sendEmail, the sole email transport in this
   // app (SMTP/Nodemailer removed — it isn't usable on Render for outbound
@@ -103,3 +106,5 @@ export const env = {
       process.env.CASHFREE_API_BASE_URL || "https://sandbox.cashfree.com/pg",
   },
 };
+
+module.exports.env = env;

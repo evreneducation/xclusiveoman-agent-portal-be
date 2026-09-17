@@ -1,26 +1,43 @@
-import {
+const {
   listMiceRfqsForAdmin,
   findMiceRfqForAdmin,
   updateMiceRfqLeadManager,
   updateMiceRfqCosting,
   updateMiceRfqItinerary,
-  publishMiceRfq,
-} from '../models/miceRfqsAdmin.model.js';
-// Read helpers reused as-is from the agent-side MICE curation model —
-// imported only, never modified, so that module stays untouched.
-import {
+  publishMiceRfq
+} = require('../models/miceRfqsAdmin.model.js');
+
+const {
   listHotelsForRfq,
   listToursForRfq,
   listTransfersForRfq,
   listActivitiesForRfq,
   listItineraryForRfq,
-  composeItinerary,
-} from '../models/miceRfqs.model.js';
-import { listStaff, findUserById, toPublicUser } from '../models/users.model.js';
-import { listAgenciesByRmIds } from '../models/agencies.model.js';
-import { insertAuditLog, listAuditLogsForEntity } from '../models/auditLogs.model.js';
-import { getIo } from '../sockets/index.js';
-import { createNotification } from '../services/notification.service.js';
+  composeItinerary
+} = require('../models/miceRfqs.model.js');
+
+const {
+  listStaff,
+  findUserById,
+  toPublicUser
+} = require('../models/users.model.js');
+
+const {
+  listAgenciesByRmIds
+} = require('../models/agencies.model.js');
+
+const {
+  insertAuditLog,
+  listAuditLogsForEntity
+} = require('../models/auditLogs.model.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
+  createNotification
+} = require('../services/notification.service.js');
 
 function toListItem(row) {
   return {
@@ -219,8 +236,7 @@ function blockReadOnlyRole(req, res) {
   return false;
 }
 
-// GET /api/admin/mice-rfqs?status=&search=&eventFrom=&eventTo=&page=&pageSize=
-export async function list(req, res, next) {
+async function list(req, res, next) {
   try {
     const { status, search, eventFrom, eventTo, page, pageSize } = req.query;
     const scope = await quotesPricingScope(req);
@@ -245,8 +261,9 @@ export async function list(req, res, next) {
   }
 }
 
-// GET /api/admin/mice-rfqs/:id
-export async function get(req, res, next) {
+module.exports.list = list;
+
+async function get(req, res, next) {
   try {
     const row = await findMiceRfqForAdmin(req.params.id);
     if (!row) return res.status(404).json({ error: 'not_found' });
@@ -257,9 +274,9 @@ export async function get(req, res, next) {
   }
 }
 
-// GET /api/admin/mice-rfqs/lead-manager-candidates — same staff pool as the
-// Custom FIT Quote Inbox's "Assign a Lead Manager" control.
-export async function listLeadManagerCandidates(req, res, next) {
+module.exports.get = get;
+
+async function listLeadManagerCandidates(req, res, next) {
   try {
     const staff = await listStaff();
     res.json({ staff: staff.map(toPublicUser) });
@@ -268,11 +285,9 @@ export async function listLeadManagerCandidates(req, res, next) {
   }
 }
 
-// PATCH /api/admin/mice-rfqs/:id/lead-manager — REL-3. Unlike Custom FIT,
-// the doc's mice_rfqs status enum has no 'assigned' state (assignment there
-// happens alongside costing, MICE-10) — this task only assigns the contact,
-// no status transition.
-export async function assignLeadManager(req, res, next) {
+module.exports.listLeadManagerCandidates = listLeadManagerCandidates;
+
+async function assignLeadManager(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -335,11 +350,9 @@ export async function assignLeadManager(req, res, next) {
   }
 }
 
-// PATCH /api/admin/mice-rfqs/:id/costing — items 2/3/4/6 ("Save Draft").
-// Always saves whatever the form currently holds — Publish (below) is a
-// separate, validated step, so a failed publish attempt never discards
-// costing/markup/notes edits.
-export async function saveCosting(req, res, next) {
+module.exports.assignLeadManager = assignLeadManager;
+
+async function saveCosting(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -420,13 +433,9 @@ export async function saveCosting(req, res, next) {
   }
 }
 
-// PATCH /api/admin/mice-rfqs/:id/itinerary — Day-wise Itinerary Planner: lets
-// the admin rearrange/edit the agent's day-by-day plan before or after
-// publishing. Always saves whatever the editor currently holds (same "always
-// send full state" contract as saveCosting above) — there's no separate
-// validate-then-publish step for the itinerary itself. Mirrors
-// packageRequestsAdmin.controller.js's saveItinerary.
-export async function saveItinerary(req, res, next) {
+module.exports.saveCosting = saveCosting;
+
+async function saveItinerary(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -451,11 +460,9 @@ export async function saveItinerary(req, res, next) {
   }
 }
 
-// POST /api/admin/mice-rfqs/:id/publish — items 7/9. Validates against
-// whatever's already been saved via saveCosting above (no body) — the FE
-// calls PATCH .../costing immediately before this so the admin's latest
-// edits are persisted either way, pass or fail.
-export async function publish(req, res, next) {
+module.exports.saveItinerary = saveItinerary;
+
+async function publish(req, res, next) {
   try {
     if (blockReadOnlyRole(req, res)) return;
     const { id } = req.params;
@@ -509,3 +516,5 @@ export async function publish(req, res, next) {
     next(err);
   }
 }
+
+module.exports.publish = publish;

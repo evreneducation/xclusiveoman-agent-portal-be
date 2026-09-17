@@ -1,15 +1,31 @@
-import { Router } from 'express';
-import * as fdAdmin from '../controllers/fdPackagesAdmin.controller.js';
-import { requireAuth, requireRole, requireFeature, STAFF_ROLES } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
-import {
+const {
+  Router
+} = require('express');
+
+const fdAdmin = require('../controllers/fdPackagesAdmin.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature,
+  STAFF_ROLES
+} = require('../middleware/auth.js');
+
+const {
+  upload
+} = require('../middleware/upload.js');
+
+const {
   validateBody,
   fdPackageSchema,
   fdDepartureDateSchema,
   fdAddonSchema,
-  itinerarySchema,
-} from '../validation/schemas.js';
-import { z } from 'zod';
+  itinerarySchema
+} = require('../validation/schemas.js');
+
+const {
+  z
+} = require('zod');
 
 const router = Router();
 
@@ -39,4 +55,4 @@ router.delete('/:id/departure-dates/:dateId', fdAdmin.deleteDepartureDate);
 router.post('/:id/addons', validateBody(fdAddonSchema), fdAdmin.postAddon);
 router.delete('/:id/addons/:addonId', fdAdmin.deleteAddon);
 
-export default router;
+module.exports = router;

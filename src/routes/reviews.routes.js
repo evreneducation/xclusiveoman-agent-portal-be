@@ -1,6 +1,13 @@
-import { Router } from 'express';
-import * as reviewsAgentController from '../controllers/reviewsAgent.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+const {
+  Router
+} = require('express');
+
+const reviewsAgentController = require('../controllers/reviewsAgent.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
 
 const router = Router();
 
@@ -12,4 +19,4 @@ router.use(requireAuth, requireRole('agency_owner', 'agency_staff'));
 
 router.get('/pending-prompt', reviewsAgentController.listPendingPrompts);
 
-export default router;
+module.exports = router;

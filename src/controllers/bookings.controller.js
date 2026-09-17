@@ -1,4 +1,8 @@
-import { findBookingById, listAgencyBookings, listBookingTravelers } from '../models/bookings.model.js';
+const {
+  findBookingById,
+  listAgencyBookings,
+  listBookingTravelers
+} = require('../models/bookings.model.js');
 
 function toPublicBooking(b) {
   const depositDue = Number(b.deposit_due);
@@ -25,8 +29,7 @@ function toPublicBooking(b) {
   };
 }
 
-// GET /api/bookings/:id
-export async function getBooking(req, res, next) {
+async function getBooking(req, res, next) {
   try {
     const booking = await findBookingById(req.params.id);
     if (!booking || booking.agency_id !== req.user.agency_id) {
@@ -44,8 +47,9 @@ export async function getBooking(req, res, next) {
   }
 }
 
-// GET /api/bookings — "My Bookings"
-export async function listMyBookings(req, res, next) {
+module.exports.getBooking = getBooking;
+
+async function listMyBookings(req, res, next) {
   try {
     const rows = await listAgencyBookings(req.user.agency_id);
     res.json({ bookings: rows.map(toPublicBooking) });
@@ -53,3 +57,5 @@ export async function listMyBookings(req, res, next) {
     next(err);
   }
 }
+
+module.exports.listMyBookings = listMyBookings;

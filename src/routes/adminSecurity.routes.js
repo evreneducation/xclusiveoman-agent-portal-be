@@ -1,13 +1,28 @@
-import { Router } from 'express';
-import { requireAuth, requireRole, STAFF_ROLES } from '../middleware/auth.js';
-import { validateBody, totpCodeSchema } from '../validation/schemas.js';
-import { mfaVerifyLimiter } from '../middleware/rateLimiter.js';
-import {
+const {
+  Router
+} = require('express');
+
+const {
+  requireAuth,
+  requireRole,
+  STAFF_ROLES
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  totpCodeSchema
+} = require('../validation/schemas.js');
+
+const {
+  mfaVerifyLimiter
+} = require('../middleware/rateLimiter.js');
+
+const {
   getSecurityStatus,
   beginTotpEnrollment,
   activateTotp,
-  disableTotp,
-} from '../controllers/adminSecurity.controller.js';
+  disableTotp
+} = require('../controllers/adminSecurity.controller.js');
 
 // Admin console "Security" screen (admin/pages/Security.jsx) — one GLOBAL
 // authenticator-app (TOTP) toggle guarding every admin-console sign-in.
@@ -29,4 +44,4 @@ router.post('/totp/enroll', mfaVerifyLimiter, beginTotpEnrollment);
 router.post('/totp/activate', mfaVerifyLimiter, validateBody(totpCodeSchema), activateTotp);
 router.post('/totp/disable', mfaVerifyLimiter, validateBody(totpCodeSchema), disableTotp);
 
-export default router;
+module.exports = router;

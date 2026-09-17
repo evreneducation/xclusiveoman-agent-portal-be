@@ -1,5 +1,10 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  newId
+} = require('../utils/id.js');
 
 /**
  * Hotels/tours/activities/transfers/experiences (doc §11.2) are structurally
@@ -133,7 +138,7 @@ function createCrudModel(table, columns) {
   };
 }
 
-export const hotelsModel = createCrudModel('hotels', [
+const hotelsModel = createCrudModel('hotels', [
   'name', 'city', 'state', 'address', 'email', 'category', 'board_basis_options',
   'mice_ballroom_capacity', 'mice_breakout_rooms', 'images', 'description',
   // price_per_night is no longer admin-entered directly (HotelEditor.jsx now
@@ -147,7 +152,9 @@ export const hotelsModel = createCrudModel('hotels', [
   'status',
 ]);
 
-export const toursModel = createCrudModel('tours', [
+module.exports.hotelsModel = hotelsModel;
+
+const toursModel = createCrudModel('tours', [
   'name', 'city', 'description', 'duration', 'images', 'category', 'price',
   'group_suitability', 'rating', 'review_count', 'suitable_age_min', 'is_bestseller',
   'is_mice_enabled',
@@ -158,7 +165,9 @@ export const toursModel = createCrudModel('tours', [
   'status',
 ]);
 
-export const activitiesModel = createCrudModel('activities', [
+module.exports.toursModel = toursModel;
+
+const activitiesModel = createCrudModel('activities', [
   'name', 'city', 'description', 'duration', 'images', 'price_per_pax',
   'rating', 'review_count', 'suitable_age_min', 'is_bestseller', 'is_mice_enabled',
   // 0078_pickup_time.sql — mandatory on publish (see catalog.routes.js's
@@ -167,64 +176,45 @@ export const activitiesModel = createCrudModel('activities', [
   'status',
 ]);
 
-export const transfersModel = createCrudModel('transfers', [
+module.exports.activitiesModel = activitiesModel;
+
+const transfersModel = createCrudModel('transfers', [
   'name', 'type', 'vehicle_class', 'city', 'description', 'price', 'images', 'is_mice_enabled',
   // 0078_pickup_time.sql — optional, unlike tours/activities above.
   'pickup_time',
   'status',
 ]);
 
-export const experiencesModel = createCrudModel('experiences', [
+module.exports.transfersModel = transfersModel;
+
+const experiencesModel = createCrudModel('experiences', [
   'name', 'description', 'images', 'suitable_group_size_min', 'suitable_group_size_max',
 ]);
 
-// Lunch and Dinner are independent entries (own tab, own save in the admin
-// UI), distinguished by meal_type. Price is two independent flat rates —
-// price_per_person and price_per_day — not one combined per-pax-per-day
-// figure. See 0037_meals.sql / 0038_meals_split_type.sql / 0039_meals_person_day_price.sql.
-export const mealsModel = createCrudModel('meals', [
+module.exports.experiencesModel = experiencesModel;
+
+const mealsModel = createCrudModel('meals', [
   'name', 'city', 'description', 'meal_type', 'price_per_person', 'price_per_day',
 ]);
 
-// Product Catalog "Inclusions & Exclusions" tab (see
-// 0049_inclusions_exclusions_catalog.sql) — reusable, name-only phrases the
-// admin curates for reference when writing a quotation's client-facing
-// Inclusions/Exclusions text (Quote Inbox's Costing panel). Two bare tables
-// (not one type-discriminated table like meals) since there's nothing else
-// to distinguish per row — just a plain name-only CRUD entity each.
-export const inclusionsModel = createCrudModel('inclusions', ['name']);
-export const exclusionsModel = createCrudModel('exclusions', ['name']);
+module.exports.mealsModel = mealsModel;
+const inclusionsModel = createCrudModel('inclusions', ['name']);
+module.exports.inclusionsModel = inclusionsModel;
+const exclusionsModel = createCrudModel('exclusions', ['name']);
+module.exports.exclusionsModel = exclusionsModel;
+const visaModel = createCrudModel('visa', ['price_per_person']);
+module.exports.visaModel = visaModel;
 
-// Product Catalog "Visa" tab (see 0051_visa_catalog.sql) — a single
-// admin-priced rate per person, not a list. The admin UI (ProductCatalog.jsx's
-// VisaTab) only ever edits the one row in place, same "one entry" convention
-// Meals already uses per meal_type.
-export const visaModel = createCrudModel('visa', ['price_per_person']);
-
-// Product Catalog "Flights" tab (see 0063_flights_catalog.sql) — any number
-// of onward and return flights, distinguished by is_flight_onward (true for
-// an entry added under the Onward sub-tab, false for Return), the same
-// "one table, a column tells the sub-type apart" convention meals.meal_type
-// already uses for Lunch/Dinner.
-export const flightsModel = createCrudModel('flights', [
+const flightsModel = createCrudModel('flights', [
   'name', 'source', 'destination', 'departure_date', 'departure_time', 'is_flight_onward', 'price',
 ]);
 
-// Content Hub "Oman Overview" (see 0081_oman_overviews.sql) — admin-uploaded
-// PDF + a substantial written overview. A plain growable list, same
-// "add form + list with delete" shape as flightsModel above; no
-// is_mice_enabled/status columns since (unlike hotels/tours/activities/
-// transfers) it's shown to every agent unconditionally, not curated per-item.
-// cover_image_url (0083_oman_overview_cover_image.sql) — a photo shown on
-// the agent-facing card in place of the plain PDF-icon placeholder.
-export const omanOverviewsModel = createCrudModel('oman_overviews', [
+module.exports.flightsModel = flightsModel;
+
+const omanOverviewsModel = createCrudModel('oman_overviews', [
   'name', 'description', 'pdf_url', 'cover_image_url',
 ]);
 
-// Admin sidebar "Deals" tab (see 0082_deals.sql) — admin-uploaded card photos
-// for the agent dashboard's "Deals For You" carousel (agent/pages/
-// Dashboard.jsx's own PLACEHOLDER_DEAL, swapped out for this once real
-// content exists). Plain growable list, same shape as omanOverviewsModel
-// above — no is_mice_enabled/status columns, shown to every agent
-// unconditionally.
-export const dealsModel = createCrudModel('deals', ['title', 'duration', 'image_url']);
+module.exports.omanOverviewsModel = omanOverviewsModel;
+const dealsModel = createCrudModel('deals', ['title', 'duration', 'image_url']);
+module.exports.dealsModel = dealsModel;

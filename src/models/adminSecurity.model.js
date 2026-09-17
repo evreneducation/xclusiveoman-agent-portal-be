@@ -1,11 +1,12 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-// Admin console 2FA settings — a singleton row (0076_admin_2fa.sql), the
-// same "one row, get-or-create then patch it" shape siteTerms.model.js uses
-// for site-wide policy content. One shared TOTP secret guards every
-// admin-console sign-in ("global toggle", not per-user enrolment).
-export const adminSecurityModel = {
+const {
+  newId
+} = require('../utils/id.js');
+
+const adminSecurityModel = {
   async get() {
     const { rows } = await pool.query('SELECT * FROM admin_security ORDER BY created_at ASC LIMIT 1');
     return rows[0] || null;
@@ -73,3 +74,5 @@ export const adminSecurityModel = {
     return rows[0];
   },
 };
+
+module.exports.adminSecurityModel = adminSecurityModel;

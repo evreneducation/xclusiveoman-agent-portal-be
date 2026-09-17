@@ -1,6 +1,14 @@
-import { pool } from '../db/pool.js';
-import { listAgencies } from './agencies.model.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  listAgencies
+} = require('./agencies.model.js');
+
+const {
+  newId
+} = require('../utils/id.js');
 
 // Marketing Center Task 5 — Send Campaign persistence + the server's own,
 // independent audience resolution (never trusts a frontend-supplied
@@ -14,7 +22,7 @@ import { newId } from '../utils/id.js';
 // confirming a send can never come back different here.
 const INACTIVE_SINCE_DAYS = 30;
 
-export async function resolveAudience({ audienceType, audienceValue }) {
+async function resolveAudience({ audienceType, audienceValue }) {
   if (audienceType === 'country') {
     return listAgencies({ status: 'approved', country: audienceValue });
   }
@@ -25,14 +33,15 @@ export async function resolveAudience({ audienceType, audienceValue }) {
   return listAgencies({ status: 'approved' });
 }
 
-// `status` is 'sending' for an immediate Send Campaign (Task 5) or
-// 'scheduled' for Schedule Campaign (Task 6), with `scheduledAt` (a UTC
-// Date, already converted from the admin's zoned input — see
-// utils/timezone.js) set only in the latter case.
-export async function createCampaign(client, {
-  name, channel, provider, audienceType, audienceValue, subject, body,
-  replyToAccountManager, recipientCount, createdByUserId, status, scheduledAt,
-}) {
+module.exports.resolveAudience = resolveAudience;
+
+async function createCampaign(
+  client,
+  {
+    name, channel, provider, audienceType, audienceValue, subject, body,
+    replyToAccountManager, recipientCount, createdByUserId, status, scheduledAt,
+  }
+) {
   const id = newId();
   await client.query(
     `INSERT INTO marketing_campaigns
@@ -47,6 +56,8 @@ export async function createCampaign(client, {
   const { rows } = await client.query('SELECT * FROM marketing_campaigns WHERE id = ?', [id]);
   return rows[0];
 }
+
+module.exports.createCampaign = createCampaign;
 
 // Task 11 (Open & Click Tracking) — the four correlated-subquery columns
 // appended to every campaign row below are the one place engagement stats
@@ -67,7 +78,7 @@ const CAMPAIGN_ENGAGEMENT_COLUMNS = `
   COALESCE((SELECT COUNT(*) FROM marketing_campaign_recipients r WHERE r.campaign_id = c.id AND r.clicked_at IS NOT NULL), 0) AS unique_clicks
 `;
 
-export async function findCampaignById(id) {
+async function findCampaignById(id) {
   const { rows } = await pool.query(
     `SELECT c.*, ${CAMPAIGN_ENGAGEMENT_COLUMNS} FROM marketing_campaigns c WHERE c.id = ?`,
     [id]
@@ -75,12 +86,9 @@ export async function findCampaignById(id) {
   return rows[0] || null;
 }
 
-// The recipient rows an earlier createCampaign/insertRecipients call already
-// wrote — executeCampaignSend (services/marketingSend.service.js) reads
-// these back rather than being handed them as an in-memory argument, so it
-// works identically whether it's called right after insertion (send-now) or
-// much later by the scheduler job, in a different request/process entirely.
-export async function listRecipientsByCampaign(campaignId) {
+module.exports.findCampaignById = findCampaignById;
+
+async function listRecipientsByCampaign(campaignId) {
   const { rows } = await pool.query(
     `SELECT * FROM marketing_campaign_recipients WHERE campaign_id = ? ORDER BY created_at`,
     [campaignId]
@@ -88,12 +96,9 @@ export async function listRecipientsByCampaign(campaignId) {
   return rows;
 }
 
-// Cancel Schedule (Task 6) — the `AND status = 'scheduled'` guard is what
-// actually enforces "only works for campaigns still in scheduled state":
-// it's atomic and race-safe (a campaign the scheduler job has *just*
-// claimed, flipping it to 'sending', simply won't match this WHERE clause
-// anymore — no separate check-then-update window for the two to race in).
-export async function cancelScheduledCampaign(id) {
+module.exports.listRecipientsByCampaign = listRecipientsByCampaign;
+
+async function cancelScheduledCampaign(id) {
   const { rowCount } = await pool.query(
     `UPDATE marketing_campaigns SET status = 'cancelled', updated_at = now()
      WHERE id = ? AND status = 'scheduled'`,
@@ -104,12 +109,9 @@ export async function cancelScheduledCampaign(id) {
   return rows[0] || null;
 }
 
-// Inserted as 'pending' up front (within the same transaction as the
-// campaign row) so the full intended recipient set is durable before any
-// actual send attempt starts — a crash mid-send still leaves an accurate
-// "who was supposed to get this" record, not just whoever happened to
-// succeed first.
-export async function insertRecipients(client, campaignId, recipients) {
+module.exports.cancelScheduledCampaign = cancelScheduledCampaign;
+
+async function insertRecipients(client, campaignId, recipients) {
   const rows = [];
   for (const r of recipients) {
     const id = newId();
@@ -124,24 +126,27 @@ export async function insertRecipients(client, campaignId, recipients) {
   return rows;
 }
 
-export async function markRecipientSent(recipientId, { providerMessageId } = {}) {
+module.exports.insertRecipients = insertRecipients;
+
+async function markRecipientSent(recipientId, { providerMessageId } = {}) {
   await pool.query(
     `UPDATE marketing_campaign_recipients SET status = 'sent', provider_message_id = ?, sent_at = now() WHERE id = ?`,
     [providerMessageId || null, recipientId]
   );
 }
 
-export async function markRecipientFailed(recipientId, failureReason) {
+module.exports.markRecipientSent = markRecipientSent;
+
+async function markRecipientFailed(recipientId, failureReason) {
   await pool.query(
     `UPDATE marketing_campaign_recipients SET status = 'failed', failure_reason = ? WHERE id = ?`,
     [failureReason || null, recipientId]
   );
 }
 
-// Final rollup once every recipient has been attempted (or the whole
-// campaign was rejected up front, e.g. provider not configured — same
-// function either way, just successCount === 0 in that case).
-export async function finalizeCampaign(campaignId, { status, successCount, failureCount }) {
+module.exports.markRecipientFailed = markRecipientFailed;
+
+async function finalizeCampaign(campaignId, { status, successCount, failureCount }) {
   await pool.query(
     `UPDATE marketing_campaigns
      SET status = ?, success_count = ?, failure_count = ?, sent_at = now(), updated_at = now()
@@ -151,6 +156,8 @@ export async function finalizeCampaign(campaignId, { status, successCount, failu
   const { rows } = await pool.query(`SELECT * FROM marketing_campaigns WHERE id = ?`, [campaignId]);
   return rows[0] || null;
 }
+
+module.exports.finalizeCampaign = finalizeCampaign;
 
 // requirement 9 — "Open Rate = recipients with opened_at / successfully
 // sent recipients", computed here (not in the frontend) from real
@@ -163,7 +170,7 @@ function rate(numerator, denominator) {
   return Math.round((numerator / denominator) * 1000) / 10;
 }
 
-export function toPublicCampaign(campaign) {
+function toPublicCampaign(campaign) {
   if (!campaign) return null;
   const successCount = campaign.success_count;
   // Task 11 — absent (undefined) on a row returned by createCampaign/
@@ -208,6 +215,8 @@ export function toPublicCampaign(campaign) {
   };
 }
 
+module.exports.toPublicCampaign = toPublicCampaign;
+
 // --- Campaign History (Task 7) ---
 //
 // Mirrors packageRequestsAdmin.model.js's listPackageRequestsForAdmin
@@ -242,10 +251,7 @@ function buildCampaignFilters({ search, status, channel }) {
   return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values };
 }
 
-// GET /admin/marketing/campaigns — Campaign History list. Search is
-// name-only (requirement 6); status/channel are the two filters requirement
-// 7 asks for. Newest first, same as every other admin history/inbox list.
-export async function listCampaignsForAdmin({ search, status, channel, page, pageSize } = {}) {
+async function listCampaignsForAdmin({ search, status, channel, page, pageSize } = {}) {
   const { where, values } = buildCampaignFilters({ search, status, channel });
 
   const { rows: countRows } = await pool.query(`SELECT COUNT(*) AS count FROM marketing_campaigns ${where}`, values);
@@ -265,11 +271,9 @@ export async function listCampaignsForAdmin({ search, status, channel, page, pag
   return { rows, total, page: currentPage, pageSize: limit };
 }
 
-// GET /admin/marketing/campaigns/:id/recipients — Recipient Details
-// (requirement 10). Joins in the agency name for display; recipient_address
-// itself already holds whatever was actually used to send (email today —
-// see marketingSend.service.js#resolveRecipients), never a credential.
-export async function listRecipientsForAdmin(campaignId, { page, pageSize } = {}) {
+module.exports.listCampaignsForAdmin = listCampaignsForAdmin;
+
+async function listRecipientsForAdmin(campaignId, { page, pageSize } = {}) {
   const limit = Math.max(1, Math.min(200, Number(pageSize) || 50));
   const currentPage = Math.max(1, Number(page) || 1);
   const offset = (currentPage - 1) * limit;
@@ -293,12 +297,9 @@ export async function listRecipientsForAdmin(campaignId, { page, pageSize } = {}
   return { rows, total, page: currentPage, pageSize: limit };
 }
 
-// Campaign Details (requirement 9) — everything toPublicCampaign already
-// exposes, plus the message body and the reply-to-account-manager setting.
-// Never includes provider credentials/secrets: this table doesn't store any
-// (see 0032_marketing_campaigns.sql / marketingSend.service.js) — Channel
-// Settings, a separate task, owns wherever those eventually live.
-export function toPublicCampaignDetail(campaign) {
+module.exports.listRecipientsForAdmin = listRecipientsForAdmin;
+
+function toPublicCampaignDetail(campaign) {
   const base = toPublicCampaign(campaign);
   if (!base) return null;
   return {
@@ -308,7 +309,9 @@ export function toPublicCampaignDetail(campaign) {
   };
 }
 
-export function toPublicRecipient(row) {
+module.exports.toPublicCampaignDetail = toPublicCampaignDetail;
+
+function toPublicRecipient(row) {
   return {
     id: row.id,
     agencyId: row.agency_id,
@@ -332,3 +335,5 @@ export function toPublicRecipient(row) {
     clickCount: row.click_count,
   };
 }
+
+module.exports.toPublicRecipient = toPublicRecipient;
