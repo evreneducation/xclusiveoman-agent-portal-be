@@ -1,10 +1,24 @@
-import { Router } from 'express';
-import * as bookingsController from '../controllers/bookings.controller.js';
-import * as documentsAgentController from '../controllers/travelerDocumentsAgent.controller.js';
-import * as reviewsAgentController from '../controllers/reviewsAgent.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
-import { validateBody, submitReviewSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const bookingsController = require('../controllers/bookings.controller.js');
+const documentsAgentController = require('../controllers/travelerDocumentsAgent.controller.js');
+const reviewsAgentController = require('../controllers/reviewsAgent.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  upload
+} = require('../middleware/upload.js');
+
+const {
+  validateBody,
+  submitReviewSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -30,4 +44,4 @@ router.get('/:id/voucher/download', documentsAgentController.downloadVoucher);
 router.post('/:id/review', validateBody(submitReviewSchema), reviewsAgentController.submitReview);
 router.post('/:id/dismiss-review-prompt', reviewsAgentController.dismissReviewPrompt);
 
-export default router;
+module.exports = router;

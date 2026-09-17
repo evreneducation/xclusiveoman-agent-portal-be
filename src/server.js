@@ -1,8 +1,20 @@
-import http from 'node:http';
-import { createApp } from './app.js';
-import { initSockets } from './sockets/index.js';
-import { startMarketingScheduler } from './jobs/marketingScheduler.job.js';
-import { env } from './config/env.js';
+const http = require('node:http');
+
+const {
+  createApp
+} = require('./app.js');
+
+const {
+  initSockets
+} = require('./sockets/index.js');
+
+const {
+  startMarketingScheduler
+} = require('./jobs/marketingScheduler.job.js');
+
+const {
+  env
+} = require('./config/env.js');
 
 const app = createApp();
 const httpServer = http.createServer(app);

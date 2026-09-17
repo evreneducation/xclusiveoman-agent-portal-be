@@ -1,16 +1,31 @@
-import { Router } from 'express';
-import * as authController from '../controllers/auth.controller.js';
-import { requireAuth } from '../middleware/auth.js';
-import { otpRequestLimiter, mfaVerifyLimiter, adminLoginLimiter } from '../middleware/rateLimiter.js';
-import { upload } from '../middleware/upload.js';
-import {
+const {
+  Router
+} = require('express');
+
+const authController = require('../controllers/auth.controller.js');
+
+const {
+  requireAuth
+} = require('../middleware/auth.js');
+
+const {
+  otpRequestLimiter,
+  mfaVerifyLimiter,
+  adminLoginLimiter
+} = require('../middleware/rateLimiter.js');
+
+const {
+  upload
+} = require('../middleware/upload.js');
+
+const {
   validateBody,
   registerSchema,
   requestOtpSchema,
   verifyOtpSchema,
   verifyMfaSchema,
-  adminLoginSchema,
-} from '../validation/schemas.js';
+  adminLoginSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -41,4 +56,4 @@ router.post('/refresh', authController.refresh);
 router.post('/logout', requireAuth, authController.logout);
 router.get('/me', requireAuth, authController.me);
 
-export default router;
+module.exports = router;

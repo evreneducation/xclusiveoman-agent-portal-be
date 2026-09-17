@@ -1,15 +1,12 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-// Admin "Terms & Conditions" tab — a singleton row (0067_site_terms.sql),
-// the same "one row, get-or-create then always patch it" shape
-// visaModel/mealsModel (catalog.model.js) already use for their own single-
-// rate/per-type rows. Kept as its own tiny model rather than folded into
-// catalog.model.js's generic createCrudModel factory — this isn't a
-// bookable catalog product, it's site-wide policy content with exactly one
-// field, so a plain get/upsert pair is simpler than that factory's full
-// list/findById/create/update/remove surface.
-export const siteTermsModel = {
+const {
+  newId
+} = require('../utils/id.js');
+
+const siteTermsModel = {
   async get() {
     const { rows } = await pool.query('SELECT * FROM site_terms ORDER BY created_at ASC LIMIT 1');
     return rows[0] || null;
@@ -36,3 +33,5 @@ export const siteTermsModel = {
     return rows[0];
   },
 };
+
+module.exports.siteTermsModel = siteTermsModel;

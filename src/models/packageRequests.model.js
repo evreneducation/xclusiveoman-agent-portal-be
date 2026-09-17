@@ -1,6 +1,14 @@
-import { pool } from '../db/pool.js';
-import { roomsForOccupancy } from '../utils/occupancy.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  roomsForOccupancy
+} = require('../utils/occupancy.js');
+
+const {
+  newId
+} = require('../utils/id.js');
 
 // Optional lunch/dinner add-on — same 6-column shape as fd_packages (see
 // 0045_package_requests_meals.sql / fdPackages.model.js's FD_COLUMNS). Kept
@@ -17,13 +25,12 @@ function visaValues({ visaEnabled, visaPeople } = {}) {
   return [!!visaEnabled, visaPeople ?? null];
 }
 
-// Insert helpers take an explicit `client` so the whole submission (request +
-// all selections + travelers) commits atomically as one transaction — see
-// packageRequests.controller.js#create.
-
-export async function createPackageRequest(client, {
-  agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields
-}) {
+async function createPackageRequest(
+  client,
+  {
+    agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields
+  }
+) {
   const id = newId();
   await client.query(
     `INSERT INTO package_requests
@@ -37,7 +44,9 @@ export async function createPackageRequest(client, {
   return rows[0];
 }
 
-export async function addHotelSelections(client, packageRequestId, hotelIds) {
+module.exports.createPackageRequest = createPackageRequest;
+
+async function addHotelSelections(client, packageRequestId, hotelIds) {
   for (const hotelId of hotelIds) {
     await client.query(
       `INSERT INTO package_request_hotels (id, package_request_id, hotel_id) VALUES (?, ?, ?)`,
@@ -46,7 +55,9 @@ export async function addHotelSelections(client, packageRequestId, hotelIds) {
   }
 }
 
-export async function addTourSelections(client, packageRequestId, tourIds) {
+module.exports.addHotelSelections = addHotelSelections;
+
+async function addTourSelections(client, packageRequestId, tourIds) {
   for (const tourId of tourIds) {
     await client.query(
       `INSERT INTO package_request_tours (id, package_request_id, tour_id) VALUES (?, ?, ?)`,
@@ -55,7 +66,9 @@ export async function addTourSelections(client, packageRequestId, tourIds) {
   }
 }
 
-export async function addTransferSelections(client, packageRequestId, transferIds) {
+module.exports.addTourSelections = addTourSelections;
+
+async function addTransferSelections(client, packageRequestId, transferIds) {
   for (const transferId of transferIds) {
     await client.query(
       `INSERT INTO package_request_transfers (id, package_request_id, transfer_id) VALUES (?, ?, ?)`,
@@ -64,7 +77,9 @@ export async function addTransferSelections(client, packageRequestId, transferId
   }
 }
 
-export async function addActivitySelections(client, packageRequestId, activityIds) {
+module.exports.addTransferSelections = addTransferSelections;
+
+async function addActivitySelections(client, packageRequestId, activityIds) {
   for (const activityId of activityIds) {
     await client.query(
       `INSERT INTO package_request_activities (id, package_request_id, activity_id) VALUES (?, ?, ?)`,
@@ -73,7 +88,9 @@ export async function addActivitySelections(client, packageRequestId, activityId
   }
 }
 
-export async function addTravelers(client, packageRequestId, travelers) {
+module.exports.addActivitySelections = addActivitySelections;
+
+async function addTravelers(client, packageRequestId, travelers) {
   for (const traveler of travelers) {
     await client.query(
       `INSERT INTO package_request_travelers (id, package_request_id, name, passport_no, dob, room_share_group, is_child)
@@ -91,19 +108,16 @@ export async function addTravelers(client, packageRequestId, travelers) {
   }
 }
 
-export async function findPackageRequestById(id) {
+module.exports.addTravelers = addTravelers;
+
+async function findPackageRequestById(id) {
   const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
   return rows[0] || null;
 }
 
-// --- Agent Quote lifecycle (My FIT Requests / Quotes) ---
-// Everything below is additive — the functions above are still used as-is by
-// both this controller and the admin one, unchanged.
+module.exports.findPackageRequestById = findPackageRequestById;
 
-// "My FIT Requests / Quotes" list (item 2/8) — every request the agent's own
-// agency has, draft or otherwise. lead_manager_* mirrors the same join the
-// admin side already uses (REL-4: lead manager visible once assigned).
-export async function listPackageRequestsForAgency(agencyId) {
+async function listPackageRequestsForAgency(agencyId) {
   const { rows } = await pool.query(
     `SELECT pr.*, lm.full_name AS lead_manager_full_name, lm.email AS lead_manager_email,
             lm.phone AS lead_manager_phone, lm.whatsapp_number AS lead_manager_whatsapp
@@ -116,7 +130,9 @@ export async function listPackageRequestsForAgency(agencyId) {
   return rows;
 }
 
-export async function findPackageRequestWithLeadManager(id) {
+module.exports.listPackageRequestsForAgency = listPackageRequestsForAgency;
+
+async function findPackageRequestWithLeadManager(id) {
   const { rows } = await pool.query(
     `SELECT pr.*, lm.full_name AS lead_manager_full_name, lm.email AS lead_manager_email,
             lm.phone AS lead_manager_phone, lm.whatsapp_number AS lead_manager_whatsapp
@@ -128,11 +144,12 @@ export async function findPackageRequestWithLeadManager(id) {
   return rows[0] || null;
 }
 
-// Item 1 — "Save Draft". Trip fields are optional/blank-friendly (validated
-// leniently by draftPackageRequestSchema, not the strict submit schema).
-// Takes `client` like createPackageRequest above — the row plus its
-// selections/travelers are written as one transaction by the controller.
-export async function createDraftPackageRequest(client, { agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields }) {
+module.exports.findPackageRequestWithLeadManager = findPackageRequestWithLeadManager;
+
+async function createDraftPackageRequest(
+  client,
+  { agencyId, createdByUserId, destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields }
+) {
   const id = newId();
   await client.query(
     `INSERT INTO package_requests
@@ -146,10 +163,13 @@ export async function createDraftPackageRequest(client, { agencyId, createdByUse
   return rows[0];
 }
 
-// "Continue Editing" autosave — only ever touches a row still in 'draft'
-// (WHERE guard), so a submitted request can never be silently rewritten by
-// a stale builder tab.
-export async function updateDraftTripInfo(client, id, { destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields }) {
+module.exports.createDraftPackageRequest = createDraftPackageRequest;
+
+async function updateDraftTripInfo(
+  client,
+  id,
+  { destination, dateFrom, dateTo, paxAdults, paxChildren, ...addOnFields }
+) {
   const { rowCount } = await client.query(
     `UPDATE package_requests
      SET destination = ?, date_from = ?, date_to = ?, pax_adults = ?, pax_children = ?,
@@ -164,37 +184,44 @@ export async function updateDraftTripInfo(client, id, { destination, dateFrom, d
   return rows[0] || null;
 }
 
-// Re-saving a draft always sends the builder's *current* full selection, so
-// each selection type is cleared and reinserted rather than diffed — same
-// "always send full state" shape as the admin costing save.
-export async function replaceHotelSelections(client, packageRequestId, hotelIds) {
+module.exports.updateDraftTripInfo = updateDraftTripInfo;
+
+async function replaceHotelSelections(client, packageRequestId, hotelIds) {
   await client.query(`DELETE FROM package_request_hotels WHERE package_request_id = ?`, [packageRequestId]);
   await addHotelSelections(client, packageRequestId, hotelIds);
 }
 
-export async function replaceTourSelections(client, packageRequestId, tourIds) {
+module.exports.replaceHotelSelections = replaceHotelSelections;
+
+async function replaceTourSelections(client, packageRequestId, tourIds) {
   await client.query(`DELETE FROM package_request_tours WHERE package_request_id = ?`, [packageRequestId]);
   await addTourSelections(client, packageRequestId, tourIds);
 }
 
-export async function replaceTransferSelections(client, packageRequestId, transferIds) {
+module.exports.replaceTourSelections = replaceTourSelections;
+
+async function replaceTransferSelections(client, packageRequestId, transferIds) {
   await client.query(`DELETE FROM package_request_transfers WHERE package_request_id = ?`, [packageRequestId]);
   await addTransferSelections(client, packageRequestId, transferIds);
 }
 
-export async function replaceActivitySelections(client, packageRequestId, activityIds) {
+module.exports.replaceTransferSelections = replaceTransferSelections;
+
+async function replaceActivitySelections(client, packageRequestId, activityIds) {
   await client.query(`DELETE FROM package_request_activities WHERE package_request_id = ?`, [packageRequestId]);
   await addActivitySelections(client, packageRequestId, activityIds);
 }
 
-export async function replaceTravelers(client, packageRequestId, travelers) {
+module.exports.replaceActivitySelections = replaceActivitySelections;
+
+async function replaceTravelers(client, packageRequestId, travelers) {
   await client.query(`DELETE FROM package_request_travelers WHERE package_request_id = ?`, [packageRequestId]);
   await addTravelers(client, packageRequestId, travelers);
 }
 
-// "Submit Draft once completed" — flips draft -> submitted; guarded to only
-// ever fire from 'draft' so it can't resubmit an already-submitted request.
-export async function submitDraftPackageRequest(client, id) {
+module.exports.replaceTravelers = replaceTravelers;
+
+async function submitDraftPackageRequest(client, id) {
   const { rowCount } = await client.query(
     `UPDATE package_requests SET status = 'submitted', updated_at = now() WHERE id = ? AND status = 'draft'`,
     [id]
@@ -204,16 +231,16 @@ export async function submitDraftPackageRequest(client, id) {
   return rows[0] || null;
 }
 
-// "Delete Draft" — scoped to status = 'draft' so a submitted/priced/published
-// request can never be deleted through this path.
-export async function deleteDraftPackageRequest(id) {
+module.exports.submitDraftPackageRequest = submitDraftPackageRequest;
+
+async function deleteDraftPackageRequest(id) {
   const { rowCount } = await pool.query(`DELETE FROM package_requests WHERE id = ? AND status = 'draft'`, [id]);
   return rowCount > 0;
 }
 
-// Item 5 — Accept / Request Revision / Decline. Guarded to only ever fire
-// from 'published', matching "If the quote status is Published" in the doc.
-export async function respondToPackageRequest(id, nextStatus) {
+module.exports.deleteDraftPackageRequest = deleteDraftPackageRequest;
+
+async function respondToPackageRequest(id, nextStatus) {
   const { rowCount } = await pool.query(
     `UPDATE package_requests SET status = ?, updated_at = now() WHERE id = ? AND status = 'published'`,
     [nextStatus, id]
@@ -223,7 +250,9 @@ export async function respondToPackageRequest(id, nextStatus) {
   return rows[0] || null;
 }
 
-export async function listHotelsForRequest(packageRequestId) {
+module.exports.respondToPackageRequest = respondToPackageRequest;
+
+async function listHotelsForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT h.* FROM package_request_hotels prh
      JOIN hotels h ON h.id = prh.hotel_id
@@ -233,7 +262,9 @@ export async function listHotelsForRequest(packageRequestId) {
   return rows;
 }
 
-export async function listToursForRequest(packageRequestId) {
+module.exports.listHotelsForRequest = listHotelsForRequest;
+
+async function listToursForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT t.* FROM package_request_tours prt
      JOIN tours t ON t.id = prt.tour_id
@@ -243,7 +274,9 @@ export async function listToursForRequest(packageRequestId) {
   return rows;
 }
 
-export async function listTransfersForRequest(packageRequestId) {
+module.exports.listToursForRequest = listToursForRequest;
+
+async function listTransfersForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT tr.* FROM package_request_transfers prt
      JOIN transfers tr ON tr.id = prt.transfer_id
@@ -253,7 +286,9 @@ export async function listTransfersForRequest(packageRequestId) {
   return rows;
 }
 
-export async function listActivitiesForRequest(packageRequestId) {
+module.exports.listTransfersForRequest = listTransfersForRequest;
+
+async function listActivitiesForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT a.* FROM package_request_activities pra
      JOIN activities a ON a.id = pra.activity_id
@@ -263,7 +298,9 @@ export async function listActivitiesForRequest(packageRequestId) {
   return rows;
 }
 
-export async function listTravelersForRequest(packageRequestId) {
+module.exports.listActivitiesForRequest = listActivitiesForRequest;
+
+async function listTravelersForRequest(packageRequestId) {
   const { rows } = await pool.query(
     `SELECT * FROM package_request_travelers WHERE package_request_id = ? ORDER BY id`,
     [packageRequestId]
@@ -271,13 +308,9 @@ export async function listTravelersForRequest(packageRequestId) {
   return rows;
 }
 
-// --- Day-wise Itinerary Planner (FIT-5) ---
-// Days are virtual (Day 1..N derived from date_from/date_to by the caller) —
-// only a day's notes and its assigned items persist, and only for days that
-// actually have something on them. Read together (days + items) since every
-// consumer (agent serializer, admin serializer, the itinerary editor's own
-// GET-through-detail) needs both to reconstruct the day cards.
-export async function listItineraryForRequest(packageRequestId) {
+module.exports.listTravelersForRequest = listTravelersForRequest;
+
+async function listItineraryForRequest(packageRequestId) {
   const [{ rows: days }, { rows: items }] = await Promise.all([
     pool.query(
       `SELECT * FROM package_request_itinerary_days WHERE package_request_id = ? ORDER BY day_number`,
@@ -291,19 +324,9 @@ export async function listItineraryForRequest(packageRequestId) {
   return { days, items };
 }
 
-// Same "always send full state, clear and reinsert" shape as
-// replaceHotelSelections etc. above — the builder/editor always PUTs its
-// complete current arrangement, so there's nothing to diff. Takes an
-// explicit `client` like the other replace* functions so it can join the
-// same transaction as the rest of a create/draft-save/submit.
-//
-// `days` shape: [{ dayNumber, notes, items: [{ type, id, note?, occupancy? }] }]
-// — position within a day is each item's index in its `items` array. `note`
-// is a short per-item annotation, distinct from the day's own `notes`.
-// `occupancy` ('single'/'double'/'triple' — how the trip's known headcount,
-// pax_adults, splits into rooms) is only meaningful on 'hotel' items — see
-// computeHotelCostAuto in packageRequestsAdmin.controller.js.
-export async function replaceItinerary(client, packageRequestId, days) {
+module.exports.listItineraryForRequest = listItineraryForRequest;
+
+async function replaceItinerary(client, packageRequestId, days) {
   await client.query(`DELETE FROM package_request_itinerary_days WHERE package_request_id = ?`, [packageRequestId]);
   await client.query(`DELETE FROM package_request_itinerary_items WHERE package_request_id = ?`, [packageRequestId]);
 
@@ -322,15 +345,9 @@ export async function replaceItinerary(client, packageRequestId, days) {
   }
 }
 
-// Composes the persisted days/items rows into the [{dayNumber, notes, items:
-// [{type, id, name, ...}]}] shape both serializers return, enriching each
-// item against the pools of already-fetched, already-mapped catalog rows
-// (hotels/tours/transfers/activities) rather than re-querying — those pools
-// differ slightly between the agent and admin serializers (admin's include
-// prices), so the enriched item picks up whatever fields that pool already has.
-// `totalAdults` (package_requests.pax_adults) is only needed to derive each
-// hotel item's `rooms` for display — callers that don't care can omit it.
-export function composeItinerary(days, items, pools, totalAdults) {
+module.exports.replaceItinerary = replaceItinerary;
+
+function composeItinerary(days, items, pools, totalAdults) {
   const byDay = new Map();
   for (const d of days) {
     byDay.set(d.day_number, { dayNumber: d.day_number, notes: d.notes || '', items: [] });
@@ -357,3 +374,5 @@ export function composeItinerary(days, items, pools, totalAdults) {
   }
   return [...byDay.values()].sort((a, b) => a.dayNumber - b.dayNumber);
 }
+
+module.exports.composeItinerary = composeItinerary;

@@ -1,6 +1,14 @@
-import QRCode from 'qrcode';
-import { adminSecurityModel } from '../models/adminSecurity.model.js';
-import { generateSecret, verifyTotpStep, buildOtpAuthUri } from '../services/totp.service.js';
+const QRCode = require('qrcode');
+
+const {
+  adminSecurityModel
+} = require('../models/adminSecurity.model.js');
+
+const {
+  generateSecret,
+  verifyTotpStep,
+  buildOtpAuthUri
+} = require('../services/totp.service.js');
 
 // The admin console's "Security" screen (admin/pages/Security.jsx). One
 // GLOBAL authenticator-app (TOTP) toggle — not per-user enrolment — so
@@ -24,8 +32,7 @@ function toStatus(row) {
   };
 }
 
-// GET /admin/security
-export async function getSecurityStatus(req, res, next) {
+async function getSecurityStatus(req, res, next) {
   try {
     const row = await adminSecurityModel.get();
     res.json(toStatus(row));
@@ -34,12 +41,9 @@ export async function getSecurityStatus(req, res, next) {
   }
 }
 
-// POST /admin/security/totp/enroll — generates a fresh secret, stashes it as
-// pending, and returns everything the Security page needs to render the
-// setup step: the otpauth:// URI, a scannable QR (data URI), and the base32
-// secret for manual entry. Refuses if 2FA is already on — turning it off
-// first is the deliberate path to re-key.
-export async function beginTotpEnrollment(req, res, next) {
+module.exports.getSecurityStatus = getSecurityStatus;
+
+async function beginTotpEnrollment(req, res, next) {
   try {
     const existing = await adminSecurityModel.get();
     if (existing?.totp_enabled) {
@@ -61,10 +65,9 @@ export async function beginTotpEnrollment(req, res, next) {
   }
 }
 
-// POST /admin/security/totp/activate — confirms the pending secret was
-// actually scanned by checking a live 6-digit code against it, then flips
-// the global switch on.
-export async function activateTotp(req, res, next) {
+module.exports.beginTotpEnrollment = beginTotpEnrollment;
+
+async function activateTotp(req, res, next) {
   try {
     const { code } = req.body;
     const row = await adminSecurityModel.get();
@@ -86,10 +89,9 @@ export async function activateTotp(req, res, next) {
   }
 }
 
-// POST /admin/security/totp/disable — turning 2FA off still requires a
-// current code, so a walk-up on an already-signed-in super_admin session
-// can't quietly strip protection off every other admin account.
-export async function disableTotp(req, res, next) {
+module.exports.activateTotp = activateTotp;
+
+async function disableTotp(req, res, next) {
   try {
     const { code } = req.body;
     const row = await adminSecurityModel.get();
@@ -106,3 +108,5 @@ export async function disableTotp(req, res, next) {
     next(err);
   }
 }
+
+module.exports.disableTotp = disableTotp;

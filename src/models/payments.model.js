@@ -1,16 +1,23 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-export async function createPayment({
-  bookingId,
-  amount,
-  method,
-  status,
-  cashfreeOrderId,
-  neftSlipUrl,
-  neftReference,
-  clientAttemptToken,
-}) {
+const {
+  newId
+} = require('../utils/id.js');
+
+async function createPayment(
+  {
+    bookingId,
+    amount,
+    method,
+    status,
+    cashfreeOrderId,
+    neftSlipUrl,
+    neftReference,
+    clientAttemptToken,
+  }
+) {
   // active_cashfree_key (0074_payment_lifecycle_constraints.sql) is a
   // generated column MySQL computes itself from method/status/booking_id —
   // it must never appear in an explicit column/value list here.
@@ -34,25 +41,31 @@ export async function createPayment({
   return rows[0];
 }
 
-export async function findPaymentById(id) {
+module.exports.createPayment = createPayment;
+
+async function findPaymentById(id) {
   const { rows } = await pool.query('SELECT * FROM payments WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
-export async function findPaymentByCashfreeOrderId(orderId) {
+module.exports.findPaymentById = findPaymentById;
+
+async function findPaymentByCashfreeOrderId(orderId) {
   const { rows } = await pool.query('SELECT * FROM payments WHERE cashfree_order_id = ?', [orderId]);
   return rows[0] || null;
 }
 
-export async function findPaymentByClientAttemptToken(token) {
+module.exports.findPaymentByCashfreeOrderId = findPaymentByCashfreeOrderId;
+
+async function findPaymentByClientAttemptToken(token) {
   if (!token) return null;
   const { rows } = await pool.query('SELECT * FROM payments WHERE client_attempt_token = ?', [token]);
   return rows[0] || null;
 }
 
-// The one non-terminal Cashfree attempt for a booking, if any — predicate
-// mirrors the `one_active_cashfree_payment` partial unique index exactly.
-export async function findActiveCashfreePayment(bookingId) {
+module.exports.findPaymentByClientAttemptToken = findPaymentByClientAttemptToken;
+
+async function findActiveCashfreePayment(bookingId) {
   const { rows } = await pool.query(
     `SELECT * FROM payments
      WHERE booking_id = ? AND method = 'cashfree'
@@ -63,6 +76,8 @@ export async function findActiveCashfreePayment(bookingId) {
   );
   return rows[0] || null;
 }
+
+module.exports.findActiveCashfreePayment = findActiveCashfreePayment;
 
 // --- Lifecycle transitions. Each is guarded so a terminal payment
 // (confirmed / failed / cancelled) can never be moved to another state, and
@@ -83,7 +98,7 @@ export async function findActiveCashfreePayment(bookingId) {
 
 const NON_TERMINAL = "('pending', 'awaiting_payment', 'awaiting_confirmation')";
 
-export async function markPaymentAwaitingPayment(id) {
+async function markPaymentAwaitingPayment(id) {
   const { rowCount } = await pool.query(
     `UPDATE payments SET status = 'awaiting_payment', updated_at = now()
      WHERE id = ? AND status IN ('pending', 'awaiting_payment')`,
@@ -94,7 +109,9 @@ export async function markPaymentAwaitingPayment(id) {
   return rows[0] || null;
 }
 
-export async function markPaymentAwaitingConfirmation(id, { cashfreePaymentId } = {}) {
+module.exports.markPaymentAwaitingPayment = markPaymentAwaitingPayment;
+
+async function markPaymentAwaitingConfirmation(id, { cashfreePaymentId } = {}) {
   const { rowCount } = await pool.query(
     `UPDATE payments
      SET status = 'awaiting_confirmation',
@@ -108,7 +125,9 @@ export async function markPaymentAwaitingConfirmation(id, { cashfreePaymentId } 
   return rows[0] || null;
 }
 
-export async function markPaymentCancelled(id) {
+module.exports.markPaymentAwaitingConfirmation = markPaymentAwaitingConfirmation;
+
+async function markPaymentCancelled(id) {
   const { rowCount } = await pool.query(
     `UPDATE payments SET status = 'cancelled', updated_at = now()
      WHERE id = ? AND status IN ${NON_TERMINAL}`,
@@ -119,7 +138,9 @@ export async function markPaymentCancelled(id) {
   return rows[0] || null;
 }
 
-export async function markPaymentFailed(id) {
+module.exports.markPaymentCancelled = markPaymentCancelled;
+
+async function markPaymentFailed(id) {
   const { rowCount } = await pool.query(
     `UPDATE payments SET status = 'failed', updated_at = now()
      WHERE id = ? AND status IN ${NON_TERMINAL}`,
@@ -130,11 +151,9 @@ export async function markPaymentFailed(id) {
   return rows[0] || null;
 }
 
-// Atomic "flip to confirmed exactly once". Returns the row ONLY when this call
-// is the one that changed it (status was not already 'confirmed'); returns
-// null for a duplicate/re-delivered confirmation so the caller can skip the
-// downstream booking credit + side effects entirely.
-export async function markPaymentConfirmed(id, { cashfreePaymentId, verifiedByUserId } = {}) {
+module.exports.markPaymentFailed = markPaymentFailed;
+
+async function markPaymentConfirmed(id, { cashfreePaymentId, verifiedByUserId } = {}) {
   const { rowCount } = await pool.query(
     `UPDATE payments
      SET status = 'confirmed', paid_at = now(),
@@ -150,7 +169,9 @@ export async function markPaymentConfirmed(id, { cashfreePaymentId, verifiedByUs
   return rows[0] || null;
 }
 
-export async function markPaymentRejected(id, verifiedByUserId) {
+module.exports.markPaymentConfirmed = markPaymentConfirmed;
+
+async function markPaymentRejected(id, verifiedByUserId) {
   await pool.query(
     `UPDATE payments
      SET status = 'failed', verified_by_user_id = ?, verified_at = now(), updated_at = now()
@@ -161,7 +182,9 @@ export async function markPaymentRejected(id, verifiedByUserId) {
   return rows[0] || null;
 }
 
-export async function listNeftPending() {
+module.exports.markPaymentRejected = markPaymentRejected;
+
+async function listNeftPending() {
   const { rows } = await pool.query(
     `SELECT payments.*, bookings.agency_id, agencies.name AS agency_name
      FROM payments
@@ -173,16 +196,20 @@ export async function listNeftPending() {
   return rows;
 }
 
-export async function insertTransaction({
-  agencyId,
-  bookingId,
-  paymentId,
-  amount,
-  method,
-  status,
-  totalPrice,
-  amountPaidToDate,
-}) {
+module.exports.listNeftPending = listNeftPending;
+
+async function insertTransaction(
+  {
+    agencyId,
+    bookingId,
+    paymentId,
+    amount,
+    method,
+    status,
+    totalPrice,
+    amountPaidToDate,
+  }
+) {
   const id = newId();
   await pool.query(
     `INSERT INTO transactions (id, agency_id, booking_id, payment_id, amount, method, status, total_price, amount_paid_to_date)
@@ -193,7 +220,9 @@ export async function insertTransaction({
   return rows[0];
 }
 
-export async function listAgencyTransactions(agencyId) {
+module.exports.insertTransaction = insertTransaction;
+
+async function listAgencyTransactions(agencyId) {
   const { rows } = await pool.query(
     `SELECT transactions.*, bookings.source_type
      FROM transactions
@@ -205,7 +234,9 @@ export async function listAgencyTransactions(agencyId) {
   return rows;
 }
 
-export async function listAllTransactions({ method, status, dateFrom } = {}) {
+module.exports.listAgencyTransactions = listAgencyTransactions;
+
+async function listAllTransactions({ method, status, dateFrom } = {}) {
   const clauses = [];
   const values = [];
 
@@ -233,3 +264,5 @@ export async function listAllTransactions({ method, status, dateFrom } = {}) {
   );
   return rows;
 }
+
+module.exports.listAllTransactions = listAllTransactions;

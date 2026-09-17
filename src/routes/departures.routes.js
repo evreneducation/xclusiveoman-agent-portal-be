@@ -1,7 +1,18 @@
-import { Router } from 'express';
-import * as departuresController from '../controllers/departures.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { validateBody, createBookingSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const departuresController = require('../controllers/departures.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  createBookingSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -15,4 +26,4 @@ router.get('/:id/itinerary.pdf', departuresController.downloadDepartureItinerary
 router.get('/:id/enquire', departuresController.enquireNow);
 router.post('/:id/bookings', validateBody(createBookingSchema), departuresController.createBooking);
 
-export default router;
+module.exports = router;

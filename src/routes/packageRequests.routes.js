@@ -1,12 +1,20 @@
-import { Router } from 'express';
-import * as packageRequestsController from '../controllers/packageRequests.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import {
+const {
+  Router
+} = require('express');
+
+const packageRequestsController = require('../controllers/packageRequests.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
   validateBody,
   createPackageRequestSchema,
   draftPackageRequestSchema,
-  respondPackageRequestSchema,
-} from '../validation/schemas.js';
+  respondPackageRequestSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -30,4 +38,4 @@ router.post('/:id/submit', validateBody(createPackageRequestSchema), packageRequ
 // Agent Actions on a Published quote (item 5).
 router.post('/:id/respond', validateBody(respondPackageRequestSchema), packageRequestsController.respond);
 
-export default router;
+module.exports = router;

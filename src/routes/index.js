@@ -1,37 +1,55 @@
-import { Router } from 'express';
-import authRoutes from './auth.routes.js';
-import agenciesRoutes from './agencies.routes.js';
-import adminRoutes from './admin.routes.js';
-import catalogRoutes, { adminCatalogRouter } from './catalog.routes.js';
-import departuresRoutes from './departures.routes.js';
-import packageRequestsRoutes from './packageRequests.routes.js';
-import packageRequestsAdminRoutes from './packageRequestsAdmin.routes.js';
-import itineraryPdfDataRoutes from './itineraryPdfData.routes.js';
-import fdItineraryPdfDataRoutes from './fdItineraryPdfData.routes.js';
-import miceRfqsRoutes from './miceRfqs.routes.js';
-import miceRfqsAdminRoutes from './miceRfqsAdmin.routes.js';
-import fdPackagesAdminRoutes from './fdPackagesAdmin.routes.js';
-import paymentsRoutes, { adminPaymentsRouter } from './payments.routes.js';
-import bookingsRoutes from './bookings.routes.js';
-import relationshipManagersRoutes from './relationshipManagers.routes.js';
-import salesManagersRoutes from './salesManagers.routes.js';
-import customRoleEmployeesRoutes from './customRoleEmployees.routes.js';
-import employeesRoutes from './employees.routes.js';
-import locationsRoutes from './locations.routes.js';
-import notificationsRoutes from './notifications.routes.js';
-import marketingRoutes from './marketing.routes.js';
-import marketingTrackingRoutes from './marketingTracking.routes.js';
-import fdOperationsAdminRoutes from './fdOperationsAdmin.routes.js';
-import bookingsAdminRoutes from './bookingsAdmin.routes.js';
-import supportTicketsRoutes from './supportTickets.routes.js';
-import supportTicketsAdminRoutes from './supportTicketsAdmin.routes.js';
-import analyticsRoutes from './analytics.routes.js';
-import reviewsRoutes from './reviews.routes.js';
-import reviewsAdminRoutes from './reviewsAdmin.routes.js';
-import cmsRoutes from './cms.routes.js';
-import cmsPublicRoutes from './cmsPublic.routes.js';
-import siteTermsRoutes, { adminSiteTermsRouter } from './siteTerms.routes.js';
-import adminSecurityRoutes from './adminSecurity.routes.js';
+const {
+  Router
+} = require('express');
+
+const authRoutes = require('./auth.routes.js');
+const agenciesRoutes = require('./agencies.routes.js');
+const adminRoutes = require('./admin.routes.js');
+const catalogRoutes = require('./catalog.routes.js');
+
+const {
+  adminCatalogRouter
+} = catalogRoutes;
+
+const departuresRoutes = require('./departures.routes.js');
+const packageRequestsRoutes = require('./packageRequests.routes.js');
+const packageRequestsAdminRoutes = require('./packageRequestsAdmin.routes.js');
+const itineraryPdfDataRoutes = require('./itineraryPdfData.routes.js');
+const fdItineraryPdfDataRoutes = require('./fdItineraryPdfData.routes.js');
+const miceRfqsRoutes = require('./miceRfqs.routes.js');
+const miceRfqsAdminRoutes = require('./miceRfqsAdmin.routes.js');
+const fdPackagesAdminRoutes = require('./fdPackagesAdmin.routes.js');
+const paymentsRoutes = require('./payments.routes.js');
+
+const {
+  adminPaymentsRouter
+} = paymentsRoutes;
+
+const bookingsRoutes = require('./bookings.routes.js');
+const relationshipManagersRoutes = require('./relationshipManagers.routes.js');
+const salesManagersRoutes = require('./salesManagers.routes.js');
+const customRoleEmployeesRoutes = require('./customRoleEmployees.routes.js');
+const employeesRoutes = require('./employees.routes.js');
+const locationsRoutes = require('./locations.routes.js');
+const notificationsRoutes = require('./notifications.routes.js');
+const marketingRoutes = require('./marketing.routes.js');
+const marketingTrackingRoutes = require('./marketingTracking.routes.js');
+const fdOperationsAdminRoutes = require('./fdOperationsAdmin.routes.js');
+const bookingsAdminRoutes = require('./bookingsAdmin.routes.js');
+const supportTicketsRoutes = require('./supportTickets.routes.js');
+const supportTicketsAdminRoutes = require('./supportTicketsAdmin.routes.js');
+const analyticsRoutes = require('./analytics.routes.js');
+const reviewsRoutes = require('./reviews.routes.js');
+const reviewsAdminRoutes = require('./reviewsAdmin.routes.js');
+const cmsRoutes = require('./cms.routes.js');
+const cmsPublicRoutes = require('./cmsPublic.routes.js');
+const siteTermsRoutes = require('./siteTerms.routes.js');
+
+const {
+  adminSiteTermsRouter
+} = siteTermsRoutes;
+
+const adminSecurityRoutes = require('./adminSecurity.routes.js');
 
 const router = Router();
 
@@ -142,4 +160,4 @@ router.use('/reviews', reviewsRoutes);
 router.use('/departure-locations', locationsRoutes);
 router.use('/notifications', notificationsRoutes);
 
-export default router;
+module.exports = router;

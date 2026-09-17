@@ -1,7 +1,12 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-export async function createUser(
+const {
+  newId
+} = require('../utils/id.js');
+
+async function createUser(
   client,
   { agencyId, role, fullName, email, phone, whatsappNumber, permissions }
 ) {
@@ -24,26 +29,34 @@ export async function createUser(
   return rows[0];
 }
 
-export async function findUserByEmail(email) {
+module.exports.createUser = createUser;
+
+async function findUserByEmail(email) {
   const { rows } = await pool.query('SELECT * FROM users WHERE email = ?', [
     email.toLowerCase(),
   ]);
   return rows[0] || null;
 }
 
-export async function findUserById(id) {
+module.exports.findUserByEmail = findUserByEmail;
+
+async function findUserById(id) {
   const { rows } = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
   return rows[0] || null;
 }
 
-export async function listStaff() {
+module.exports.findUserById = findUserById;
+
+async function listStaff() {
   const { rows } = await pool.query(
     `SELECT * FROM users WHERE agency_id IS NULL ORDER BY created_at DESC`
   );
   return rows;
 }
 
-export async function listStaffByRole(role) {
+module.exports.listStaff = listStaff;
+
+async function listStaffByRole(role) {
   const { rows } = await pool.query(
     `SELECT * FROM users WHERE agency_id IS NULL AND role = ? ORDER BY created_at DESC`,
     [role]
@@ -51,7 +64,9 @@ export async function listStaffByRole(role) {
   return rows;
 }
 
-export async function listAgencyUsers(agencyId) {
+module.exports.listStaffByRole = listStaffByRole;
+
+async function listAgencyUsers(agencyId) {
   const { rows } = await pool.query(
     `SELECT * FROM users WHERE agency_id = ? ORDER BY created_at DESC`,
     [agencyId]
@@ -59,23 +74,9 @@ export async function listAgencyUsers(agencyId) {
   return rows;
 }
 
-// Marketing Center campaign sending (marketing.controller.js) — the
-// recipient address for an agency is its owner's email, same source
-// admin.controller.js::patchAgency already uses to email an agency once
-// approved (`role = 'agency_owner'`), just batched across many agencies at
-// once instead of looked up one at a time. Only active accounts, and only
-// agencies with such a user come back — an agency with no owner user simply
-// has no row here, which the caller treats as "can't be emailed" rather
-// than an error.
-//
-// `full_name` was added for Audience Segments (admin.controller.js#getAgencies,
-// Task 10) to show who each agency's real send target actually is by name,
-// not just email. `id` was added for the FD Operations Tracker (Task 12 —
-// driver-dispatch/tour-update notifications need a real recipientUserId to
-// call notification.service.js#createNotification with, not just an email
-// address). Existing callers (resolveRecipients above) that only
-// destructure row.agency_id/row.email are unaffected by either extra column.
-export async function listAgencyOwnerEmails(agencyIds) {
+module.exports.listAgencyUsers = listAgencyUsers;
+
+async function listAgencyOwnerEmails(agencyIds) {
   if (agencyIds.length === 0) return [];
   const { rows } = await pool.query(
     `SELECT id, agency_id, full_name, email FROM users
@@ -85,7 +86,9 @@ export async function listAgencyOwnerEmails(agencyIds) {
   return rows;
 }
 
-export async function updateUser(id, fields) {
+module.exports.listAgencyOwnerEmails = listAgencyOwnerEmails;
+
+async function updateUser(id, fields) {
   const setClauses = [];
   const values = [];
 
@@ -124,7 +127,9 @@ export async function updateUser(id, fields) {
   return rows[0] || null;
 }
 
-export function toPublicUser(user) {
+module.exports.updateUser = updateUser;
+
+function toPublicUser(user) {
   if (!user) return null;
   return {
     id: user.id,
@@ -144,3 +149,5 @@ export function toPublicUser(user) {
     updatedAt: user.updated_at,
   };
 }
+
+module.exports.toPublicUser = toPublicUser;

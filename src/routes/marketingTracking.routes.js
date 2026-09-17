@@ -1,5 +1,8 @@
-import { Router } from 'express';
-import * as trackingController from '../controllers/marketingTracking.controller.js';
+const {
+  Router
+} = require('express');
+
+const trackingController = require('../controllers/marketingTracking.controller.js');
 
 // Marketing Center Task 11 — Open & Click Tracking. Deliberately public: no
 // requireAuth/requireRole here, unlike every route in marketing.routes.js
@@ -12,4 +15,4 @@ const router = Router();
 router.get('/open/:token', trackingController.trackOpen);
 router.get('/click/:token', trackingController.trackClick);
 
-export default router;
+module.exports = router;

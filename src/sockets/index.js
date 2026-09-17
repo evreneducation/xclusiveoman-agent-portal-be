@@ -1,15 +1,18 @@
-import { Server } from 'socket.io';
-import { verifyAccessToken } from '../services/auth.service.js';
-import { env } from '../config/env.js';
+const {
+  Server
+} = require('socket.io');
+
+const {
+  verifyAccessToken
+} = require('../services/auth.service.js');
+
+const {
+  env
+} = require('../config/env.js');
 
 let ioInstance = null;
 
-/**
- * Sprint 1 scope: wiring only. Handshake authenticates the socket and joins
- * the doc's §13 room convention (user:<id>, agency:<id>, staff role rooms) so
- * later sprints can `io.to('agency:<id>').emit(...)` without any rework here.
- */
-export function initSockets(httpServer) {
+function initSockets(httpServer) {
   const io = new Server(httpServer, {
     cors: {
       origin: env.corsOrigins,
@@ -50,6 +53,10 @@ export function initSockets(httpServer) {
   return io;
 }
 
-export function getIo() {
+module.exports.initSockets = initSockets;
+
+function getIo() {
   return ioInstance;
 }
+
+module.exports.getIo = getIo;

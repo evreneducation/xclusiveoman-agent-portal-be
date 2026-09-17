@@ -1,13 +1,22 @@
-import { Router } from 'express';
-import * as fdOperationsController from '../controllers/fdOperationsAdmin.controller.js';
-import { requireAuth, requireRole, requireFeature } from '../middleware/auth.js';
-import {
+const {
+  Router
+} = require('express');
+
+const fdOperationsController = require('../controllers/fdOperationsAdmin.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature
+} = require('../middleware/auth.js');
+
+const {
   validateBody,
   advanceFdOperationsStageSchema,
   fdOperationsSupplierLogSchema,
   fdOperationsDriverDetailsSchema,
-  fdOperationsTourUpdateSchema,
-} from '../validation/schemas.js';
+  fdOperationsTourUpdateSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -46,4 +55,4 @@ router.post(
   fdOperationsController.publishTourUpdate
 );
 
-export default router;
+module.exports = router;

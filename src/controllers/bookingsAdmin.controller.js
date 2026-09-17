@@ -1,12 +1,40 @@
-import { listBookingsForAdmin } from '../models/bookingsAdmin.model.js';
-import { findFdPackageById, findDepartureDateById } from '../models/fdPackages.model.js';
-import { findAgencyById, listAgenciesByRmIds } from '../models/agencies.model.js';
-import { listAgencyOwnerEmails } from '../models/users.model.js';
-import { createFdBooking } from '../services/booking.service.js';
-import { insertAuditLog } from '../models/auditLogs.model.js';
-import { createNotification } from '../services/notification.service.js';
-import { sendEmail } from '../services/email.service.js';
-import { getIo } from '../sockets/index.js';
+const {
+  listBookingsForAdmin
+} = require('../models/bookingsAdmin.model.js');
+
+const {
+  findFdPackageById,
+  findDepartureDateById
+} = require('../models/fdPackages.model.js');
+
+const {
+  findAgencyById,
+  listAgenciesByRmIds
+} = require('../models/agencies.model.js');
+
+const {
+  listAgencyOwnerEmails
+} = require('../models/users.model.js');
+
+const {
+  createFdBooking
+} = require('../services/booking.service.js');
+
+const {
+  insertAuditLog
+} = require('../models/auditLogs.model.js');
+
+const {
+  createNotification
+} = require('../services/notification.service.js');
+
+const {
+  sendEmail
+} = require('../services/email.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
 
 // Admin Bookings & Documents — Manual Booking Flow (Task 13 — Screen 22).
 // FD-only; see booking.service.js and bookingsAdmin.model.js for the shared
@@ -37,8 +65,7 @@ function toPublicBooking(b) {
   };
 }
 
-// GET /api/admin/bookings?search=&status=&agencyId=&dateFrom=&dateTo=&page=&pageSize=
-export async function listBookings(req, res, next) {
+async function listBookings(req, res, next) {
   try {
     const { search, status, agencyId, dateFrom, dateTo, page, pageSize } = req.query;
 
@@ -74,13 +101,9 @@ export async function listBookings(req, res, next) {
   }
 }
 
-// POST /api/admin/bookings/manual — {agencyId, fdPackageId, departureDateId,
-// pax, travelers[], addonIds[], agreedTotalPrice, depositPaid, paymentMethod}
-// -> a standard bookings row, created_via='manual_admin', indistinguishable
-// downstream from a self-service one (MAN-4) — same table, same statuses,
-// same booking:status_changed event, just created through this admin-only
-// entry point instead of DepartureDetail.jsx.
-export async function createManualBooking(req, res, next) {
+module.exports.listBookings = listBookings;
+
+async function createManualBooking(req, res, next) {
   try {
     const { agencyId, fdPackageId, departureDateId, pax, travelers, addonIds, agreedTotalPrice, depositPaid, paymentMethod } =
       req.body;
@@ -204,3 +227,5 @@ export async function createManualBooking(req, res, next) {
     next(err);
   }
 }
+
+module.exports.createManualBooking = createManualBooking;

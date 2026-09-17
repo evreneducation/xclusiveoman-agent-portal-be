@@ -1,11 +1,33 @@
-import { Router } from 'express';
-import * as bookingsAdminController from '../controllers/bookingsAdmin.controller.js';
-import * as documentsAdminController from '../controllers/travelerDocumentsAdmin.controller.js';
-import { requireAuth, requireRole, requireFeature } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
-import { validateBody, manualBookingSchema, emailToSupplierSchema } from '../validation/schemas.js';
-import { findBookingDetailForAdmin } from '../models/bookingsAdmin.model.js';
-import { listAgenciesByRmIds } from '../models/agencies.model.js';
+const {
+  Router
+} = require('express');
+
+const bookingsAdminController = require('../controllers/bookingsAdmin.controller.js');
+const documentsAdminController = require('../controllers/travelerDocumentsAdmin.controller.js');
+
+const {
+  requireAuth,
+  requireRole,
+  requireFeature
+} = require('../middleware/auth.js');
+
+const {
+  upload
+} = require('../middleware/upload.js');
+
+const {
+  validateBody,
+  manualBookingSchema,
+  emailToSupplierSchema
+} = require('../validation/schemas.js');
+
+const {
+  findBookingDetailForAdmin
+} = require('../models/bookingsAdmin.model.js');
+
+const {
+  listAgenciesByRmIds
+} = require('../models/agencies.model.js');
 
 const router = Router();
 
@@ -59,4 +81,4 @@ router.post('/:id/travelers/:travelerId/visa-copy', scopeToOwnAgencyBooking, upl
 router.get('/:id/voucher/download', scopeToOwnAgencyBooking, documentsAdminController.downloadVoucher);
 router.post('/:id/voucher', scopeToOwnAgencyBooking, upload.single('voucher'), documentsAdminController.uploadVoucher);
 
-export default router;
+module.exports = router;

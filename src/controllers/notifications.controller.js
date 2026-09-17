@@ -1,7 +1,6 @@
-import * as notificationService from '../services/notification.service.js';
+const notificationService = require('../services/notification.service.js');
 
-// GET /api/notifications?unread=true&limit=&offset=
-export async function list(req, res, next) {
+async function list(req, res, next) {
   try {
     const { unread, limit, offset } = req.query;
     const notifications = await notificationService.getNotifications(req.user.id, {
@@ -15,8 +14,9 @@ export async function list(req, res, next) {
   }
 }
 
-// GET /api/notifications/unread-count
-export async function unreadCount(req, res, next) {
+module.exports.list = list;
+
+async function unreadCount(req, res, next) {
   try {
     const count = await notificationService.getUnreadCount(req.user.id);
     res.json({ count });
@@ -25,8 +25,9 @@ export async function unreadCount(req, res, next) {
   }
 }
 
-// PATCH /api/notifications/:id/read
-export async function markRead(req, res, next) {
+module.exports.unreadCount = unreadCount;
+
+async function markRead(req, res, next) {
   try {
     const notification = await notificationService.markAsRead(req.params.id, req.user.id);
     if (!notification) return res.status(404).json({ error: 'not_found' });
@@ -36,8 +37,9 @@ export async function markRead(req, res, next) {
   }
 }
 
-// PATCH /api/notifications/read-all
-export async function markAllRead(req, res, next) {
+module.exports.markRead = markRead;
+
+async function markAllRead(req, res, next) {
   try {
     const updated = await notificationService.markAllAsRead(req.user.id);
     res.json({ updated });
@@ -45,3 +47,5 @@ export async function markAllRead(req, res, next) {
     next(err);
   }
 }
+
+module.exports.markAllRead = markAllRead;

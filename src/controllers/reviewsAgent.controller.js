@@ -1,11 +1,14 @@
-import {
+const {
   findEligibleBookingsForAgency,
   findBookingForReview,
   findReviewByBookingId,
   createReview,
-  incrementDismissCount,
-} from '../models/reviews.model.js';
-import { insertAuditLog } from '../models/auditLogs.model.js';
+  incrementDismissCount
+} = require('../models/reviews.model.js');
+
+const {
+  insertAuditLog
+} = require('../models/auditLogs.model.js');
 
 // Agent Review & Rating Popup (Task 20 — Screen 32, REV-1..4). Mounted
 // partly on the existing bookings.routes.js router (booking-scoped actions:
@@ -31,10 +34,7 @@ function toPublicPrompt(row) {
   };
 }
 
-// GET /api/reviews/pending-prompt — doc rule 76, checked "on every agent
-// login" (the frontend calls this once per portal bootstrap, see
-// AgentLayout.jsx's own ReviewPromptGate).
-export async function listPendingPrompts(req, res, next) {
+async function listPendingPrompts(req, res, next) {
   try {
     const rows = await findEligibleBookingsForAgency(req.user.agency_id);
     res.json({ prompts: rows.map(toPublicPrompt) });
@@ -43,16 +43,9 @@ export async function listPendingPrompts(req, res, next) {
   }
 }
 
-// POST /api/bookings/:id/review — REV-2. Server re-verifies
-// everything the task explicitly asked for: ownership, that the departure
-// actually belongs to this booking (via the JOIN in findBookingForReview,
-// never trusting a client-supplied fd_package_id), that travel dates have
-// actually passed, and that no review already exists (both an explicit
-// check here for a clean error message, and the reviews.booking_id UNIQUE
-// constraint as the real, race-safe backstop — errorHandler.js already
-// maps a 23505 to a generic 409, so a race between two requests can never
-// create two review rows for the same booking).
-export async function submitReview(req, res, next) {
+module.exports.listPendingPrompts = listPendingPrompts;
+
+async function submitReview(req, res, next) {
   try {
     const booking = await findBookingForReview(req.params.id, req.user.agency_id);
     if (!booking) return res.status(404).json({ error: 'not_found' });
@@ -108,13 +101,9 @@ export async function submitReview(req, res, next) {
   }
 }
 
-// POST /api/bookings/:id/dismiss-review-prompt — increments the counter;
-// eligibility (findEligibleBookingsForAgency) excludes anything >= 2, so a
-// second dismissal permanently stops the popup for that booking. Not
-// audit-logged — a transient UI dismissal isn't the kind of durable
-// state-change event audit_logs is used for elsewhere in this codebase
-// (unlike the review submission above, which is a real, permanent record).
-export async function dismissReviewPrompt(req, res, next) {
+module.exports.submitReview = submitReview;
+
+async function dismissReviewPrompt(req, res, next) {
   try {
     const updated = await incrementDismissCount(req.params.id, req.user.agency_id);
     if (!updated) return res.status(404).json({ error: 'not_found' });
@@ -124,3 +113,5 @@ export async function dismissReviewPrompt(req, res, next) {
     next(err);
   }
 }
+
+module.exports.dismissReviewPrompt = dismissReviewPrompt;

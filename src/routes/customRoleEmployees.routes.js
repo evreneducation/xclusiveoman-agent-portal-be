@@ -1,7 +1,18 @@
-import { Router } from 'express';
-import * as customRoleEmployeesController from '../controllers/customRoleEmployees.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { validateBody, createCustomRoleEmployeeSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const customRoleEmployeesController = require('../controllers/customRoleEmployees.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  createCustomRoleEmployeeSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -11,4 +22,4 @@ router.use(requireAuth, requireRole('super_admin'));
 
 router.post('/', validateBody(createCustomRoleEmployeeSchema), customRoleEmployeesController.create);
 
-export default router;
+module.exports = router;

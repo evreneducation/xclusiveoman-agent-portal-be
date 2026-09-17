@@ -1,22 +1,28 @@
-import { pool } from '../db/pool.js';
-import { findBookingById } from '../models/bookings.model.js';
-import { insertTransaction } from '../models/payments.model.js';
-import { findUserById } from '../models/users.model.js';
-import { sendEmail } from './email.service.js';
-import { getIo } from '../sockets/index.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-/**
- * Shared by every "money landed" path — Cashfree webhook success and NEFT
- * admin-approve alike (doc §13/§14: booking:status_changed + notification:new,
- * receipt email). Later sprints' FIT/MICE accept-and-pay flows reuse this too.
- *
- * Idempotent: callers only reach here after markPaymentConfirmed() atomically
- * flipped the payment to 'confirmed' (so a re-delivered webhook is filtered
- * out upstream), and the transactions(payment_id) unique index is the final
- * net — the transaction INSERT runs first, so a duplicate trips 23505 and the
- * booking is never credited twice / no duplicate email + socket effects fire.
- */
-export async function confirmPayment(payment) {
+const {
+  findBookingById
+} = require('../models/bookings.model.js');
+
+const {
+  insertTransaction
+} = require('../models/payments.model.js');
+
+const {
+  findUserById
+} = require('../models/users.model.js');
+
+const {
+  sendEmail
+} = require('./email.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+async function confirmPayment(payment) {
   const booking = await findBookingById(payment.booking_id);
   if (!booking) return;
 
@@ -80,3 +86,5 @@ export async function confirmPayment(payment) {
     body: `₹${payment.amount} received — booking ${status === 'fully_paid' ? 'fully paid' : 'balance due'}.`,
   });
 }
+
+module.exports.confirmPayment = confirmPayment;

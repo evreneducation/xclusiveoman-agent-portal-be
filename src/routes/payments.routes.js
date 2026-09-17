@@ -1,9 +1,25 @@
-import { Router } from 'express';
-import * as paymentsController from '../controllers/payments.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
-import { validateBody } from '../validation/schemas.js';
-import { z } from 'zod';
+const {
+  Router
+} = require('express');
+
+const paymentsController = require('../controllers/payments.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  upload
+} = require('../middleware/upload.js');
+
+const {
+  validateBody
+} = require('../validation/schemas.js');
+
+const {
+  z
+} = require('zod');
 
 const createOrderSchema = z.object({
   bookingId: z.string().uuid(),
@@ -26,10 +42,9 @@ router.get('/:id', paymentsController.getPaymentStatus);
 router.post('/:id/abort', paymentsController.abortPayment);
 router.post('/:bookingId/neft-slip', upload.single('slip'), paymentsController.uploadNeftSlip);
 
-export default router;
-
-// Admin-facing (finance/ops_admin+), mounted at /api/admin from routes/index.js.
-export const adminPaymentsRouter = Router();
+module.exports = router;
+const adminPaymentsRouter = Router();
+module.exports.adminPaymentsRouter = adminPaymentsRouter;
 adminPaymentsRouter.use(requireAuth, requireRole('finance', 'ops_admin', 'super_admin'));
 
 adminPaymentsRouter.get('/neft-verifications', paymentsController.getNeftPending);

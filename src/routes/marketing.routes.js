@@ -1,12 +1,20 @@
-import { Router } from 'express';
-import * as marketingController from '../controllers/marketing.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import {
+const {
+  Router
+} = require('express');
+
+const marketingController = require('../controllers/marketing.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
   validateBody,
   createMarketingCampaignSchema,
   scheduleMarketingCampaignSchema,
-  sendMarketingTestSchema,
-} from '../validation/schemas.js';
+  sendMarketingTestSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -34,4 +42,4 @@ router.get('/campaigns/:id/recipients', marketingController.listCampaignRecipien
 router.get('/channels', marketingController.getChannels);
 router.post('/channels/:provider/test-connection', marketingController.testChannelConnection);
 
-export default router;
+module.exports = router;

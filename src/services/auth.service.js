@@ -1,7 +1,10 @@
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import crypto from 'node:crypto';
-import { env } from '../config/env.js';
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const crypto = require('node:crypto');
+
+const {
+  env
+} = require('../config/env.js');
 
 // Agent/Team still sign in exclusively via email OTP (generateNumericOtp
 // below) — no password anywhere for them, same as when users.password_hash
@@ -12,14 +15,18 @@ import { env } from '../config/env.js';
 // adminLogin and scripts/seedAdminPasswords.js use to write/check it.
 const BCRYPT_ROUNDS = 10;
 
-export function hashPassword(plain) {
+function hashPassword(plain) {
   return bcrypt.hash(plain, BCRYPT_ROUNDS);
 }
 
-export function comparePassword(plain, hash) {
+module.exports.hashPassword = hashPassword;
+
+function comparePassword(plain, hash) {
   if (!hash) return Promise.resolve(false);
   return bcrypt.compare(plain, hash);
 }
+
+module.exports.comparePassword = comparePassword;
 
 function baseClaims(user) {
   return {
@@ -29,25 +36,33 @@ function baseClaims(user) {
   };
 }
 
-export function signAccessToken(user) {
+function signAccessToken(user) {
   return jwt.sign(baseClaims(user), env.jwtAccessSecret, {
     expiresIn: env.jwtAccessExpiresIn,
   });
 }
 
-export function signRefreshToken(user) {
+module.exports.signAccessToken = signAccessToken;
+
+function signRefreshToken(user) {
   return jwt.sign(baseClaims(user), env.jwtRefreshSecret, {
     expiresIn: env.jwtRefreshExpiresIn,
   });
 }
 
-export function verifyAccessToken(token) {
+module.exports.signRefreshToken = signRefreshToken;
+
+function verifyAccessToken(token) {
   return jwt.verify(token, env.jwtAccessSecret);
 }
 
-export function verifyRefreshToken(token) {
+module.exports.verifyAccessToken = verifyAccessToken;
+
+function verifyRefreshToken(token) {
   return jwt.verify(token, env.jwtRefreshSecret);
 }
+
+module.exports.verifyRefreshToken = verifyRefreshToken;
 
 // Itinerary PDF rendering — a normal access token can't be used here: it's
 // long-lived (15m) and grants full API access, which is far more than a
@@ -62,7 +77,7 @@ export function verifyRefreshToken(token) {
 const ITINERARY_PDF_TOKEN_PURPOSE = 'itinerary_pdf';
 const ITINERARY_PDF_TOKEN_EXPIRES_IN = '2m';
 
-export function signItineraryPdfToken({ userId, packageRequestId }) {
+function signItineraryPdfToken({ userId, packageRequestId }) {
   return jwt.sign(
     { sub: userId, packageRequestId, purpose: ITINERARY_PDF_TOKEN_PURPOSE },
     env.jwtAccessSecret,
@@ -70,13 +85,17 @@ export function signItineraryPdfToken({ userId, packageRequestId }) {
   );
 }
 
-export function verifyItineraryPdfToken(token) {
+module.exports.signItineraryPdfToken = signItineraryPdfToken;
+
+function verifyItineraryPdfToken(token) {
   const claims = jwt.verify(token, env.jwtAccessSecret);
   if (claims.purpose !== ITINERARY_PDF_TOKEN_PURPOSE) {
     throw new Error('Not an itinerary PDF token');
   }
   return claims;
 }
+
+module.exports.verifyItineraryPdfToken = verifyItineraryPdfToken;
 
 // Same narrow-purpose-token pattern as signItineraryPdfToken above, for FD
 // departure itineraries (DepartureDetail.jsx's "Download Itinerary") instead
@@ -86,7 +105,7 @@ export function verifyItineraryPdfToken(token) {
 const FD_ITINERARY_PDF_TOKEN_PURPOSE = 'fd_itinerary_pdf';
 const FD_ITINERARY_PDF_TOKEN_EXPIRES_IN = '2m';
 
-export function signFdItineraryPdfToken({ userId, departureId }) {
+function signFdItineraryPdfToken({ userId, departureId }) {
   return jwt.sign(
     { sub: userId, departureId, purpose: FD_ITINERARY_PDF_TOKEN_PURPOSE },
     env.jwtAccessSecret,
@@ -94,13 +113,17 @@ export function signFdItineraryPdfToken({ userId, departureId }) {
   );
 }
 
-export function verifyFdItineraryPdfToken(token) {
+module.exports.signFdItineraryPdfToken = signFdItineraryPdfToken;
+
+function verifyFdItineraryPdfToken(token) {
   const claims = jwt.verify(token, env.jwtAccessSecret);
   if (claims.purpose !== FD_ITINERARY_PDF_TOKEN_PURPOSE) {
     throw new Error('Not an FD itinerary PDF token');
   }
   return claims;
 }
+
+module.exports.verifyFdItineraryPdfToken = verifyFdItineraryPdfToken;
 
 // Admin console 2FA — the bridge between the two login steps. When 2FA is
 // on, verify-otp doesn't issue a session; it hands back one of these
@@ -113,13 +136,15 @@ export function verifyFdItineraryPdfToken(token) {
 const ADMIN_MFA_TOKEN_PURPOSE = 'admin_mfa';
 const ADMIN_MFA_TOKEN_EXPIRES_IN = '10m';
 
-export function signAdminMfaToken({ userId }) {
+function signAdminMfaToken({ userId }) {
   return jwt.sign({ sub: userId, purpose: ADMIN_MFA_TOKEN_PURPOSE }, env.jwtAccessSecret, {
     expiresIn: ADMIN_MFA_TOKEN_EXPIRES_IN,
   });
 }
 
-export function verifyAdminMfaToken(token) {
+module.exports.signAdminMfaToken = signAdminMfaToken;
+
+function verifyAdminMfaToken(token) {
   const claims = jwt.verify(token, env.jwtAccessSecret);
   if (claims.purpose !== ADMIN_MFA_TOKEN_PURPOSE) {
     throw new Error('Not an admin MFA token');
@@ -127,19 +152,16 @@ export function verifyAdminMfaToken(token) {
   return claims;
 }
 
-// Still used by the OTP flow below (hashes the 6-digit code before storing
-// it) — generateRawToken (the old forgot-password reset-token generator)
-// was removed since nothing calls it anymore.
-export function hashRawToken(raw) {
+module.exports.verifyAdminMfaToken = verifyAdminMfaToken;
+
+function hashRawToken(raw) {
   return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
-// Email OTP login — a 6-digit numeric code, the standard/expected format
-// for an emailed sign-in code. crypto.randomInt (not Math.random) for the
-// same reason every other token in this file uses the `crypto` module —
-// this gates real authentication, not a cosmetic feature. Zero-padded so
-// e.g. 42 always reads as "000042", never a variable-length "42" that looks
-// broken in the email/UI.
-export function generateNumericOtp() {
+module.exports.hashRawToken = hashRawToken;
+
+function generateNumericOtp() {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
 }
+
+module.exports.generateNumericOtp = generateNumericOtp;

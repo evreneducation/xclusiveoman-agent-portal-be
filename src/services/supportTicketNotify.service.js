@@ -1,7 +1,18 @@
-import { createNotification } from './notification.service.js';
-import { sendEmail } from './email.service.js';
-import { getIo } from '../sockets/index.js';
-import { findUserById } from '../models/users.model.js';
+const {
+  createNotification
+} = require('./notification.service.js');
+
+const {
+  sendEmail
+} = require('./email.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
+  findUserById
+} = require('../models/users.model.js');
 
 // Admin Support & Helpdesk (Task 18) — SUP-3 "Both sides can reply; triggers
 // a notification to the other side", §14.5 "Support ticket reply -> Yes
@@ -47,9 +58,7 @@ async function notifyBestEffort({ recipientUserId, type, title, message, referen
   }
 }
 
-// Agent replied -> ping the staff room live, and (if assigned) persist +
-// email the assigned staff member specifically.
-export async function notifyStaffOfReply(ticket, { senderName, messagePreview }) {
+async function notifyStaffOfReply(ticket, { senderName, messagePreview }) {
   try {
     getIo()?.to('staff').emit('ticket:new_message', { ticketId: ticket.id, subject: ticket.subject, from: 'agency' });
     await notifyBestEffort({
@@ -64,9 +73,9 @@ export async function notifyStaffOfReply(ticket, { senderName, messagePreview })
   }
 }
 
-// Staff replied -> ping the agency room live, and persist + email the
-// ticket's own creator (always exists, unlike an assignee).
-export async function notifyAgencyOfReply(ticket, { senderName, messagePreview }) {
+module.exports.notifyStaffOfReply = notifyStaffOfReply;
+
+async function notifyAgencyOfReply(ticket, { senderName, messagePreview }) {
   try {
     getIo()?.to(`agency:${ticket.agency_id}`).emit('ticket:new_message', { ticketId: ticket.id, subject: ticket.subject, from: 'staff' });
     await notifyBestEffort({
@@ -80,3 +89,5 @@ export async function notifyAgencyOfReply(ticket, { senderName, messagePreview }
     console.error(`[supportTicketNotify] Failed to notify agency for ticket ${ticket.id}`, err);
   }
 }
+
+module.exports.notifyAgencyOfReply = notifyAgencyOfReply;

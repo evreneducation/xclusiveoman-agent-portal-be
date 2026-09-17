@@ -1,7 +1,14 @@
-import puppeteer from 'puppeteer';
-import sparticuzChromium from '@sparticuz/chromium';
-import { env } from '../config/env.js';
-import { signItineraryPdfToken, signFdItineraryPdfToken } from './auth.service.js';
+const puppeteer = require('puppeteer');
+const sparticuzChromium = require('@sparticuz/chromium');
+
+const {
+  env
+} = require('../config/env.js');
+
+const {
+  signItineraryPdfToken,
+  signFdItineraryPdfToken
+} = require('./auth.service.js');
 
 // Server-side itinerary PDF generation — renders the *actual* agent frontend
 // (agent/pages/ItineraryPrint.jsx, which wraps the existing
@@ -127,15 +134,7 @@ const RENDER_TIMEOUT_MS = Number(process.env.PDF_RENDER_TIMEOUT_MS) || 60000;
 // once its data fetch + React render + image decode are all done.
 const GOTO_WAIT_UNTIL = 'domcontentloaded';
 
-/**
- * Renders agent/pages/ItineraryPrint.jsx for one package request and returns
- * the resulting PDF as a Buffer. `userId` is embedded in the short-lived
- * pdfToken the print page uses to authenticate its own data fetch (see
- * requirePdfToken/itineraryPdfData.controller.js) — the caller
- * (downloadItineraryPdf) has already verified that user may access this
- * packageRequestId before calling this.
- */
-export async function generateItineraryPdf({ packageRequestId, userId }) {
+async function generateItineraryPdf({ packageRequestId, userId }) {
   const pdfToken = signItineraryPdfToken({ userId, packageRequestId });
   const printUrl = `${env.agentPortalUrl}/itinerary/${packageRequestId}/print?pdfToken=${encodeURIComponent(pdfToken)}`;
 
@@ -177,19 +176,9 @@ export async function generateItineraryPdf({ packageRequestId, userId }) {
   }
 }
 
-/**
- * Same flow as generateItineraryPdf above, for one FD package's departure
- * itinerary (DepartureDetail.jsx's "Download Itinerary" button) instead of a
- * Custom FIT package_request — renders agent/pages/DepartureItineraryPrint.jsx
- * (which wraps agent/components/FdItineraryDocument.jsx unchanged), sharing
- * this same Chromium instance rather than launching a second one. `userId` is
- * embedded in the short-lived FD pdfToken the print page uses to
- * authenticate its own data fetch (see requireFdPdfToken/
- * departures.controller.js#getDepartureDataForPdf) — the caller
- * (downloadDepartureItineraryPdf) has already verified this departure is
- * published/exists before calling this.
- */
-export async function generateFdItineraryPdf({ departureId, userId }) {
+module.exports.generateItineraryPdf = generateItineraryPdf;
+
+async function generateFdItineraryPdf({ departureId, userId }) {
   const pdfToken = signFdItineraryPdfToken({ userId, departureId });
   const printUrl = `${env.agentPortalUrl}/departures/${departureId}/print?pdfToken=${encodeURIComponent(pdfToken)}`;
 
@@ -223,3 +212,5 @@ export async function generateFdItineraryPdf({ departureId, userId }) {
     await page.close().catch(() => {});
   }
 }
+
+module.exports.generateFdItineraryPdf = generateFdItineraryPdf;

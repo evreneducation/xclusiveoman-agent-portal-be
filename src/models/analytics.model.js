@@ -1,4 +1,6 @@
-import { pool } from '../db/pool.js';
+const {
+  pool
+} = require('../db/pool.js');
 
 // Admin Analytics & Reporting (Task 19 — Screen 18, ANL-1). FD-only, same
 // scoping every prior admin feature in this codebase has used since Task 13
@@ -66,11 +68,7 @@ function buildDateFilters({ dateFrom, dateTo }) {
   return { clause: clauses.length ? `AND ${clauses.join(' AND ')}` : '', values };
 }
 
-// GET /admin/analytics/summary — KPI cards + sales mix. Only the FD-only,
-// source_type-scoped bookings table is touched (JOIN agencies for country
-// filtering); source_type = 'fd_package' is filtered exactly like every
-// other admin analytics-adjacent query in this codebase.
-export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
+async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
   const dateFilters = buildDateFilters({ dateFrom, dateTo });
   const agencyFilters = buildAgencyFilters({ agencyId, country });
   const values = [...dateFilters.values, ...agencyFilters.values];
@@ -144,22 +142,9 @@ export async function getSummary({ dateFrom, dateTo, agencyId, country } = {}) {
   };
 }
 
-// GET /admin/analytics/revenue-by-month — one row per calendar month in
-// [dateFrom, dateTo], zero-filled so the chart never has a gap for a month
-// with no bookings.
-//
-// The original Postgres version built the zero-filled month list entirely
-// in SQL via `generate_series(...)` LEFT JOINed against a `date_trunc`'d
-// aggregate. MySQL has no `generate_series` and no direct equivalent
-// (a recursive CTE or calendar table are the usual workarounds, but both
-// add real complexity for a bounded, small number of months). This is a
-// deliberate deviation from the original "not a JS loop patching gaps" design
-// intent: revenue is now aggregated in SQL (still never fetching individual
-// bookings), grouped by month via DATE_FORMAT, and the zero-fill across the
-// [dateFrom, dateTo] range is done in JS by walking month-by-month and
-// merging with a Map — there is no portable MySQL equivalent to
-// generate_series that doesn't add more risk than this simple merge.
-export async function getRevenueByMonth({ dateFrom, dateTo, agencyId, country }) {
+module.exports.getSummary = getSummary;
+
+async function getRevenueByMonth({ dateFrom, dateTo, agencyId, country }) {
   const agencyFilters = buildAgencyFilters({ agencyId, country });
   const values = [dateFrom, dateTo, ...agencyFilters.values];
 
@@ -209,10 +194,9 @@ export async function getRevenueByMonth({ dateFrom, dateTo, agencyId, country })
   return months;
 }
 
-// GET /admin/analytics/top-agencies — ranked by recognized revenue, ties
-// broken by booking count. SQL-side ORDER BY + LIMIT/OFFSET — never fetch
-// every agency and sort in JS.
-export async function getTopAgencies({ dateFrom, dateTo, agencyId, country, page, pageSize } = {}) {
+module.exports.getRevenueByMonth = getRevenueByMonth;
+
+async function getTopAgencies({ dateFrom, dateTo, agencyId, country, page, pageSize } = {}) {
   const dateFilters = buildDateFilters({ dateFrom, dateTo });
   const agencyFilters = buildAgencyFilters({ agencyId, country });
   const values = [...dateFilters.values, ...agencyFilters.values];
@@ -260,3 +244,5 @@ export async function getTopAgencies({ dateFrom, dateTo, agencyId, country, page
     pageSize: limit,
   };
 }
+
+module.exports.getTopAgencies = getTopAgencies;

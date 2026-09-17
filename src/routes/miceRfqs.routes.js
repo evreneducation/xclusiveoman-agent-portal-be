@@ -1,7 +1,20 @@
-import { Router } from 'express';
-import * as miceRfqsController from '../controllers/miceRfqs.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { validateBody, createMiceRfqSchema, draftMiceRfqSchema, respondMiceRfqSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const miceRfqsController = require('../controllers/miceRfqs.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  validateBody,
+  createMiceRfqSchema,
+  draftMiceRfqSchema,
+  respondMiceRfqSchema
+} = require('../validation/schemas.js');
 
 const router = Router();
 
@@ -23,4 +36,4 @@ router.post('/:id/submit', validateBody(createMiceRfqSchema), miceRfqsController
 // Agent Actions on a Published proposal (item 5).
 router.post('/:id/respond', validateBody(respondMiceRfqSchema), miceRfqsController.respond);
 
-export default router;
+module.exports = router;

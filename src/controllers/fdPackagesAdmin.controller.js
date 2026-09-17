@@ -1,4 +1,4 @@
-import {
+const {
   listAllFdPackagesForAdmin,
   findFdPackageById,
   createFdPackage,
@@ -14,12 +14,28 @@ import {
   removeDepartureDate,
   listAddons,
   addAddon,
-  removeAddon,
-} from '../models/fdPackages.model.js';
-import { activitiesModel, toursModel, transfersModel, flightsModel, mealsModel } from '../models/catalog.model.js';
-import { parseDurationDays } from '../utils/meals.js';
-import { toSnakeCaseColumns } from '../validation/schemas.js';
-import { uploadBuffer } from '../services/cloudinary.service.js';
+  removeAddon
+} = require('../models/fdPackages.model.js');
+
+const {
+  activitiesModel,
+  toursModel,
+  transfersModel,
+  flightsModel,
+  mealsModel
+} = require('../models/catalog.model.js');
+
+const {
+  parseDurationDays
+} = require('../utils/meals.js');
+
+const {
+  toSnakeCaseColumns
+} = require('../validation/schemas.js');
+
+const {
+  uploadBuffer
+} = require('../services/cloudinary.service.js');
 
 // Postgres NUMERIC columns come back from `pg` as strings (to avoid silent
 // float precision loss), not JS numbers. Left unconverted, those strings flow
@@ -148,17 +164,7 @@ function toPublicPackage(fdPackage, ratePerPax, hotelName) {
   };
 }
 
-// GET /api/admin/fd-packages?search=&page=&pageSize=
-// `search` (Product Catalog's FD Packages table) is a free-text match over
-// title/theme/hotel name, applied in JS same as every other admin list's
-// search (admin.controller.js#getAgencies, relationshipManagers.controller.js
-// #list). `page`/`pageSize` pagination is opt-in (only applied when either is
-// present) — every other existing caller of this same endpoint
-// (FdPackageEditor.jsx's own related-package lookups, Team Portal's
-// Catalog.jsx, ManualBookingWizard.jsx's package picker) calls it with
-// neither and still gets back the full list unchanged, so none of them
-// silently truncate to a page of 10.
-export async function list(req, res, next) {
+async function list(req, res, next) {
   try {
     res.set('Cache-Control', 'no-store');
     const [rows, pools] = await Promise.all([listAllFdPackagesForAdmin(), loadCatalogPools()]);
@@ -193,7 +199,9 @@ export async function list(req, res, next) {
   }
 }
 
-export async function get(req, res, next) {
+module.exports.list = list;
+
+async function get(req, res, next) {
   try {
     const fdPackage = await findFdPackageById(req.params.id);
     if (!fdPackage) return res.status(404).json({ error: 'not_found' });
@@ -240,7 +248,9 @@ export async function get(req, res, next) {
   }
 }
 
-export async function create(req, res, next) {
+module.exports.get = get;
+
+async function create(req, res, next) {
   try {
     const message =
       carouselImagesError(req.body.images, req.body.status) ||
@@ -256,7 +266,9 @@ export async function create(req, res, next) {
   }
 }
 
-export async function update(req, res, next) {
+module.exports.create = create;
+
+async function update(req, res, next) {
   try {
     const existing = await findFdPackageById(req.params.id);
     if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -286,7 +298,9 @@ export async function update(req, res, next) {
   }
 }
 
-export async function remove(req, res, next) {
+module.exports.update = update;
+
+async function remove(req, res, next) {
   try {
     const existing = await findFdPackageById(req.params.id);
     if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -297,8 +311,9 @@ export async function remove(req, res, next) {
   }
 }
 
-// POST /api/admin/fd-packages/:id/hero-image — multipart, requires the image file at req.file.
-export async function uploadHeroImage(req, res, next) {
+module.exports.remove = remove;
+
+async function uploadHeroImage(req, res, next) {
   try {
     const { id } = req.params;
     const existing = await findFdPackageById(id);
@@ -319,8 +334,9 @@ export async function uploadHeroImage(req, res, next) {
   }
 }
 
-// POST /api/admin/fd-packages/:id/images — multipart, one or more files at req.files (field 'images').
-export async function uploadImages(req, res, next) {
+module.exports.uploadHeroImage = uploadHeroImage;
+
+async function uploadImages(req, res, next) {
   try {
     const { id } = req.params;
     const existing = await findFdPackageById(id);
@@ -342,8 +358,9 @@ export async function uploadImages(req, res, next) {
   }
 }
 
-// DELETE /api/admin/fd-packages/:id/images/:url — :url is encodeURIComponent'd by the caller.
-export async function deleteImage(req, res, next) {
+module.exports.uploadImages = uploadImages;
+
+async function deleteImage(req, res, next) {
   try {
     const { id } = req.params;
     const url = decodeURIComponent(req.params.url);
@@ -358,7 +375,9 @@ export async function deleteImage(req, res, next) {
   }
 }
 
-export async function putItinerary(req, res, next) {
+module.exports.deleteImage = deleteImage;
+
+async function putItinerary(req, res, next) {
   try {
     const [{ days, items }, pools] = await Promise.all([
       replaceItinerary(req.params.id, req.body.days),
@@ -373,7 +392,9 @@ export async function putItinerary(req, res, next) {
   }
 }
 
-export async function postDepartureDate(req, res, next) {
+module.exports.putItinerary = putItinerary;
+
+async function postDepartureDate(req, res, next) {
   try {
     const date = await addDepartureDate(req.params.id, req.body);
     res.status(201).json({ departureDate: date });
@@ -382,7 +403,9 @@ export async function postDepartureDate(req, res, next) {
   }
 }
 
-export async function deleteDepartureDate(req, res, next) {
+module.exports.postDepartureDate = postDepartureDate;
+
+async function deleteDepartureDate(req, res, next) {
   try {
     await removeDepartureDate(req.params.dateId);
     res.status(204).send();
@@ -390,6 +413,8 @@ export async function deleteDepartureDate(req, res, next) {
     next(err);
   }
 }
+
+module.exports.deleteDepartureDate = deleteDepartureDate;
 
 // Task 5 — admin picks a real catalog item by checkbox; its price is read
 // straight off that catalog entry here (never admin-typed) so it can never
@@ -428,7 +453,7 @@ async function resolveAddonPriceAndName({ activityId, tourId, transferId, flight
   return { pricePerPax: Number(row.price || 0), name: row.name };
 }
 
-export async function postAddon(req, res, next) {
+async function postAddon(req, res, next) {
   try {
     const { activityId, tourId, transferId, flightId, mealId } = req.body;
     let durationDays = null;
@@ -470,7 +495,9 @@ export async function postAddon(req, res, next) {
   }
 }
 
-export async function deleteAddon(req, res, next) {
+module.exports.postAddon = postAddon;
+
+async function deleteAddon(req, res, next) {
   try {
     await removeAddon(req.params.addonId);
     res.status(204).send();
@@ -478,3 +505,5 @@ export async function deleteAddon(req, res, next) {
     next(err);
   }
 }
+
+module.exports.deleteAddon = deleteAddon;

@@ -1,5 +1,8 @@
-import { env } from '../config/env.js';
-import {
+const {
+  env
+} = require('../config/env.js');
+
+const {
   listFdPackages,
   findFdPackageById,
   listItineraryForPackage,
@@ -10,14 +13,32 @@ import {
   loadCatalogPools,
   listDepartureDates,
   findDepartureDateById,
-  listAddons,
-} from '../models/fdPackages.model.js';
-import { findAgencyById } from '../models/agencies.model.js';
-import { siteTermsModel } from '../models/siteTerms.model.js';
-import { buildWhatsAppLink } from '../utils/whatsapp.js';
-import { getIo } from '../sockets/index.js';
-import { createFdBooking } from '../services/booking.service.js';
-import { generateFdItineraryPdf } from '../services/itineraryPdf.service.js';
+  listAddons
+} = require('../models/fdPackages.model.js');
+
+const {
+  findAgencyById
+} = require('../models/agencies.model.js');
+
+const {
+  siteTermsModel
+} = require('../models/siteTerms.model.js');
+
+const {
+  buildWhatsAppLink
+} = require('../utils/whatsapp.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
+
+const {
+  createFdBooking
+} = require('../services/booking.service.js');
+
+const {
+  generateFdItineraryPdf
+} = require('../services/itineraryPdf.service.js');
 
 // ratePerPax is fdPackage.rate_per_pax (an admin override) when set, else the
 // sum of the package's day-by-day itinerary (see resolveRatePerPax) — the
@@ -59,8 +80,7 @@ function toPublicPackage(fdPackage, ratePerPax, hotel) {
   };
 }
 
-// GET /api/departures?destination=&date_from=&theme=&featured=&bestseller=
-export async function listDepartures(req, res, next) {
+async function listDepartures(req, res, next) {
   try {
     const [packages, pools] = await Promise.all([
       listFdPackages({
@@ -104,6 +124,8 @@ export async function listDepartures(req, res, next) {
     next(err);
   }
 }
+
+module.exports.listDepartures = listDepartures;
 
 // Builds the full agent-facing departure detail object — shared by the
 // normal authenticated GET below and getDepartureDataForPdf (the Puppeteer-
@@ -200,8 +222,7 @@ async function buildDepartureDetail(fdPackage) {
   };
 }
 
-// GET /api/departures/:id — resolves net rate (from the itinerary) + itinerary/add-ons for the caller.
-export async function getDeparture(req, res, next) {
+async function getDeparture(req, res, next) {
   try {
     const fdPackage = await findFdPackageById(req.params.id);
     if (!fdPackage || fdPackage.status !== 'published') {
@@ -214,15 +235,9 @@ export async function getDeparture(req, res, next) {
   }
 }
 
-// GET /api/fd-itinerary-pdf/:id/data — the Puppeteer-rendered print page's
-// own data fetch (agent/pages/DepartureItineraryPrint.jsx), gated by
-// requireFdPdfToken instead of a login session (see fdItineraryPdfData.
-// routes.js and itineraryPdf.service.js#generateFdItineraryPdf for the full
-// flow). Re-checks the token's departureId against req.params.id itself —
-// same "don't trust the token's claims alone" posture requireAuth takes by
-// re-fetching the user from the DB — even though the token is already
-// scoped to exactly one departure.
-export async function getDepartureDataForPdf(req, res, next) {
+module.exports.getDeparture = getDeparture;
+
+async function getDepartureDataForPdf(req, res, next) {
   try {
     const { id } = req.params;
     if (req.fdPdfClaims.departureId !== id) {
@@ -240,13 +255,9 @@ export async function getDepartureDataForPdf(req, res, next) {
   }
 }
 
-// GET /api/departures/:id/itinerary.pdf — DepartureDetail.jsx's "Download
-// Itinerary" button (see itineraryPdf.service.js#generateFdItineraryPdf for
-// the full render pipeline). No agency-ownership check needed here, unlike
-// package_requests' own downloadItineraryPdf — a published FD departure is
-// public-to-every-agent info already (same gate getDeparture above uses),
-// not a private per-agency quote.
-export async function downloadDepartureItineraryPdf(req, res, next) {
+module.exports.getDepartureDataForPdf = getDepartureDataForPdf;
+
+async function downloadDepartureItineraryPdf(req, res, next) {
   try {
     const { id } = req.params;
     const fdPackage = await findFdPackageById(id);
@@ -285,15 +296,9 @@ export async function downloadDepartureItineraryPdf(req, res, next) {
   }
 }
 
-// POST /api/departures/:id/bookings — FGD-5, FGD-6, FGD-9; re-validates price server-side (rule 67).
-// The actual transaction (pricing, atomic seat allocation, booking/traveler/
-// addon inserts) now lives in services/booking.service.js#createFdBooking
-// (Task 13), shared with the Admin Manual Booking flow
-// (bookingsAdmin.controller.js) — this handler's own job is unchanged:
-// resolve+validate the package/departure/agency, then hand off. Behavior
-// here is byte-for-byte the same as before the extraction (no
-// agreedTotalPrice/depositPaid override, createdVia stays 'self_service').
-export async function createBooking(req, res, next) {
+module.exports.downloadDepartureItineraryPdf = downloadDepartureItineraryPdf;
+
+async function createBooking(req, res, next) {
   try {
     const fdPackage = await findFdPackageById(req.params.id);
     if (!fdPackage || fdPackage.status !== 'published') {
@@ -348,8 +353,9 @@ export async function createBooking(req, res, next) {
   }
 }
 
-// POST /api/departures/:id/enquire — FGD-7: pre-filled WhatsApp deep link, no form/booking created.
-export async function enquireNow(req, res, next) {
+module.exports.createBooking = createBooking;
+
+async function enquireNow(req, res, next) {
   try {
     const fdPackage = await findFdPackageById(req.params.id);
     if (!fdPackage) return res.status(404).json({ error: 'not_found' });
@@ -364,3 +370,5 @@ export async function enquireNow(req, res, next) {
     next(err);
   }
 }
+
+module.exports.enquireNow = enquireNow;

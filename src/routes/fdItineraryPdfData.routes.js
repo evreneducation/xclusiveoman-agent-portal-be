@@ -1,6 +1,14 @@
-import { Router } from 'express';
-import { getDepartureDataForPdf } from '../controllers/departures.controller.js';
-import { requireFdPdfToken } from '../middleware/auth.js';
+const {
+  Router
+} = require('express');
+
+const {
+  getDepartureDataForPdf
+} = require('../controllers/departures.controller.js');
+
+const {
+  requireFdPdfToken
+} = require('../middleware/auth.js');
 
 // Same "separate router/mount, separate auth" reasoning as
 // itineraryPdfData.routes.js: departures.routes.js's requireAuth expects a
@@ -14,4 +22,4 @@ const router = Router();
 router.use(requireFdPdfToken);
 router.get('/:id/data', getDepartureDataForPdf);
 
-export default router;
+module.exports = router;

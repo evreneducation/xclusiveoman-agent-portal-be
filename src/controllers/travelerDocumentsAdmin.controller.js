@@ -1,20 +1,46 @@
-import { findBookingDetailForAdmin } from '../models/bookingsAdmin.model.js';
-import {
+const {
+  findBookingDetailForAdmin
+} = require('../models/bookingsAdmin.model.js');
+
+const {
   listTravelersWithDocuments,
   findTravelerInBooking,
   findTravelerDocumentsByTravelerId,
   saveAdminVisaCopy,
   upsertBookingVoucher,
   findVoucherByBookingId,
-  markDocumentsNotified,
-} from '../models/documents.model.js';
-import { listAgencyOwnerEmails } from '../models/users.model.js';
-import { insertAuditLog } from '../models/auditLogs.model.js';
-import { uploadBuffer } from '../services/cloudinary.service.js';
-import { streamDocumentsZip, fetchDocumentBuffer, extFromUrl } from '../services/documentZip.service.js';
-import { createNotification } from '../services/notification.service.js';
-import { sendEmail } from '../services/email.service.js';
-import { getIo } from '../sockets/index.js';
+  markDocumentsNotified
+} = require('../models/documents.model.js');
+
+const {
+  listAgencyOwnerEmails
+} = require('../models/users.model.js');
+
+const {
+  insertAuditLog
+} = require('../models/auditLogs.model.js');
+
+const {
+  uploadBuffer
+} = require('../services/cloudinary.service.js');
+
+const {
+  streamDocumentsZip,
+  fetchDocumentBuffer,
+  extFromUrl
+} = require('../services/documentZip.service.js');
+
+const {
+  createNotification
+} = require('../services/notification.service.js');
+
+const {
+  sendEmail
+} = require('../services/email.service.js');
+
+const {
+  getIo
+} = require('../sockets/index.js');
 
 // Admin Booking & Visa Processing (Task 14 — Screen 23, DOC-2..6). Mounted
 // into the existing bookingsAdmin.routes.js router (same
@@ -65,9 +91,7 @@ async function loadBookingOr404(req, res) {
   return booking;
 }
 
-// GET /api/admin/bookings/:id/documents — DOC-2's "view documents grouped by
-// traveler", plus the booking-level voucher and the current unlock state.
-export async function getDocuments(req, res, next) {
+async function getDocuments(req, res, next) {
   try {
     const booking = await loadBookingOr404(req, res);
     if (!booking) return;
@@ -96,10 +120,9 @@ export async function getDocuments(req, res, next) {
   }
 }
 
-// GET /api/admin/bookings/:id/travelers/:travelerId/documents/:type/download
-// Admin can always download any existing document — no unlock gate applies
-// to admin, only to the agent side (see travelerDocumentsAgent.controller.js).
-export async function downloadTravelerDocument(req, res, next) {
+module.exports.getDocuments = getDocuments;
+
+async function downloadTravelerDocument(req, res, next) {
   try {
     const { id: bookingId, travelerId, type } = req.params;
     const column = DOC_TYPE_COLUMN[type];
@@ -132,8 +155,9 @@ export async function downloadTravelerDocument(req, res, next) {
   }
 }
 
-// GET /api/admin/bookings/:id/voucher/download
-export async function downloadVoucher(req, res, next) {
+module.exports.downloadTravelerDocument = downloadTravelerDocument;
+
+async function downloadVoucher(req, res, next) {
   try {
     const booking = await loadBookingOr404(req, res);
     if (!booking) return;
@@ -158,6 +182,8 @@ export async function downloadVoucher(req, res, next) {
   }
 }
 
+module.exports.downloadVoucher = downloadVoucher;
+
 // Shared by download-all and email-to-supplier — resolves every currently
 // uploaded document for a booking into { path/label, url } entries, using
 // the documented Booking_<id>/Traveler_<n>/... folder convention (Phase 5).
@@ -175,8 +201,7 @@ async function collectDocumentEntries(bookingId) {
   return entries;
 }
 
-// GET /api/admin/bookings/:id/documents/download-all
-export async function downloadAllZip(req, res, next) {
+async function downloadAllZip(req, res, next) {
   try {
     const booking = await loadBookingOr404(req, res);
     if (!booking) return;
@@ -206,12 +231,9 @@ export async function downloadAllZip(req, res, next) {
   }
 }
 
-// POST /api/admin/bookings/:id/documents/email-to-supplier —
-// {to, message, documentRefs: [{type, travelerId?}]} where type is one of
-// passport_scan/passport_photo/visa_copy (with travelerId) or voucher
-// (booking-level, no travelerId). Reuses email.service.js#sendEmail's
-// existing `attachments` support — no second email implementation.
-export async function emailToSupplier(req, res, next) {
+module.exports.downloadAllZip = downloadAllZip;
+
+async function emailToSupplier(req, res, next) {
   try {
     const booking = await loadBookingOr404(req, res);
     if (!booking) return;
@@ -281,6 +303,8 @@ export async function emailToSupplier(req, res, next) {
   }
 }
 
+module.exports.emailToSupplier = emailToSupplier;
+
 // Fires automatically from uploadVisaCopy/uploadVoucher below, replacing the
 // old manual "Notify Agent" button (DOC-6) — every admin-uploaded document is
 // visible/downloadable to the agent the instant it's saved regardless (see
@@ -344,8 +368,7 @@ function emitBookingDocumentsChanged(booking) {
   getIo()?.to(`agency:${booking.agency_id}`).emit('booking:status_changed', { bookingId: booking.id, status: booking.status });
 }
 
-// POST /api/admin/bookings/:id/travelers/:travelerId/visa-copy — DOC-4.
-export async function uploadVisaCopy(req, res, next) {
+async function uploadVisaCopy(req, res, next) {
   try {
     const { id: bookingId, travelerId } = req.params;
     const booking = await loadBookingOr404(req, res);
@@ -381,8 +404,9 @@ export async function uploadVisaCopy(req, res, next) {
   }
 }
 
-// POST /api/admin/bookings/:id/voucher — DOC-5.
-export async function uploadVoucher(req, res, next) {
+module.exports.uploadVisaCopy = uploadVisaCopy;
+
+async function uploadVoucher(req, res, next) {
   try {
     const booking = await loadBookingOr404(req, res);
     if (!booking) return;
@@ -408,3 +432,5 @@ export async function uploadVoucher(req, res, next) {
     next(err);
   }
 }
+
+module.exports.uploadVoucher = uploadVoucher;

@@ -1,6 +1,18 @@
-import { pool } from '../db/pool.js';
-import { findAgencyById, updateAgency } from '../models/agencies.model.js';
-import { createUser, findUserByEmail, listAgencyUsers, toPublicUser } from '../models/users.model.js';
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  findAgencyById,
+  updateAgency
+} = require('../models/agencies.model.js');
+
+const {
+  createUser,
+  findUserByEmail,
+  listAgencyUsers,
+  toPublicUser
+} = require('../models/users.model.js');
 
 function toPublicAgency(agency, rm) {
   return {
@@ -18,8 +30,7 @@ function toPublicAgency(agency, rm) {
   };
 }
 
-// GET /api/agencies/me
-export async function getMyAgency(req, res, next) {
+async function getMyAgency(req, res, next) {
   try {
     const agency = await findAgencyById(req.user.agency_id);
     if (!agency) {
@@ -38,8 +49,9 @@ export async function getMyAgency(req, res, next) {
   }
 }
 
-// PATCH /api/agencies/me — self-service profile edits only (not status/credit).
-export async function patchMyAgency(req, res, next) {
+module.exports.getMyAgency = getMyAgency;
+
+async function patchMyAgency(req, res, next) {
   try {
     const { name, country, logoAssetUrl, currencyPreference } = req.body;
     const agency = await updateAgency(req.user.agency_id, {
@@ -54,8 +66,9 @@ export async function patchMyAgency(req, res, next) {
   }
 }
 
-// POST /api/agencies/me/users — AUTH-4: agency owner creates a scoped sub-user.
-export async function createSubUser(req, res, next) {
+module.exports.patchMyAgency = patchMyAgency;
+
+async function createSubUser(req, res, next) {
   const client = await pool.connect();
   try {
     const { fullName, email, phone, permissions } = req.body;
@@ -82,8 +95,9 @@ export async function createSubUser(req, res, next) {
   }
 }
 
-// GET /api/agencies/me/users
-export async function listMySubUsers(req, res, next) {
+module.exports.createSubUser = createSubUser;
+
+async function listMySubUsers(req, res, next) {
   try {
     const users = await listAgencyUsers(req.user.agency_id);
     res.json({ users: users.map(toPublicUser) });
@@ -91,3 +105,5 @@ export async function listMySubUsers(req, res, next) {
     next(err);
   }
 }
+
+module.exports.listMySubUsers = listMySubUsers;

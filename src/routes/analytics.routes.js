@@ -1,6 +1,13 @@
-import { Router } from 'express';
-import * as analyticsController from '../controllers/analytics.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+const {
+  Router
+} = require('express');
+
+const analyticsController = require('../controllers/analytics.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
 
 const router = Router();
 
@@ -14,4 +21,4 @@ router.get('/summary', analyticsController.summary);
 router.get('/revenue-by-month', analyticsController.revenueByMonth);
 router.get('/top-agencies', analyticsController.topAgencies);
 
-export default router;
+module.exports = router;

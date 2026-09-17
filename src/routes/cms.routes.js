@@ -1,8 +1,22 @@
-import { Router } from 'express';
-import * as cmsController from '../controllers/cms.controller.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
-import { upload } from '../middleware/upload.js';
-import { validateBody, cmsPageSchema } from '../validation/schemas.js';
+const {
+  Router
+} = require('express');
+
+const cmsController = require('../controllers/cms.controller.js');
+
+const {
+  requireAuth,
+  requireRole
+} = require('../middleware/auth.js');
+
+const {
+  upload
+} = require('../middleware/upload.js');
+
+const {
+  validateBody,
+  cmsPageSchema
+} = require('../validation/schemas.js');
 
 // Admin Content & CMS Management (Task 21 — Item 34, Screen 34). Every route
 // here is super_admin-only — an explicit override of the doc's own §12.11
@@ -24,4 +38,4 @@ router.delete('/pages/:id', cmsController.deletePage);
 router.get('/media', cmsController.listMediaAssets);
 router.post('/media', upload.single('file'), cmsController.uploadMedia);
 
-export default router;
+module.exports = router;

@@ -1,16 +1,12 @@
-import { pool } from '../db/pool.js';
-import { newId } from '../utils/id.js';
+const {
+  pool
+} = require('../db/pool.js');
 
-// Admin Client Documents & Visa Processing (Task 14 — Screen 23). Schema per
-// migration 0055's own comments — traveler_documents is 1--1 with
-// booking_travelers, booking_vouchers is 1--1 with bookings.
+const {
+  newId
+} = require('../utils/id.js');
 
-// Lazily creates the traveler_documents row the first time anything needs to
-// write to it — same "most travelers never get one until someone actually
-// uploads something" reasoning as fd_departure_operations' own
-// getOrCreateOperations (Task 12). INSERT IGNORE + a follow-up SELECT (not a
-// single upsert-and-return) because a concurrent request could race the INSERT.
-export async function getOrCreateTravelerDocuments(travelerId) {
+async function getOrCreateTravelerDocuments(travelerId) {
   await pool.query(
     `INSERT IGNORE INTO traveler_documents (id, booking_traveler_id) VALUES (?, ?)`,
     [newId(), travelerId]
@@ -19,18 +15,16 @@ export async function getOrCreateTravelerDocuments(travelerId) {
   return rows[0];
 }
 
-export async function findTravelerDocumentsByTravelerId(travelerId) {
+module.exports.getOrCreateTravelerDocuments = getOrCreateTravelerDocuments;
+
+async function findTravelerDocumentsByTravelerId(travelerId) {
   const { rows } = await pool.query('SELECT * FROM traveler_documents WHERE booking_traveler_id = ?', [travelerId]);
   return rows[0] || null;
 }
 
-// DOC-1 — agent uploads passport scan and/or passport-size photo. Either
-// field may be omitted (agent can upload one now, the other later); only the
-// fields actually provided are overwritten — same "re-upload replaces the
-// single current URL" behavior the schema itself only has room for (see
-// migration's own comment). uploaded_by_agent_at is touched on every call,
-// regardless of which field(s) were provided.
-export async function saveAgentDocuments(travelerId, { passportScanUrl, passportPhotoUrl }) {
+module.exports.findTravelerDocumentsByTravelerId = findTravelerDocumentsByTravelerId;
+
+async function saveAgentDocuments(travelerId, { passportScanUrl, passportPhotoUrl }) {
   await getOrCreateTravelerDocuments(travelerId);
   await pool.query(
     `UPDATE traveler_documents
@@ -45,8 +39,9 @@ export async function saveAgentDocuments(travelerId, { passportScanUrl, passport
   return rows[0];
 }
 
-// DOC-4 — admin uploads the processed visa copy for one traveler.
-export async function saveAdminVisaCopy(travelerId, visaCopyUrl) {
+module.exports.saveAgentDocuments = saveAgentDocuments;
+
+async function saveAdminVisaCopy(travelerId, visaCopyUrl) {
   await getOrCreateTravelerDocuments(travelerId);
   await pool.query(
     `UPDATE traveler_documents
@@ -58,11 +53,9 @@ export async function saveAdminVisaCopy(travelerId, visaCopyUrl) {
   return rows[0];
 }
 
-// DOC-5 — admin uploads the booking voucher (booking-level, singular — see
-// migration's own comment on why this isn't per-traveler). Upsert: a
-// re-upload replaces the one voucher a booking can have, same "current URL
-// only, audit_logs keeps the history" posture as traveler_documents.
-export async function upsertBookingVoucher(bookingId, { voucherUrl, uploadedByUserId }) {
+module.exports.saveAdminVisaCopy = saveAdminVisaCopy;
+
+async function upsertBookingVoucher(bookingId, { voucherUrl, uploadedByUserId }) {
   await pool.query(
     `INSERT INTO booking_vouchers (id, booking_id, voucher_url, uploaded_by_user_id)
      VALUES (?, ?, ?, ?)
@@ -76,17 +69,16 @@ export async function upsertBookingVoucher(bookingId, { voucherUrl, uploadedByUs
   return rows[0];
 }
 
-export async function findVoucherByBookingId(bookingId) {
+module.exports.upsertBookingVoucher = upsertBookingVoucher;
+
+async function findVoucherByBookingId(bookingId) {
   const { rows } = await pool.query('SELECT * FROM booking_vouchers WHERE booking_id = ?', [bookingId]);
   return rows[0] || null;
 }
 
-// Every traveler on a booking, LEFT JOINed with their documents row (most
-// travelers won't have one yet) — the one query both the agent's and
-// admin's booking-detail screens use to render the "documents per traveler"
-// section, so neither can ever show a different picture of the same
-// booking's document state.
-export async function listTravelersWithDocuments(bookingId) {
+module.exports.findVoucherByBookingId = findVoucherByBookingId;
+
+async function listTravelersWithDocuments(bookingId) {
   const { rows } = await pool.query(
     `SELECT
        bt.id, bt.booking_id, bt.name, bt.passport_no, bt.dob, bt.room_share_group,
@@ -101,24 +93,16 @@ export async function listTravelersWithDocuments(bookingId) {
   return rows;
 }
 
-// A traveler row scoped to one booking — used to verify a :travelerId in a
-// URL actually belongs to the :bookingId also in that URL before any
-// document write, the same "never trust nested IDs from the frontend
-// without checking their relationship" posture the FD Operations Tracker's
-// own departureDate-belongs-to-package check uses (Task 12/13).
-export async function findTravelerInBooking(travelerId, bookingId) {
+module.exports.listTravelersWithDocuments = listTravelersWithDocuments;
+
+async function findTravelerInBooking(travelerId, bookingId) {
   const { rows } = await pool.query('SELECT * FROM booking_travelers WHERE id = ? AND booking_id = ?', [travelerId, bookingId]);
   return rows[0] || null;
 }
 
-// DOC-6 — admin's explicit "Notify Agent" action. COALESCE-style
-// first-time-only unlock timestamp (matches fd_departure_operations' own
-// stage columns): once set, admin-uploaded documents stay unlocked for this
-// booking forever; the *action* of notifying (in-app + email) can still be
-// repeated (e.g. admin adds one more traveler's visa later and wants to
-// resend), it's just not what re-establishes the unlock — it's already
-// established.
-export async function markDocumentsNotified(bookingId) {
+module.exports.findTravelerInBooking = findTravelerInBooking;
+
+async function markDocumentsNotified(bookingId) {
   const { rows: existing } = await pool.query('SELECT id FROM bookings WHERE id = ?', [bookingId]);
   if (!existing[0]) return null;
   await pool.query(
@@ -129,3 +113,5 @@ export async function markDocumentsNotified(bookingId) {
   const { rows } = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
   return rows[0] || null;
 }
+
+module.exports.markDocumentsNotified = markDocumentsNotified;
